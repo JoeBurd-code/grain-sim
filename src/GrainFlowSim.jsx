@@ -176,6 +176,7 @@ export default function GrainFlowSim() {
   const loopRef = useRef(null);
   const drawRef = useRef(null);
   const lastPublishTs = useRef(0);
+  const budgetRef = useRef(0);
 
   useEffect(() => { paramsRef.current = params; }, [params]);
   useEffect(() => { speedRef.current = speed; }, [speed]);
@@ -196,11 +197,11 @@ export default function GrainFlowSim() {
     if (!lastTsRef.current) lastTsRef.current = ts;
     const dtReal = Math.min(0.1, (ts - lastTsRef.current) / 1000);
     lastTsRef.current = ts;
-    let simBudget = dtReal * speedRef.current;
+    budgetRef.current += dtReal * speedRef.current;
     let steps = 0;
     const s = stateRef.current, P = paramsRef.current;
-    while (simBudget >= DT && steps < MAX_STEPS_PER_FRAME) {
-      step(s, P); simBudget -= DT; steps++;
+    while (budgetRef.current >= DT && steps < MAX_STEPS_PER_FRAME) {
+      step(s, P); budgetRef.current -= DT; steps++;
     }
     drawRef.current?.();                           // canvas: every frame, no React overhead
     if (ts - lastPublishTs.current >= 100) {       // React state (chart/stats): ~10 fps
@@ -215,6 +216,7 @@ export default function GrainFlowSim() {
     runRef.current = true; setRunning(true);
     lastTsRef.current = 0;
     lastPublishTs.current = 0;
+    budgetRef.current = 0;
     rafRef.current = requestAnimationFrame(loopRef.current);
   };
   const pause = () => { runRef.current = false; setRunning(false); cancelAnimationFrame(rafRef.current); };
