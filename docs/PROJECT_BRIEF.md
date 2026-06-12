@@ -38,8 +38,8 @@ if response were faster?" and watch the answer unfold.
 | 2 | **Units** | **Volume (m³) is the primary conserved currency** (keeps belt physics + fill-height visuals). Each stream carries a **bulk density**, so `mass = volume × density` is computed only where read — sensors, or a machine that deliberately changes density (e.g. a dryer removing moisture). Most machines pass density through untouched. |
 | 3 | **Line = data** | The line is a **data-described graph**: one config object lists this line's machines, their ports, parameters, and connections. A small set of **shared internal behavior functions** interpret that data to simulate and draw. **No editor** — the data file is hand-authored by us. Today's `PRESETS` object is the embryo of this idea. |
 | 4 | **Ports** | Machines have **typed input/output ports**. Example: a seed treater = **1 input → 2 outputs** (waste + product). |
-| 5 | **Rendering** | **Canvas 2D + a camera** (pan/zoom via `ctx` transform) over a large line. Keep the **existing visual language**: fill-level blocks whose height/color encode volume & fill-ratio, plus animated dashed streams for grain in transit / free-fall. **No particle simulation.** Click a machine = manual hit-test → opens its popup. |
-| 6 | **React boundary** | React renders **UI chrome only** (popups, panels, charts) and changes rarely. The **live scene is drawn imperatively to canvas**. The two **never meet on the per-frame hot path.** (This is what "don't refresh the whole frame" actually meant: avoid full React re-render — canvas redraw is cheap and fine.) |
+| 5 | **Rendering** | **SVG-led** scene over a large line; pan/zoom via the SVG **`viewBox`**. Machines are reusable **SVG symbols/components**; **clicking is native** (per-element events) → opens the popup. Keep the **visual language**: fill-level encoded by a shape's height + the `ratioColor` ramp, plus flowing grain via animated **`stroke-dashoffset`** along connection paths and free-falls. **No particle simulation.** *Optional later:* go **hybrid** (SVG bodies + a single canvas overlay) only if dense shimmer is ever wanted. **(Flipped from an earlier Canvas-2D decision — see §8.)** |
+| 6 | **React boundary** | React renders the **SVG scene *structure*** (machine symbols + connection paths) declaratively, but **only when the topology changes**. **Per-frame dynamic attributes** (fill height, color, flow dash-offset, status) are mutated **imperatively via refs / CSS animation — never through React reconciliation.** UI chrome (popups, panels, chart) is ordinary React. The principle survives the canvas→SVG flip: *never reconcile the whole tree every frame* (this is what "don't refresh the whole frame" actually meant). |
 | 7 | **Failure behavior** | When flow blocks, grain **backs up and can spill** (at feed/overflow points), **or** an **interlock stops** machines — **selectable per scenario**. |
 | 8 | **Delay model** | Stops are **not instant**. Model three sources of delay, all tunable per machine: (a) **in-transit grain** keeps moving — automatic from conservation; (b) **signal/response latency** sensor→actuator; (c) **mechanical ramp-down** — belts/machines decelerate over a settable time. |
 | 9 | **Control logic** | **Declarative threshold rules + interlock chains.** A rule = *"when [sensor] crosses [threshold] (optional debounce), [stop / start / set-speed] [target machine(s)] after [signal delay]."* A machine declares which **upstream feeders it interlocks**, each link with its own delay, so a single trip **ripples up the line over time.** Authored as data. |
@@ -50,7 +50,7 @@ if response were faster?" and watch the answer unfold.
 
 ## 4. Reusable physics already proven in the mock
 
-These are in `src/GrainFlowSim.jsx` today and should be **lifted, not rewritten**:
+These are in `src/GrainFlowSim.jsx` today and should be **lifted, not rewritten** — they are **rendering-agnostic** (the canvas→SVG flip in §3.5 does not touch them). The one exception is the canvas *drawing calls*, which are replaced by SVG; the visual *language* (fill-level + color ramp) carries over conceptually.
 
 - **Belt advection with backpressure** — `step()`: downstream→upstream pass, rejected volume backs up toward the feed.
 - **Throughput ceiling** — `area × beltSpeed` caps volume past any point per step.
@@ -59,7 +59,7 @@ These are in `src/GrainFlowSim.jsx` today and should be **lifted, not rewritten*
 - **Feed-point spill** — inflow that won't fit cell 0 is counted as `feedSpill`.
 - **rAF budget loop** — accumulates real-time × speed multiplier, drains in fixed `DT` steps (`MAX_STEPS_PER_FRAME` cap).
 - **Publish throttle** — imperative canvas at 60 fps, React `setSnap` at ~10 fps.
-- **Visual language** — fill-block height/color (`ratioColor` green→amber→red ramp), animated dashed flow streams, color palette `C`.
+- **Color ramp + palette** — `ratioColor` (green→amber→red interpolation) and the `C` palette are **pure** and reused as-is (color strings drop straight into SVG fills). The fill-level/animated-flow *idea* carries over; the canvas `fillRect`/path calls are re-expressed as SVG shapes + `stroke-dashoffset`.
 
 ## 5. Roadmap — checklist
 
@@ -80,11 +80,12 @@ These are in `src/GrainFlowSim.jsx` today and should be **lifted, not rewritten*
 - [ ] Port the **rAF budget loop + publish throttle** unchanged.
 - [ ] Unit-check conservation: total in = on-graph + delivered + spilled (no grain created/destroyed).
 
-### Phase 1 — Camera renderer
-- [ ] **Camera**: pan (drag) + zoom (wheel) via `ctx.translate`/`ctx.scale`.
-- [ ] **Per-node draw**: each machine draws itself in world coords using the fill-block style.
-- [ ] **Hit-testing**: screen→world → point-in-machine, for click selection.
-- [ ] Render **animated dashed streams** along connections (transit) and free-falls.
+### Phase 1 — SVG scene + viewport
+- [ ] **Viewport**: pan (drag) + zoom (wheel) via the SVG `viewBox`.
+- [ ] **Machine symbols**: each machine type as a reusable SVG component, placed at its world coords; fill-level shape + `ratioColor`.
+- [ ] **Native selection**: per-element `onClick` → select machine (no manual hit-testing).
+- [ ] **Flow animation**: grain-in-transit and free-fall via animated `stroke-dashoffset` along connection paths.
+- [ ] **Imperative per-frame updates**: dynamic attributes (fill, color, status) mutated via refs / CSS, bypassing React reconciliation; scene structure re-rendered only on topology change.
 - [ ] Build a **fabricated stand-in line** that exercises every primitive: feed → belt → seed-treater split (waste + product) → bucket elevator → bin, with at least one loop.
 
 ### Phase 2 — Interaction + instrumentation
@@ -130,3 +131,7 @@ These are in `src/GrainFlowSim.jsx` today and should be **lifted, not rewritten*
 - Default time-series metric for the shared chart (throughput vs fill).
 - Whether any machine changes density (dryer) and whether mass must then be tracked independently.
 - Whether the real line recirculates.
+
+## 8. Decision history
+
+- **Rendering: Canvas 2D → SVG-led (flipped).** Originally locked as Canvas 2D, largely because canvas animates dense moving grain cheaply. Two later facts removed that advantage: (a) **no particle simulation** — only fill-level shapes + a few flowing streams; (b) **every machine must be clickable** → popup. For a clickable, pan/zoom **technical schematic** with no particles, SVG is less work and a more natural fit: machine bodies are reusable vector symbols (authorable in a drawing tool or from standard equipment-symbol sets), clicks are native element events, pan/zoom is one `viewBox`, and the "flowing grain" effect is an animated `stroke-dashoffset`. Crucially, **rendering is a swappable layer** — the sim engine, behavior primitives, control logic, and all tests are rendering-agnostic, so the flip touches only the rendering + selection modules, not the sim core or Phase 0. Keep **hybrid** (SVG bodies + a single canvas overlay) in reserve only if dense shimmer is ever wanted.
