@@ -2,11 +2,12 @@
 // line definition with pan/zoom navigation. The full header chrome (transport
 // stubs, legend, chart dock) lands with issue #9; zone buttons here are the
 // provisional form from issue #5.
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { line } from "../line/lineData";
 import { validateLine } from "../line/validateLine";
 import { lineBounds, zoneBounds } from "../line/bounds";
 import Scene from "../scene/Scene";
+import MachinePopup from "./MachinePopup";
 import { useViewport } from "../scene/useViewport";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 
@@ -20,10 +21,21 @@ const zoneBtnStyle = {
 
 export default function MeetingApp() {
   const [selectedId, setSelectedId] = useState(null);
+  const [plotted, setPlotted] = useState(() => new Set());
   const selected = line.machines.find((m) => m.id === selectedId);
 
   const home = useMemo(() => lineBounds(line), []);
   const { containerRef, vb, fitTo, wasDrag, handlers } = useViewport(home);
+
+  const togglePlot = useCallback((id) => {
+    setPlotted((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+  const closePopup = useCallback(() => setSelectedId(null), []);
 
   return (
     <div style={{ background: C.bg, color: C.text, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_MONO }}>
@@ -63,7 +75,7 @@ export default function MeetingApp() {
       </header>
 
       {validation.ok ? (
-        <main ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+        <main ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}>
           {vb && (
             <Scene
               line={line}
@@ -72,6 +84,15 @@ export default function MeetingApp() {
               wasDrag={wasDrag}
               selectedId={selectedId}
               onSelect={setSelectedId}
+            />
+          )}
+          {selected && (
+            <MachinePopup
+              key={selected.id}
+              machine={selected}
+              plotted={plotted}
+              onTogglePlot={togglePlot}
+              onClose={closePopup}
             />
           )}
         </main>
