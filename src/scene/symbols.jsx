@@ -194,6 +194,260 @@ export function DiverterSymbol() {
   );
 }
 
+// Belt / transport conveyor: band with end rollers and segment ticks.
+export function ConveyorSymbol({ machine: m }) {
+  const { w, h } = m;
+  const r = h / 2;
+  const ticks = [];
+  for (let x = 26; x < w - 8; x += 26) ticks.push(x);
+  return (
+    <g>
+      <rect className="body" x="0" y="0" width={w} height={h} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
+      {ticks.map((x) => (
+        <line key={x} x1={x} y1="2" x2={x} y2={h - 2} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
+      ))}
+      <circle cx="0" cy={r} r={r + 2} fill={C.panel2} stroke={C.muted} strokeWidth="1" />
+      <circle cx={w} cy={r} r={r + 2} fill={C.panel2} stroke={C.muted} strokeWidth="1" />
+      <Instruments machine={m} x={w + 24} y={14} />
+    </g>
+  );
+}
+
+// Drum feeder: housing with a rotary drum.
+export function DrumFeederSymbol({ machine: m }) {
+  const { w, h } = m;
+  const r = h / 2 - 6;
+  return (
+    <g>
+      <rect className="body" width={w} height={h} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
+      <circle cx={w / 2} cy={h / 2} r={r} fill={C.panel2} stroke={C.muted} strokeWidth="1" />
+      <line x1={w / 2} y1={h / 2} x2={w / 2 + r * 0.8} y2={h / 2 - r * 0.5} stroke={C.muted} strokeWidth="1.5" />
+      <Instruments machine={m} x={w + 24} y={14} />
+    </g>
+  );
+}
+
+// Scalping screen: housing with an inclined mesh deck.
+export function ScreenSymbol({ machine: m }) {
+  const { w, h } = m;
+  const x0 = 10, y0 = 14, x1 = w - 10, y1 = h - 16;
+  const segs = 6;
+  let mesh = `M${x0},${y0}`;
+  for (let i = 1; i <= segs; i++) {
+    const t = i / segs;
+    const x = x0 + (x1 - x0) * t;
+    const y = y0 + (y1 - y0) * t + (i % 2 ? 5 : -5);
+    mesh += ` L${x},${y}`;
+  }
+  return (
+    <g>
+      <rect className="body" width={w} height={h} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
+      <path d={mesh} fill="none" stroke={C.muted} strokeWidth="1.5" />
+      <line x1={x0} y1={y0 + 14} x2={x1 - 18} y2={y1 + 6} stroke="rgba(255,255,255,0.07)" strokeWidth="1" />
+      <Instruments machine={m} x={w + 24} y={14} />
+    </g>
+  );
+}
+
+// Batch treater: vessel with top motor and agitator paddles.
+export function TreaterSymbol({ machine: m }) {
+  const { w, h } = m;
+  const cx = w / 2;
+  return (
+    <g>
+      <rect className="body" x="0" y="16" width={w} height={h - 16} rx="14" fill={C.panel} stroke={C.line} strokeWidth="1.5" />
+      <rect x={cx - 13} y="0" width="26" height="18" fill={C.panel2} stroke={C.line} />
+      <line x1={cx} y1="18" x2={cx} y2={h - 30} stroke={C.muted} strokeWidth="1.5" />
+      <line x1={cx - 26} y1={h - 38} x2={cx + 26} y2={h - 26} stroke={C.muted} strokeWidth="1.5" />
+      <line x1={cx - 26} y1={h - 26} x2={cx + 26} y2={h - 38} stroke={C.muted} strokeWidth="1.5" />
+      <Instruments machine={m} x={w + 24} y={14} />
+    </g>
+  );
+}
+
+// Auto sampler: pass-through box with a side probe.
+export function SamplerSymbol({ machine: m }) {
+  const { w, h } = m;
+  return (
+    <g>
+      <rect className="body" width={w} height={h} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
+      <line x1={w} y1={h / 2} x2={w + 8} y2={h / 2} stroke={C.muted} strokeWidth="1" />
+      <circle cx={w + 14} cy={h / 2} r="6" fill={C.panel2} stroke={C.muted} />
+      <Instruments machine={m} x={w + 34} y={14} />
+    </g>
+  );
+}
+
+// Grain break: cascade chute with internal baffles.
+export function GrainBreakSymbol({ machine: m }) {
+  const { w, h } = m;
+  return (
+    <g>
+      <rect className="body" width={w} height={h} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
+      <path
+        d={`M6,8 L${w - 10},12 M${w - 6},18 L10,22 M6,28 L${w - 10},32`}
+        stroke={C.muted} strokeWidth="1.5" fill="none"
+      />
+    </g>
+  );
+}
+
+// IBC tote: caged cube on a pallet base.
+export function IbcSymbol({ machine: m }) {
+  const { w, h } = m;
+  return (
+    <g>
+      <rect className="body" width={w} height={h - 6} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
+      <line x1={w / 3} y1="0" x2={w / 3} y2={h - 6} stroke="rgba(255,255,255,0.08)" />
+      <line x1={(w / 3) * 2} y1="0" x2={(w / 3) * 2} y2={h - 6} stroke="rgba(255,255,255,0.08)" />
+      <line x1="0" y1={(h - 6) / 2} x2={w} y2={(h - 6) / 2} stroke="rgba(255,255,255,0.08)" />
+      <line x1="2" y1={h - 2} x2={w - 2} y2={h - 2} stroke={C.line} strokeWidth="4" />
+    </g>
+  );
+}
+
+// Metal remover: housing with a horseshoe magnet glyph.
+export function MetalRemoverSymbol({ machine: m }) {
+  const { w, h } = m;
+  const cx = w / 2, cy = h / 2;
+  return (
+    <g>
+      <rect className="body" width={w} height={h} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
+      <path
+        d={`M${cx - 10},${cy + 8} V${cy - 2} A10,10 0 0 1 ${cx + 10},${cy - 2} V${cy + 8}`}
+        fill="none" stroke={C.muted} strokeWidth="3"
+      />
+      <line x1={cx - 12} y1={cy + 8} x2={cx - 8} y2={cy + 8} stroke={C.wheat} strokeWidth="2" />
+      <line x1={cx + 8} y1={cy + 8} x2={cx + 12} y2={cy + 8} stroke={C.wheat} strokeWidth="2" />
+      <Instruments machine={m} x={w + 24} y={14} />
+    </g>
+  );
+}
+
+// Pro Box unloading station: gantry frame with a suspended box.
+export function ProBoxSymbol({ machine: m }) {
+  const { w, h } = m;
+  const cx = w / 2;
+  return (
+    <g>
+      <path className="body" d={`M4,${h} V6 H${w - 4} V${h}`} fill="none" stroke={C.line} strokeWidth="3" />
+      <line x1={cx} y1="6" x2={cx} y2="26" stroke={C.muted} strokeWidth="1.5" />
+      <rect x={cx - 22} y="26" width="44" height="34" fill={C.panel2} stroke={C.muted} strokeWidth="1.5" />
+      <path d={`M${cx - 22},36 L${cx + 22},50`} stroke="rgba(255,255,255,0.08)" />
+    </g>
+  );
+}
+
+// Vibrating conveyor: tray on springs.
+export function VibratorySymbol({ machine: m }) {
+  const { w, h } = m;
+  const trayH = h - 12;
+  const springs = [w * 0.2, w * 0.5, w * 0.8];
+  return (
+    <g>
+      <rect className="body" width={w} height={trayH} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
+      {springs.map((x) => (
+        <path
+          key={x}
+          d={`M${x - 6},${trayH} l4,4 l-8,3 l8,3 l-4,2`}
+          fill="none" stroke={C.muted} strokeWidth="1.2"
+        />
+      ))}
+      <Instruments machine={m} x={w + 24} y={10} />
+    </g>
+  );
+}
+
+// Flexicon filling head: funnel down to a nozzle with bag clamps.
+export function FillingHeadSymbol({ machine: m }) {
+  const { w, h } = m;
+  const cx = w / 2;
+  const nozzleY = h - 22;
+  return (
+    <g>
+      <path
+        className="body"
+        d={`M0,0 H${w} L${cx + 10},${nozzleY} V${h} H${cx - 10} V${nozzleY} Z`}
+        fill={C.panel} stroke={C.line} strokeWidth="1.5"
+      />
+      <circle cx={cx - 16} cy={h - 8} r="5" fill={C.panel2} stroke={C.muted} />
+      <circle cx={cx + 16} cy={h - 8} r="5" fill={C.panel2} stroke={C.muted} />
+      <Instruments machine={m} x={w + 24} y={14} />
+    </g>
+  );
+}
+
+// Motorised roller conveyors + inline belt scale (collapsed): roller row on a
+// platform with a weigh wedge.
+export function RollerScaleSymbol({ machine: m }) {
+  const { w, h } = m;
+  const r = 7;
+  const rollers = [];
+  for (let x = r + 4; x < w - r; x += r * 2 + 8) rollers.push(x);
+  return (
+    <g>
+      <line x1="0" y1={h - 2} x2={w} y2={h - 2} stroke={C.line} strokeWidth="3" />
+      {rollers.map((x) => (
+        <circle key={x} cx={x} cy={r + 2} r={r} fill={C.panel2} stroke={C.muted} strokeWidth="1" />
+      ))}
+      <path className="body" d={`M${w / 2 - 12},${h - 2} L${w / 2},${h - 12} L${w / 2 + 12},${h - 2} Z`} fill={C.panel} stroke={C.muted} strokeWidth="1" />
+    </g>
+  );
+}
+
+// Bagging scale: weigh hopper on load cells.
+export function ScaleSymbol({ machine: m }) {
+  const { w, h } = m;
+  return (
+    <g>
+      <rect className="body" width={w} height={h - 10} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
+      <path d={`M10,${h - 10} L4,${h} M${w - 10},${h - 10} L${w - 4},${h}`} stroke={C.muted} strokeWidth="2" />
+      <path d={`M8,8 L${w / 2},${h - 16} L${w - 8},8`} fill="none" stroke={C.muted} strokeWidth="1.2" />
+      <Instruments machine={m} x={w + 24} y={14} />
+    </g>
+  );
+}
+
+// Bag filling & sewing: cabinet with a bag hanging below.
+export function FillerSymbol({ machine: m }) {
+  const { w, h } = m;
+  const cx = w / 2;
+  const cabH = h - 28;
+  return (
+    <g>
+      <rect className="body" width={w} height={cabH} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
+      <path
+        d={`M${cx - 13},${cabH} V${h - 6} Q${cx},${h + 2} ${cx + 13},${h - 6} V${cabH}`}
+        fill={C.panel2} stroke={C.muted} strokeWidth="1.2"
+      />
+      <line x1={cx - 13} y1={cabH + 4} x2={cx + 13} y2={cabH + 4} stroke={C.muted} strokeWidth="1" strokeDasharray="2 2" />
+      <Instruments machine={m} x={w + 24} y={14} />
+    </g>
+  );
+}
+
+// Palletising (collapsed block): cabinet with stacked bags on a pallet.
+export function PalletiserSymbol({ machine: m }) {
+  const { w, h } = m;
+  const px = w / 2 - 30;
+  const slatY = h - 8;
+  return (
+    <g>
+      <rect className="body" width={w} height={h} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
+      {[0, 1, 2].map((row) => (
+        <g key={row}>
+          <rect x={px} y={slatY - 14 - row * 11} width="28" height="9" rx="4" fill={C.panel2} stroke={C.muted} strokeWidth="0.8" />
+          <rect x={px + 31} y={slatY - 14 - row * 11} width="28" height="9" rx="4" fill={C.panel2} stroke={C.muted} strokeWidth="0.8" />
+        </g>
+      ))}
+      {[0, 1, 2].map((i) => (
+        <rect key={i} x={px - 2 + i * 22} y={slatY - 4} width="18" height="4" fill={C.line} />
+      ))}
+      <Instruments machine={m} x={w + 24} y={14} />
+    </g>
+  );
+}
+
 // Off-scene scope edge (source/sink), drawn as a labelled point.
 export function StubSymbol({ machine: m }) {
   return (
