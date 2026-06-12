@@ -8,6 +8,8 @@ import { validateLine } from "../line/validateLine";
 import { lineBounds, zoneBounds } from "../line/bounds";
 import Scene from "../scene/Scene";
 import MachinePopup from "./MachinePopup";
+import TransportControls from "./TransportControls";
+import ChartDock from "./ChartDock";
 import { useViewport } from "../scene/useViewport";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 
@@ -51,15 +53,16 @@ export default function MeetingApp() {
 
       <header style={{
         display: "flex", justifyContent: "space-between", alignItems: "center",
-        padding: "12px 20px", borderBottom: `1px solid ${C.line}`, flex: "none", gap: 16,
+        padding: "10px 16px", borderBottom: `1px solid ${C.line}`, flex: "none", gap: 16, flexWrap: "wrap",
       }}>
         <div style={{ whiteSpace: "nowrap" }}>
           <span style={{ fontFamily: FONT_DISP, fontSize: 20, letterSpacing: 1, color: C.text }}>TREATER LINE 2</span>
-          <span style={{ fontSize: 10, color: C.muted, marginLeft: 14, letterSpacing: 2, textTransform: "uppercase" }}>
-            meeting build
+          <span style={{ fontSize: 10, color: C.muted, marginLeft: 12, letterSpacing: 2, textTransform: "uppercase" }}>
+            bayer thb tr&pu · 52-12/13/14
           </span>
         </div>
-        <div style={{ display: "flex", gap: 8, flex: "none" }}>
+        <TransportControls />
+        <div style={{ display: "flex", gap: 6, flex: "none" }}>
           {line.zones.map((z) => (
             <button key={z.id} className="zonebtn" style={zoneBtnStyle} onClick={() => fitTo(zoneBounds(line, z.id))}>
               {z.name}
@@ -69,7 +72,7 @@ export default function MeetingApp() {
             FIT ALL
           </button>
         </div>
-        <div style={{ fontSize: 10, color: selected ? C.wheat : C.muted, textAlign: "right", minWidth: 180 }}>
+        <div style={{ fontSize: 9, color: selected ? C.wheat : C.muted, textAlign: "right", minWidth: 170 }}>
           {selected ? `${selected.tag} · ${selected.name}` : "click a machine · drag to pan · wheel to zoom"}
         </div>
       </header>
@@ -104,6 +107,8 @@ export default function MeetingApp() {
           ))}
         </main>
       )}
+
+      {validation.ok && <ChartDock machines={line.machines} plotted={plotted} />}
     </div>
   );
 }
