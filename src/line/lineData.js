@@ -7,8 +7,7 @@
 // Anchors are port positions relative to the machine origin (x, y).
 //
 // Tags marked TBC-nn were not legible / not present on the drawings; the
-// real tags are an engineer-meeting question. Machines with type "fallback"
-// get their final silhouette with issue #8.
+// real tags are an engineer-meeting question.
 
 export const line = {
   zones: [
@@ -32,7 +31,7 @@ export const line = {
     },
     {
       id: "treatMetalRemover",
-      type: "fallback",
+      type: "metalRemover",
       name: "METAL REMOVER",
       tag: "TBC-01",
       status: "new",
@@ -78,7 +77,7 @@ export const line = {
     },
     {
       id: "treatDrumFeeder",
-      type: "fallback",
+      type: "drumFeeder",
       name: "INLET DRUM FEEDER",
       tag: "TBC-03",
       status: "new",
@@ -129,7 +128,7 @@ export const line = {
     },
     {
       id: "batchTreater",
-      type: "fallback",
+      type: "treater",
       name: "NIKLAS WNS/200 BATCH TREATER",
       tag: "TBC-05",
       status: "new",
@@ -169,7 +168,7 @@ export const line = {
     },
     {
       id: "wasteWaterIbc",
-      type: "fallback",
+      type: "ibc",
       name: "WASTE WATER IBC",
       tag: "TBC-06",
       status: "new",
@@ -198,7 +197,7 @@ export const line = {
     },
     {
       id: "scalpingScreen",
-      type: "fallback",
+      type: "screen",
       name: "TREATMENT SCALPING SCREEN",
       tag: "52.602.F00",
       status: "new",
@@ -229,7 +228,7 @@ export const line = {
     // ============ PACKAGING & OUTLOAD (sheet 52-13) ============
     {
       id: "proBoxStation",
-      type: "fallback",
+      type: "proBox",
       name: "PRO BOX UNLOADING STATION",
       tag: "TBC-09",
       status: "new",
@@ -242,7 +241,7 @@ export const line = {
     },
     {
       id: "inletDrumFeeder1",
-      type: "fallback",
+      type: "drumFeeder",
       name: "INLET DRUM FEEDER 1",
       tag: "52.603.L00",
       status: "new",
@@ -257,7 +256,7 @@ export const line = {
     },
     {
       id: "inletDrumFeeder2",
-      type: "fallback",
+      type: "drumFeeder",
       name: "INLET DRUM FEEDER 2",
       tag: "52.603.L01",
       status: "new",
@@ -271,7 +270,7 @@ export const line = {
     },
     {
       id: "liftConveyor",
-      type: "fallback",
+      type: "conveyor",
       name: "LIFT TO TOP CONVEYOR",
       tag: "52.604.E00",
       status: "new",
@@ -285,11 +284,11 @@ export const line = {
         ["motor", "4.0 kW · MX drive"],
         ["extras", "safe start alarm (XA0) + start-up area siren"],
       ],
-      questions: ["Confirm routing: drum feeders → 52.604.E00 → top conveyor (the one MED-confidence edge)."],
+      questions: ["Confirm routing: drum feeders â†’ 52.604.E00 â†’ top conveyor (the one MED-confidence edge)."],
     },
     {
       id: "topConveyor",
-      type: "fallback",
+      type: "conveyor",
       name: "TOP TRANSPORT CONVEYOR",
       tag: "52.605.X00",
       status: "new",
@@ -353,7 +352,7 @@ export const line = {
     },
     {
       id: "grainBreak",
-      type: "fallback",
+      type: "grainBreak",
       name: "GRAIN BREAK",
       tag: "TBC-20",
       status: "new",
@@ -434,7 +433,7 @@ export const line = {
     },
     {
       id: "binSegSampler",
-      type: "fallback",
+      type: "sampler",
       name: "AUTO SAMPLER",
       tag: "TBC-10",
       status: "new",
@@ -482,7 +481,7 @@ export const line = {
     },
     {
       id: "vibratingConveyor",
-      type: "fallback",
+      type: "vibratory",
       name: "VIBRATING CONVEYOR",
       tag: "52.703.L00",
       status: "relocated",
@@ -496,7 +495,7 @@ export const line = {
     },
     {
       id: "flexiconFillingHead",
-      type: "fallback",
+      type: "fillingHead",
       name: "FLEXICON FILLING HEAD",
       tag: "TBC-13",
       status: "relocated",
@@ -509,7 +508,7 @@ export const line = {
     },
     {
       id: "rollerScale",
-      type: "fallback",
+      type: "rollerScale",
       name: "ROLLER CONVEYORS 1-4 + BELT SCALE",
       tag: "52.704.K00",
       status: "relocated",
@@ -533,7 +532,7 @@ export const line = {
     },
     {
       id: "concettiSampler",
-      type: "fallback",
+      type: "sampler",
       name: "AUTO SAMPLER",
       tag: "TBC-14",
       status: "new",
@@ -546,7 +545,7 @@ export const line = {
     },
     {
       id: "concettiMetalRemover",
-      type: "fallback",
+      type: "metalRemover",
       name: "METAL REMOVER",
       tag: "TBC-15",
       status: "new",
@@ -587,7 +586,7 @@ export const line = {
     },
     {
       id: "concettiScale",
-      type: "fallback",
+      type: "scale",
       name: "BAGGING SCALE",
       tag: "TBC-16",
       status: "new",
@@ -602,7 +601,7 @@ export const line = {
     },
     {
       id: "concettiFiller",
-      type: "fallback",
+      type: "filler",
       name: "FILLING & SEWING",
       tag: "TBC-17",
       status: "new",
@@ -615,7 +614,7 @@ export const line = {
     },
     {
       id: "palletising",
-      type: "fallback",
+      type: "palletiser",
       name: "PALLETISING (COLLAPSED)",
       tag: "TBC-18",
       status: "relocated",

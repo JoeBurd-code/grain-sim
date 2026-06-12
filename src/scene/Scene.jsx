@@ -6,6 +6,10 @@ import { C, SELECT_STROKE } from "./theme";
 import {
   BinSymbol, MetalBinSymbol, ElevatorSymbol, DiverterSymbol,
   StubSymbol, FallbackSymbol, MachineLabel,
+  ConveyorSymbol, DrumFeederSymbol, ScreenSymbol, TreaterSymbol,
+  SamplerSymbol, GrainBreakSymbol, IbcSymbol, MetalRemoverSymbol,
+  ProBoxSymbol, VibratorySymbol, FillingHeadSymbol, RollerScaleSymbol,
+  ScaleSymbol, FillerSymbol, PalletiserSymbol,
 } from "./symbols";
 
 // Temporary direction markers: flip to false (or delete usages) when the
@@ -18,6 +22,21 @@ const SYMBOLS = {
   elevator: ElevatorSymbol,
   diverter: DiverterSymbol,
   stub: StubSymbol,
+  conveyor: ConveyorSymbol,
+  drumFeeder: DrumFeederSymbol,
+  screen: ScreenSymbol,
+  treater: TreaterSymbol,
+  sampler: SamplerSymbol,
+  grainBreak: GrainBreakSymbol,
+  ibc: IbcSymbol,
+  metalRemover: MetalRemoverSymbol,
+  proBox: ProBoxSymbol,
+  vibratory: VibratorySymbol,
+  fillingHead: FillingHeadSymbol,
+  rollerScale: RollerScaleSymbol,
+  scale: ScaleSymbol,
+  filler: FillerSymbol,
+  palletiser: PalletiserSymbol,
 };
 
 const STREAM_STYLE = {
