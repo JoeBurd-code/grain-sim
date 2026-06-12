@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Machine style snippet · Treater Line 2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0c0e0d;
+    --panel: #16191b;
+    --panel2: #1d2123;
+    --line: #2a2f31;
+    --text: #d4dad0;
+    --muted: #7d877f;
+    --wheat: #e0a82e;
+    --green: #3fb950;
+    --amber: #d29922;
+    --red: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "JetBrains Mono", monospace;
+  }
+  .wrap { max-width: 1060px; margin: 36px auto; padding: 0 24px; }
+
+  header {
+    display: flex; justify-content: space-between; align-items: flex-end;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 14px; margin-bottom: 16px;
+  }
+  h1 {
+    font-family: "Anton", sans-serif; font-weight: 400;
+    font-size: 24px; letter-spacing: 0.04em; margin: 0;
+  }
+  .sub {
+    font-size: 10px; color: var(--muted);
+    letter-spacing: 0.14em; text-transform: uppercase; margin-top: 6px;
+  }
+  .legend { display: flex; align-items: center; gap: 16px; font-size: 8.5px; color: var(--muted); }
+  .legend .item { display: flex; align-items: center; gap: 6px; }
+  .ramp {
+    width: 110px; height: 8px; border: 1px solid var(--line);
+    background: linear-gradient(90deg, var(--green), var(--amber), var(--red));
+  }
+  .chip {
+    border: 1px solid currentColor; border-radius: 3px;
+    padding: 1px 6px; font-size: 8px; letter-spacing: 0.1em;
+  }
+  .chip.new { color: var(--green); }
+  .chip.relocated { color: var(--amber); }
+  .flowSample { display: inline-block; width: 34px; height: 2px; background: var(--wheat); position: relative; opacity: .85; }
+  .flowSample::after {
+    content: ""; position: absolute; right: -1px; top: -3px;
+    border-left: 7px solid var(--wheat); border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+  }
+
+  .scene { border: 1px solid var(--line); background: var(--bg); }
+  svg { display: block; width: 100%; height: auto; }
+
+  /* machine hover = click affordance */
+  .machine { cursor: pointer; }
+  .machine .body { transition: stroke .15s ease; }
+  .machine:hover .body { stroke: #6e7a71; }
+  .machine .mname { transition: fill .15s ease; }
+  .machine:hover .mname { fill: #ffffff; }
+
+  footer {
+    margin-top: 14px; font-size: 9px; color: var(--muted); line-height: 1.8;
+  }
+  footer b { color: var(--text); font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>TREATER LINE 2</h1>
+      <div class="sub">machine style snippet · packaging slice · not to scale</div>
+    </div>
+    <div class="legend">
+      <div class="item"><span class="ramp"></span><span>fill level</span></div>
+      <div class="item"><span class="chip new">NEW</span><span class="chip relocated">RELOCATED</span></div>
+      <div class="item"><span class="flowSample"></span><span>flow (temp arrows)</span></div>
+    </div>
+  </header>
+
+  <div class="scene">
+    <svg viewBox="0 0 960 560" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <pattern id="grid" width="26" height="26" patternUnits="userSpaceOnUse">
+          <path d="M26 0H0V26" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="1"/>
+        </pattern>
+        <marker id="arr" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L8,4 L0,8 Z" fill="#e0a82e"/>
+        </marker>
+        <marker id="arrMuted" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M0,0 L8,4 L0,8 Z" fill="#7d877f"/>
+        </marker>
+        <clipPath id="clipBufferBin">
+          <path d="M94,144 H216 V238 L162,281 H148 L94,238 Z"/>
+        </clipPath>
+        <clipPath id="clipMetalBin">
+          <path d="M564,284 H716 V396 L648,438 H632 L564,396 Z"/>
+        </clipPath>
+      </defs>
+
+      <rect width="960" height="560" fill="#0c0e0d"/>
+      <rect width="960" height="560" fill="url(#grid)"/>
+
+      <!-- ======== incoming product (off-frame stub) ======== -->
+      <text x="24" y="80" font-size="8" fill="#7d877f" font-family="JetBrains Mono">from top conveyor · out of frame</text>
+      <path d="M26,90 H110 V132" fill="none" stroke="#e0a82e" stroke-width="2" opacity="0.85" marker-end="url(#arr)"/>
+
+      <!-- ======== MACHINE · OUTLOAD BUFFER BIN 52.701.H00 ======== -->
+      <g class="machine" id="m-buffer-bin">
+        <path class="body" d="M90,140 H220 V240 L165,285 H145 L90,240 Z"
+              fill="#16191b" stroke="#2a2f31" stroke-width="1.5"/>
+        <!-- fill level 62% -> amber-leaning ramp colour, clipped to inner shape -->
+        <g clip-path="url(#clipBufferBin)">
+          <rect x="90" y="196" width="130" height="90" fill="#bfa027" opacity="0.92"/>
+          <line x1="94" y1="196.5" x2="216" y2="196.5" stroke="#e0c25a" stroke-width="1" opacity="0.7"/>
+        </g>
+        <!-- label: name + tag + status chip -->
+        <text class="mname" x="92" y="112" font-family="Anton" font-size="13" letter-spacing="0.06em" fill="#d4dad0">OUTLOAD BUFFER BIN</text>
+        <text x="92" y="127" font-family="JetBrains Mono" font-size="9" fill="#7d877f">52.701.H00</text>
+        <rect x="156" y="118" width="28" height="12" rx="3" fill="none" stroke="#3fb950"/>
+        <text x="170" y="127" font-family="JetBrains Mono" font-size="7" fill="#3fb950" text-anchor="middle" letter-spacing="0.08em">NEW</text>
+      </g>
+
+      <!-- bin outlet into elevator foot -->
+      <path d="M155,287 V296" fill="none" stroke="#e0a82e" stroke-width="2" opacity="0.85" marker-end="url(#arr)"/>
+
+      <!-- ======== MACHINE · BUCKET ELEVATOR 52.702.U00 (Simatek E200 pendulum, Z-shape) ======== -->
+      <g class="machine" id="m-elevator">
+        <!-- duct outline: lower horizontal run, vertical climb, upper horizontal run -->
+        <path class="body" d="M130,336 H430 V132 H700 V96 H394 V300 H130 Z"
+              fill="#16191b" stroke="#2a2f31" stroke-width="1.5"/>
+        <!-- chain centreline -->
+        <path d="M150,318 H412 V114 H680" fill="none" stroke="#2a2f31" stroke-width="1.5" stroke-dasharray="3 5"/>
+        <!-- buckets generated along the chain (see script) -->
+        <g id="buckets"></g>
+        <!-- head motor -->
+        <rect x="702" y="102" width="30" height="26" fill="#1d2123" stroke="#2a2f31"/>
+        <path d="M706,106 L728,124 M706,124 L728,106" stroke="#2a2f31" stroke-width="1"/>
+        <text x="717" y="142" font-family="JetBrains Mono" font-size="8" fill="#7d877f" text-anchor="middle">5,0 kW</text>
+        <!-- speed transmitter instrument -->
+        <circle cx="717" cy="74" r="9" fill="#0c0e0d" stroke="#7d877f"/>
+        <line x1="717" y1="83" x2="717" y2="100" stroke="#7d877f" stroke-width="1"/>
+        <text x="717" y="73" font-family="JetBrains Mono" font-size="6.5" fill="#7d877f" text-anchor="middle">ST</text>
+        <text x="717" y="80" font-family="JetBrains Mono" font-size="6" fill="#7d877f" text-anchor="middle">0</text>
+        <!-- label -->
+        <text class="mname" x="394" y="56" font-family="Anton" font-size="13" letter-spacing="0.06em" fill="#d4dad0">BUCKET ELEVATOR · PACKAGING</text>
+        <text x="394" y="71" font-family="JetBrains Mono" font-size="9" fill="#7d877f">52.702.U00 · SIMATEK E200 · 20 t/h</text>
+        <rect x="586" y="62" width="28" height="12" rx="3" fill="none" stroke="#3fb950"/>
+        <text x="600" y="71" font-family="JetBrains Mono" font-size="7" fill="#3fb950" text-anchor="middle" letter-spacing="0.08em">NEW</text>
+      </g>
+
+      <!-- elevator discharge: gap in duct floor + drop -->
+      <rect x="640" y="128" width="32" height="9" fill="#0c0e0d"/>
+      <path d="M656,140 V184" fill="none" stroke="#e0a82e" stroke-width="2" opacity="0.85" marker-end="url(#arr)"/>
+
+      <!-- ======== MACHINE · PNEUMATIC DIVERTER 52.613.V00 ======== -->
+      <g class="machine" id="m-diverter">
+        <path class="body" d="M656,194 L672,210 L656,226 L640,210 Z" fill="#1d2123" stroke="#2a2f31" stroke-width="1.5"/>
+        <line x1="656" y1="210" x2="646" y2="221" stroke="#e0a82e" stroke-width="2"/>
+        <text x="676" y="192" font-family="JetBrains Mono" font-size="8" fill="#7d877f">DIVERTER · 52.613.V00</text>
+      </g>
+
+      <!-- active branch to metal bin 1 / inactive stub to bin 2 -->
+      <path d="M652,228 L641,272" fill="none" stroke="#e0a82e" stroke-width="2" opacity="0.85" marker-end="url(#arr)"/>
+      <path d="M670,214 L704,240" fill="none" stroke="#7d877f" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.7" marker-end="url(#arrMuted)"/>
+      <text x="710" y="246" font-family="JetBrains Mono" font-size="8" fill="#7d877f">to metal bin 2</text>
+
+      <!-- ======== MACHINE · TREATED OUTLOAD METAL BIN 1 52.613.H00 ======== -->
+      <g class="machine" id="m-metal-bin">
+        <path class="body" d="M560,280 H720 V400 L652,442 H628 L560,400 Z"
+              fill="#16191b" stroke="#2a2f31" stroke-width="1.5"/>
+        <!-- legs -->
+        <line x1="568" y1="400" x2="568" y2="452" stroke="#2a2f31" stroke-width="4"/>
+        <line x1="712" y1="400" x2="712" y2="452" stroke="#2a2f31" stroke-width="4"/>
+        <!-- fill level 35% -> green, clipped -->
+        <g clip-path="url(#clipMetalBin)">
+          <rect x="560" y="384" width="160" height="56" fill="#3fb950" opacity="0.92"/>
+          <line x1="564" y1="384.5" x2="716" y2="384.5" stroke="#7ed68a" stroke-width="1" opacity="0.7"/>
+        </g>
+        <!-- level transmitter instrument -->
+        <line x1="720" y1="300" x2="736" y2="300" stroke="#7d877f" stroke-width="1"/>
+        <circle cx="745" cy="300" r="9" fill="#0c0e0d" stroke="#7d877f"/>
+        <text x="745" y="299" font-family="JetBrains Mono" font-size="6.5" fill="#7d877f" text-anchor="middle">LT</text>
+        <text x="745" y="306" font-family="JetBrains Mono" font-size="6" fill="#7d877f" text-anchor="middle">0</text>
+        <!-- unknown discharge, flagged honestly -->
+        <path d="M640,446 V462" fill="none" stroke="#7d877f" stroke-width="1.5" stroke-dasharray="4 4" opacity="0.7" marker-end="url(#arrMuted)"/>
+        <text x="650" y="462" font-family="JetBrains Mono" font-size="8" fill="#7d877f">discharge · TBC</text>
+        <!-- label -->
+        <text class="mname" x="560" y="488" font-family="Anton" font-size="13" letter-spacing="0.06em" fill="#d4dad0">TREATED OUTLOAD METAL BIN 1</text>
+        <text x="560" y="503" font-family="JetBrains Mono" font-size="9" fill="#7d877f">52.613.H00</text>
+        <rect x="624" y="494" width="28" height="12" rx="3" fill="none" stroke="#3fb950"/>
+        <text x="638" y="503" font-family="JetBrains Mono" font-size="7" fill="#3fb950" text-anchor="middle" letter-spacing="0.08em">NEW</text>
+      </g>
+    </svg>
+  </div>
+
+  <footer>
+    <b>construction rules:</b> flat fills · hairline strokes · fill level clipped inside the silhouette, coloured by the green→amber→red ramp ·
+    name in Anton + tag in mono + status chip · instruments as small ISA dots (LT, ST) ·
+    gold arrows are <b>temporary direction markers</b>, replaced by animated flow later · muted dashed = unconfirmed/TBC ·
+    <b>hover a machine</b> to feel the click affordance (popup comes later).
+  </footer>
+</div>
+
+<script>
+  // Static decoration only: place bucket squares along the chain polyline.
+  (function () {
+    const pts = [[150, 318], [412, 318], [412, 114], [680, 114]];
+    const spacing = 26, size = 7;
+    const g = document.getElementById("buckets");
+    const ns = "http://www.w3.org/2000/svg";
+    let carry = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [x0, y0] = pts[i], [x1, y1] = pts[i + 1];
+      const len = Math.hypot(x1 - x0, y1 - y0);
+      for (let d = carry; d <= len; d += spacing) {
+        const t = d / len;
+        const x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
+        // buckets tip empty just past the discharge gap on the top run
+        const empty = y <= 115 && x > 640;
+        const r = document.createElementNS(ns, "rect");
+        r.setAttribute("x", (x - size / 2).toFixed(1));
+        r.setAttribute("y", (y - size / 2).toFixed(1));
+        r.setAttribute("width", size);
+        r.setAttribute("height", size);
+        r.setAttribute("fill", empty ? "none" : "#e0a82e");
+        r.setAttribute("opacity", empty ? "1" : "0.9");
+        r.setAttribute("stroke", "#2a2f31");
+        g.appendChild(r);
+      }
+      carry = spacing - ((len - carry) % spacing);
+      if (carry === spacing) carry = 0;
+    }
+  })();
+</script>
+</body>
+</html>
