@@ -67,9 +67,6 @@ export default function ChartDock({ machines, plotted }) {
           }} />
           <span>fill level</span>
         </div>
-        <div style={{ display: "flex", gap: 5, marginBottom: 7 }}>
-          <span style={{ border: `1px solid ${C.amber}`, color: C.amber, borderRadius: 3, padding: "0px 4px" }}>RELOCATED</span>
-        </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ width: 30, height: 2, background: C.wheat, display: "inline-block" }} />
           <span>flow (temp arrows)</span>

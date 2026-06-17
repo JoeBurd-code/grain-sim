@@ -4,9 +4,6 @@
 import { useEffect, useState } from "react";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 
-const STATUS_CHIP = {
-  relocated: { text: "RELOCATED", color: C.amber },
-};
 
 function Slider({ param }) {
   const [value, setValue] = useState(param.value);
@@ -35,7 +32,6 @@ export default function MachinePopup({ machine: m, plotted, onTogglePlot, onClos
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const chip = STATUS_CHIP[m.status];
   const isPlotted = plotted.has(m.id);
 
   const sectionTitle = {
@@ -54,16 +50,6 @@ export default function MachinePopup({ machine: m, plotted, onTogglePlot, onClos
           <div style={{ fontFamily: FONT_DISP, fontSize: 15, letterSpacing: 0.5, color: C.text, lineHeight: 1.2 }}>
             {m.name}
           </div>
-          {chip && (
-            <div style={{ marginTop: 5 }}>
-              <span style={{
-                border: `1px solid ${chip.color}`, color: chip.color,
-                borderRadius: 3, padding: "1px 5px", fontSize: 8, letterSpacing: 1,
-              }}>
-                {chip.text}
-              </span>
-            </div>
-          )}
         </div>
         <button
           onClick={onClose}
