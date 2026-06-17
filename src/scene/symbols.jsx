@@ -14,24 +14,20 @@ export function MachineLabel({ machine: m }) {
   if (m.smallLabel) {
     return (
       <text x={at.x} y={at.y} fontFamily={FONT_MONO} fontSize="8" fill={C.muted}>
-        {m.name} · {m.tag}
+        {m.name}
       </text>
     );
   }
   const chip = STATUS_CHIP[m.status];
-  const tagW = m.tag.length * 5.6;
   return (
     <g>
       <text className="mname" x={at.x} y={at.y} fontFamily={FONT_DISP} fontSize="13" letterSpacing="0.06em" fill={C.text}>
         {m.name}
       </text>
-      <text x={at.x} y={at.y + 15} fontFamily={FONT_MONO} fontSize="9" fill={C.muted}>
-        {m.tag}
-      </text>
       {chip && (
         <g>
-          <rect x={at.x + tagW + 8} y={at.y + 6} width={chip.w} height={12} rx="3" fill="none" stroke={chip.color} />
-          <text x={at.x + tagW + 8 + chip.w / 2} y={at.y + 15} fontFamily={FONT_MONO} fontSize="7" fill={chip.color} textAnchor="middle" letterSpacing="0.08em">
+          <rect x={at.x} y={at.y + 6} width={chip.w} height={12} rx="3" fill="none" stroke={chip.color} />
+          <text x={at.x + chip.w / 2} y={at.y + 15} fontFamily={FONT_MONO} fontSize="7" fill={chip.color} textAnchor="middle" letterSpacing="0.08em">
             {chip.text}
           </text>
         </g>
