@@ -5,7 +5,18 @@
 > re-reading the PDF/screenshots. Confidence flags are inline: **[HIGH]** = read
 > directly off the drawing, **[MED]** = inferred from layout/tag sequence, **[LOW]** =
 > small print at the edge of legibility or guessed. Everything marked [MED]/[LOW] and
-> everything in §12 is agenda material for the engineer meeting (Mon 2026-06-16).
+> everything in §12 was agenda material for the engineer meeting (2026-06-16).
+>
+> **Engineer meeting happened 2026-06-16.** Outcomes not yet recorded here — start
+> the next session by asking the user what was confirmed, corrected, or deferred.
+> Until then, all [MED]/[LOW] items remain unconfirmed.
+>
+> **Vocabulary clarified 2026-06-17:**
+> - **IBC** = Intermediate Bulk Container (1000 L plastic cube in a metal cage on a
+>   pallet — used here to collect batch treater waste water for separate disposal).
+> - **FUTURE POWDER DOSING STATION** (52.507.H01) = dashed hopper beside Treater
+>   Pre-Bin on sheet 52-12; not yet installed; would dose dry powder chemical.
+>   Represented in `lineData.js` as `chemStub`, name "future: powder dosing station".
 
 ---
 
