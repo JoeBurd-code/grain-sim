@@ -5,7 +5,6 @@
 import { C, FONT_DISP, FONT_MONO, ratioColor } from "./theme";
 
 const STATUS_CHIP = {
-  new: { text: "NEW", color: C.green, w: 28 },
   relocated: { text: "RELOCATED", color: C.amber, w: 62 },
 };
 
