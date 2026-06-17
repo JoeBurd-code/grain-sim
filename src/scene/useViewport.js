@@ -41,6 +41,8 @@ export function useViewport(homeBounds) {
   }, [homeBounds]);
 
   // Wheel zoom needs a non-passive listener to preventDefault page scroll.
+  // deltaY is normalised across deltaMode (pixels vs lines vs pages) so the
+  // zoom speed feels the same regardless of how the OS/mouse reports wheel.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -50,35 +52,44 @@ export function useViewport(homeBounds) {
       if (!dims) return;
       const rect = el.getBoundingClientRect();
       const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-      const factor = Math.exp(-e.deltaY * 0.0015);
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? rect.height : 1;
+      const steps = (e.deltaY * unit) / 100; // ~1 per wheel notch
+      const factor = Math.exp(-steps * 0.28);
       setVb((prev) => (prev ? zoomAt(prev, dims, cursor, factor, limits) : prev));
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
   }, [limits]);
 
+  // Pan tracking uses window listeners rather than pointer capture: capturing
+  // on the SVG would redirect the subsequent click to the SVG, so machine
+  // clicks never reached their own handler and no popup opened.
+  useEffect(() => {
+    const onMove = (e) => {
+      const last = dragRef.current;
+      if (!last) return;
+      const dx = e.clientX - last.x;
+      const dy = e.clientY - last.y;
+      if (!didDragRef.current && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
+      didDragRef.current = true;
+      dragRef.current = { x: e.clientX, y: e.clientY };
+      const dims = dimsRef.current;
+      if (!dims) return;
+      setVb((prev) => (prev ? panBy(prev, dims, { x: dx, y: dy }) : prev));
+    };
+    const onUp = () => { dragRef.current = null; };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, []);
+
   const onPointerDown = useCallback((e) => {
     if (e.button !== 0) return;
     dragRef.current = { x: e.clientX, y: e.clientY };
     didDragRef.current = false;
-    e.currentTarget.setPointerCapture?.(e.pointerId);
-  }, []);
-
-  const onPointerMove = useCallback((e) => {
-    const last = dragRef.current;
-    if (!last) return;
-    const dx = e.clientX - last.x;
-    const dy = e.clientY - last.y;
-    if (!didDragRef.current && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return;
-    didDragRef.current = true;
-    dragRef.current = { x: e.clientX, y: e.clientY };
-    const dims = dimsRef.current;
-    if (!dims) return;
-    setVb((prev) => (prev ? panBy(prev, dims, { x: dx, y: dy }) : prev));
-  }, []);
-
-  const onPointerUp = useCallback(() => {
-    dragRef.current = null;
   }, []);
 
   const fitTo = useCallback((bounds) => {
@@ -94,6 +105,6 @@ export function useViewport(homeBounds) {
     vb,
     fitTo,
     wasDrag,
-    handlers: { onPointerDown, onPointerMove, onPointerUp },
+    handlers: { onPointerDown },
   };
 }
