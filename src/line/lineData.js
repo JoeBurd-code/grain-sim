@@ -158,7 +158,7 @@ export const line = {
     {
       id: "chemStub",
       type: "stub",
-      name: "from formulation · 52-15",
+      name: "future: powder dosing station",
       tag: "STUB.CHEM",
       status: "stub",
       zone: "treating",
