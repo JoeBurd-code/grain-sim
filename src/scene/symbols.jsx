@@ -436,7 +436,7 @@ export function StubSymbol({ machine: m }) {
   return (
     <g>
       <text x="0" y="-10" fontFamily={FONT_MONO} fontSize="8" fill={C.muted}>
-        {m.name} · out of frame
+        {m.name}
       </text>
       <circle cx="4" cy="4" r="3.5" fill={C.muted} />
     </g>
