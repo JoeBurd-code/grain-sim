@@ -4,9 +4,6 @@
 // the Scene positions it at the machine's world (x, y).
 import { C, FONT_DISP, FONT_MONO, ratioColor } from "./theme";
 
-const STATUS_CHIP = {
-  relocated: { text: "RELOCATED", color: C.amber, w: 62 },
-};
 
 export function MachineLabel({ machine: m }) {
   const at = m.labelAt ?? { x: 0, y: m.h + 18 };
@@ -17,20 +14,11 @@ export function MachineLabel({ machine: m }) {
       </text>
     );
   }
-  const chip = STATUS_CHIP[m.status];
   return (
     <g>
       <text className="mname" x={at.x} y={at.y} fontFamily={FONT_DISP} fontSize="13" letterSpacing="0.06em" fill={C.text}>
         {m.name}
       </text>
-      {chip && (
-        <g>
-          <rect x={at.x} y={at.y + 6} width={chip.w} height={12} rx="3" fill="none" stroke={chip.color} />
-          <text x={at.x + chip.w / 2} y={at.y + 15} fontFamily={FONT_MONO} fontSize="7" fill={chip.color} textAnchor="middle" letterSpacing="0.08em">
-            {chip.text}
-          </text>
-        </g>
-      )}
     </g>
   );
 }
