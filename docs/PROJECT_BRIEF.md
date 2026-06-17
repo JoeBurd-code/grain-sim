@@ -18,6 +18,11 @@ a general-purpose platform — no drag-and-drop editor, no machine palette, no p
 system. There are **no artificial limits on internal code structure** (internal code
 reuse is encouraged; only *user-facing* platform features are out of scope).
 
+**Current state (2026-06-17):** The meeting frontend (SVG walkthrough of the real
+Treater Line 2) is built and shipped (`main`). UI scaffolding is complete (scene,
+popup, chart dock, transport stubs). The sim engine (Phase 0) is the next major
+body of work.
+
 ## 2. The thesis (what the demo must prove)
 
 > **Transport lag plus control-response latency means a safety trip doesn't take
@@ -63,8 +68,14 @@ These are in `src/GrainFlowSim.jsx` today and should be **lifted, not rewritten*
 
 ## 5. Roadmap — checklist
 
+### Pre-Phase — Meeting frontend (COMPLETE 2026-06-17, issues #4–#10)
+- [x] Line-data schema (`src/line/lineData.js`): 40 machines, 3 zones, 40 connections, typed ports, anchors, specs, open questions. Validator + reachability tests passing.
+- [x] SVG scene with pan/zoom (`useViewport`, `Scene`), 20 machine silhouettes, 3 stream kinds, flow arrows, TBC dashed connections.
+- [x] Machine popup: live-look sliders (stub), event log (stub), "from the drawings" specs, "open questions" per machine.
+- [x] Meeting chrome: transport controls, zone buttons, FIT ALL, shared chart dock scaffold, selection readout.
+- [x] Vitest suite: 15 tests (validator, bounds, viewport math, line data integrity, reachability).
+
 ### Phase 0 — Core engine (no UI)
-- [ ] Define the **line-data schema**: machines (nodes) with typed in/out ports + params; connections (edges); control rules; scenarios.
 - [ ] Define the **stream** type: volume + density (mass derived).
 - [ ] Extract reusable **behavior primitives** from the mock:
   - [ ] Source / valve (feed)
@@ -109,14 +120,14 @@ These are in `src/GrainFlowSim.jsx` today and should be **lifted, not rewritten*
 - [ ] **Live fault injection**: click machine → jam / stop / block-output mid-run.
 - [ ] **Storytelling polish**: event highlighting, spill counters, clear "where did it spill and why" readout.
 
-### Phase 5 — GATED on real specs (next grilling session)
-- [ ] **Second grilling session** to capture the actual machine roster + per-machine behaviors.
-- [ ] Plug engineering's **real topology** into the line-data file.
-- [ ] **Tune parameters** to match reality.
-- [ ] Decide **default plotted metric** per machine; confirm whether any machine **changes density** (dryer); confirm whether the line **recirculates** (loops already handled either way).
-
-> **Phases 0–4 need nothing from engineering** — they run entirely on the fabricated
-> stand-in line. Phase 5 is the only gated work.
+### Phase 5 — Real specs integration (PARTIALLY COMPLETE)
+- [x] Real engineering drawings received and deciphered (2026-06-12, `docs/REAL_LINE_SPECS.md`).
+- [x] Real topology plugged into `lineData.js` (40 machines, full Treater Line 2 DAG).
+- [x] Confirmed: treater changes composition (adds chemical); line is a DAG (no recirculation).
+- [ ] Engineer meeting outcomes (2026-06-16) incorporated — per-machine behaviour, motor ratings, open [MED]/[LOW] items in REAL_LINE_SPECS.md §12.
+- [ ] Per-machine behaviour functions authored once engine primitives exist.
+- [ ] Parameters tuned to match reality.
+- [ ] Default plotted metric decided per machine.
 
 ## 6. Tech notes / constraints
 
@@ -127,11 +138,17 @@ These are in `src/GrainFlowSim.jsx` today and should be **lifted, not rewritten*
 
 ## 7. Open questions (deferred, not blocking)
 
-- Actual machine roster and per-machine behavior (Phase 5 — awaiting engineering).
-- Default time-series metric for the shared chart (throughput vs fill).
-- Whether any machine changes density (dryer) and whether mass must then be tracked independently.
-- Whether the real line recirculates.
+- Engineer meeting outcomes (2026-06-16) — per-machine behaviour, confirmed motor ratings, resolution of [MED]/[LOW] items in `docs/REAL_LINE_SPECS.md` §12. Ask user at start of next session.
+- Default time-series metric for the shared chart (throughput vs fill level).
+- Whether mass must be tracked independently once the treater adds chemical (composition changes but the primary unit is still volume for belt physics).
+- Instrument code meanings that are still unclear from the drawings — user may have answers from the engineer meeting.
 
 ## 8. Decision history
 
 - **Rendering: Canvas 2D → SVG-led (flipped).** Originally locked as Canvas 2D, largely because canvas animates dense moving grain cheaply. Two later facts removed that advantage: (a) **no particle simulation** — only fill-level shapes + a few flowing streams; (b) **every machine must be clickable** → popup. For a clickable, pan/zoom **technical schematic** with no particles, SVG is less work and a more natural fit: machine bodies are reusable vector symbols (authorable in a drawing tool or from standard equipment-symbol sets), clicks are native element events, pan/zoom is one `viewBox`, and the "flowing grain" effect is an animated `stroke-dashoffset`. Crucially, **rendering is a swappable layer** — the sim engine, behavior primitives, control logic, and all tests are rendering-agnostic, so the flip touches only the rendering + selection modules, not the sim core or Phase 0. Keep **hybrid** (SVG bodies + a single canvas overlay) in reserve only if dense shimmer is ever wanted.
+
+- **Meeting frontend built ahead of sim engine (2026-06-12 to 2026-06-17).** The real engineering drawings arrived earlier than expected, unlocking Phase 5 topology work before Phases 0–4 were started. Rather than continue with a fabricated stand-in, we built a **static SVG walkthrough** of the real Treater Line 2 as an engineer-meeting prop (issues #4–#10). This was the right call: it proved the SVG scene + viewport architecture works on the real topology, produced a demoable artefact for the meeting, and surfaced the actual machine roster that the sim engine will eventually drive. The sim engine (Phase 0) is the next body of work.
+
+- **Display: name only on the scene canvas.** No machine tags, no status chips (NEW/RELOCATED), no title bar, no stub suffixes. Everything lives in the popup. Principle: demo tool, not engineering drawing — identify by shape + machine name; clutter distracts. Applied consistently across `symbols.jsx`, `MachinePopup.jsx`, `MeetingApp.jsx`, `ChartDock.jsx`.
+
+- **Pan tracking: window-level listeners, not pointer capture.** `setPointerCapture` on the SVG element redirected all subsequent pointer events (including the click that ends a drag) to the SVG, so per-machine `onClick` handlers never fired and the popup never opened. Fixed by attaching `pointermove` / `pointerup` to `window` in a `useEffect` instead. Click-vs-drag disambiguation is done with a 4 px `DRAG_THRESHOLD_PX` and a `didDragRef` boolean checked in each machine's click handler via `wasDrag()`.
