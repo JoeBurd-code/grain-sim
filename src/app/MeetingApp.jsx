@@ -55,12 +55,6 @@ export default function MeetingApp() {
         display: "flex", justifyContent: "space-between", alignItems: "center",
         padding: "10px 16px", borderBottom: `1px solid ${C.line}`, flex: "none", gap: 16, flexWrap: "wrap",
       }}>
-        <div style={{ whiteSpace: "nowrap" }}>
-          <span style={{ fontFamily: FONT_DISP, fontSize: 20, letterSpacing: 1, color: C.text }}>TREATER LINE 2</span>
-          <span style={{ fontSize: 10, color: C.muted, marginLeft: 12, letterSpacing: 2, textTransform: "uppercase" }}>
-            bayer thb tr&pu · 52-12/13/14
-          </span>
-        </div>
         <TransportControls />
         <div style={{ display: "flex", gap: 6, flex: "none" }}>
           {line.zones.map((z) => (
