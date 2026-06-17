@@ -5,7 +5,6 @@ import { useEffect, useState } from "react";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 
 const STATUS_CHIP = {
-  new: { text: "NEW", color: C.green },
   relocated: { text: "RELOCATED", color: C.amber },
 };
 

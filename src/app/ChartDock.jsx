@@ -68,7 +68,6 @@ export default function ChartDock({ machines, plotted }) {
           <span>fill level</span>
         </div>
         <div style={{ display: "flex", gap: 5, marginBottom: 7 }}>
-          <span style={{ border: `1px solid ${C.green}`, color: C.green, borderRadius: 3, padding: "0px 4px" }}>NEW</span>
           <span style={{ border: `1px solid ${C.amber}`, color: C.amber, borderRadius: 3, padding: "0px 4px" }}>RELOCATED</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
