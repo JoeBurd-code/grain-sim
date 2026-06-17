@@ -489,7 +489,7 @@ export const line = {
       x: 2520, y: 560, w: 120, h: 30,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 110, y: 30 } },
-      labelAt: { x: -190, y: 20 },
+      labelAt: { x: -188, y: 2 },
       specs: [["drive", "MDOL (direct-on-line, no ramp)"]],
       questions: ["Confirm tag mapping (52.703.L00?)."],
     },
