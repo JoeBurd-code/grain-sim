@@ -55,17 +55,16 @@ export default function MachinePopup({ machine: m, plotted, onTogglePlot, onClos
           <div style={{ fontFamily: FONT_DISP, fontSize: 15, letterSpacing: 0.5, color: C.text, lineHeight: 1.2 }}>
             {m.name}
           </div>
-          <div style={{ fontSize: 10, color: C.muted, marginTop: 3 }}>
-            {m.tag}
-            {chip && (
+          {chip && (
+            <div style={{ marginTop: 5 }}>
               <span style={{
-                marginLeft: 8, border: `1px solid ${chip.color}`, color: chip.color,
+                border: `1px solid ${chip.color}`, color: chip.color,
                 borderRadius: 3, padding: "1px 5px", fontSize: 8, letterSpacing: 1,
               }}>
                 {chip.text}
               </span>
-            )}
-          </div>
+            </div>
+          )}
         </div>
         <button
           onClick={onClose}
@@ -124,7 +123,7 @@ export default function MachinePopup({ machine: m, plotted, onTogglePlot, onClos
 
       {(m.questions ?? []).length > 0 && (
         <>
-          <div style={sectionTitle}>open questions · monday</div>
+          <div style={sectionTitle}>open questions</div>
           {m.questions.map((q) => (
             <div key={q} style={{ display: "flex", gap: 7, fontSize: 10, marginBottom: 5, lineHeight: 1.45 }}>
               <span style={{ color: C.amber, flex: "none" }}>?</span>

@@ -73,7 +73,7 @@ export default function MeetingApp() {
           </button>
         </div>
         <div style={{ fontSize: 9, color: selected ? C.wheat : C.muted, textAlign: "right", minWidth: 170 }}>
-          {selected ? `${selected.tag} · ${selected.name}` : "click a machine · drag to pan · wheel to zoom"}
+          {selected ? selected.name : "click a machine · drag to pan · wheel to zoom"}
         </div>
       </header>
 

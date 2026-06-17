@@ -25,7 +25,7 @@ export default function ChartDock({ machines, plotted }) {
               color: PLOT_COLORS[i % PLOT_COLORS.length],
               borderRadius: 3, padding: "1px 5px", letterSpacing: 0.5,
             }}>
-              {m.tag}
+              {m.name}
             </span>
           ))}
         </div>
