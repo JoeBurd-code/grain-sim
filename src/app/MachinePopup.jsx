@@ -1,6 +1,7 @@
 // Future-shape machine popup: the panel the final demo will have, with
-// live-look controls (no engine behind them yet) plus the drawing facts and
-// per-machine open questions that drive the engineer meeting.
+// live-look controls (no engine behind them yet). Drawing facts and the
+// per-machine confirmation questions now live in the engineer worksheet
+// (docs/TREATER_LINE2_WORKSHEET.md), not in the app.
 import { useEffect, useState } from "react";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 
@@ -93,30 +94,6 @@ export default function MachinePopup({ machine: m, plotted, onTogglePlot, onClos
         </button>
         <span style={{ fontSize: 9, color: C.muted, fontStyle: "italic" }}>engine pending</span>
       </div>
-
-      {(m.specs ?? []).length > 0 && (
-        <>
-          <div style={sectionTitle}>from the drawings</div>
-          {m.specs.map(([k, v]) => (
-            <div key={k} style={{ display: "flex", gap: 10, fontSize: 10, marginBottom: 4 }}>
-              <span style={{ color: C.muted, flex: "none", width: 88 }}>{k}</span>
-              <span style={{ color: C.text }}>{v}</span>
-            </div>
-          ))}
-        </>
-      )}
-
-      {(m.questions ?? []).length > 0 && (
-        <>
-          <div style={sectionTitle}>open questions</div>
-          {m.questions.map((q) => (
-            <div key={q} style={{ display: "flex", gap: 7, fontSize: 10, marginBottom: 5, lineHeight: 1.45 }}>
-              <span style={{ color: C.amber, flex: "none" }}>?</span>
-              <span style={{ color: C.text }}>{q}</span>
-            </div>
-          ))}
-        </>
-      )}
     </div>
   );
 }

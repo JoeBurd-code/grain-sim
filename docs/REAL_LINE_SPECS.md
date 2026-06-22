@@ -389,6 +389,11 @@ line rate 20 t/h end to end, choked at the Concetti scale (~12 t/h) and the trea
 
 ## 12. Still missing — agenda for the engineer meeting (Mon 2026-06-16)
 
+> **Live prep surface:** the machine-by-machine confirmation worksheet now lives at
+> `docs/TREATER_LINE2_WORKSHEET.md`. It is the fillable form to walk in the meeting (or
+> to hand to the engineer). The list below stays as the underlying record; confirmed
+> answers flow from the worksheet back into this doc and into `src/line/lineData.js`.
+
 **Topology confirmations (walk the doc, machine by machine):**
 
 1. Confirm the [MED]/[LOW] edges and the tag↔name mappings in §11.

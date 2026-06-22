@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Treater Line 2 (Area 52): Equipment Confirmation Worksheet</title>
+<style>
+:root { --ink:#1c1a16; --muted:#6b6457; --line:#d9d2c4; --bg:#f4f1ea; --card:#fffdf8; --accent:#a8812a; --accentbg:#f3e7c8; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; }
+#bar { position:sticky; top:0; z-index:10; background:var(--card); border-bottom:1px solid var(--line); padding:10px 16px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+#bar h1 { font-size:15px; margin:0; flex:1 1 240px; font-weight:600; }
+#bar select, #bar button { font:inherit; padding:7px 11px; border-radius:7px; border:1px solid var(--line); background:#fff; cursor:pointer; }
+#bar button { background:var(--accentbg); border-color:var(--accent); color:#5c4612; font-weight:600; }
+#bar #progress, #bar #status { font-size:12px; color:var(--muted); }
+main { max-width:860px; margin:0 auto; padding:18px 16px 120px; }
+.intro { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin-bottom:22px; color:var(--muted); }
+.intro p { margin:6px 0; } .intro-li { margin:3px 0; }
+.sec { margin:30px 0; }
+.sec > h2 { font-size:13px; letter-spacing:1.5px; text-transform:uppercase; color:var(--accent); border-bottom:2px solid var(--line); padding-bottom:6px; }
+.machine { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; margin:14px 0; }
+.machine h3 { margin:0 0 4px; font-size:16px; }
+.meta { font-size:12px; color:var(--muted); margin-bottom:10px; }
+.subh { font-size:11px; letter-spacing:1px; text-transform:uppercase; color:var(--muted); margin:12px 0 6px; }
+.scope { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:6px 0 2px; }
+.scope-q { font-size:13px; color:var(--muted); }
+.pill { display:inline-flex; align-items:center; gap:5px; border:1px solid var(--line); border-radius:20px; padding:4px 12px; cursor:pointer; }
+.check { display:flex; gap:9px; align-items:flex-start; margin:5px 0; cursor:pointer; }
+.check input { margin-top:3px; width:17px; height:17px; flex:none; accent-color:var(--accent); }
+.field { margin:7px 0; }
+.flabel { display:block; font-size:13px; color:var(--ink); margin-bottom:3px; }
+.field input[type=text] { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:#fff; font:inherit; }
+textarea { width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:7px; background:#fff; font:inherit; resize:vertical; }
+.qcard { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px 14px; margin:10px 0; }
+.qlabel { display:block; margin-bottom:6px; }
+ul.static { color:var(--muted); }
+input:focus, textarea:focus { outline:2px solid var(--accent); outline-offset:0; border-color:var(--accent); }
+@media print {
+  #bar { display:none; }
+  body { background:#fff; }
+  .machine, .qcard, .intro { break-inside:avoid; border-color:#bbb; }
+  input[type=text], textarea { border:none; border-bottom:1px solid #999; border-radius:0; }
+}
+</style>
+</head>
+<body>
+<div id="bar">
+  <h1>Treater Line 2 (Area 52): Equipment Confirmation Worksheet</h1>
+  <span id="progress"></span>
+  <span id="status">autosaving</span>
+  <select id="nav" aria-label="Jump to section"><option value="">Jump to...</option></select>
+  <button id="export" type="button">Export filled (.md)</button>
+  <button id="print" type="button">Print</button>
+</div>
+<main id="app"></main>
+<script>const data = {"title":"Treater Line 2 (Area 52): Equipment Confirmation Worksheet","intro":[{"t":"p","text":"Purpose: confirm the equipment and operating details for Treater Line 2. For each item, confirm or correct what is shown, complete any blank fields, and add notes where useful. If an item is not part of this line, mark it No and move on."},{"t":"p","text":"Date: ____________     Completed by: ____________"},{"t":"p","text":"How to use this sheet:"},{"t":"li","text":"\"Details to confirm or correct\" lists what we currently understand. Tick each line that is correct, strike through and fix anything that is wrong."},{"t":"li","text":"\"Information required\" lists what we still need. Write the value on the blank."},{"t":"li","text":"\"Notes\" is free space for anything else worth recording."},{"t":"li","text":"Items are listed in process order, following the line from the upstream feed through to the finished, palletised product, grouped by drawing sheet."},{"t":"p","text":"---"}],"sections":[{"id":"before-the-detail-whole-line-questions","title":"Before the detail (whole-line questions)","kind":"questions","machines":[],"questions":["Drawings still needed: sheet 52-15 (Formulation), and sheets 1, 2, 6 and 7 of the 7-sheet set. Can copies be provided?","Where does Line 2 start and end for this project? Confirm the first and last piece of equipment that is in scope.","The outload area splits three ways (bulk outload bins, big bag filling, and the Concetti bagging line). Do these run at the same time, or is one selected at a time? What decides the routing?","Nominal line rate: is 20 t/h correct end to end, and where is the slowest point?","Which crop or product runs on this line, and is it always the same one?"],"static":[]},{"id":"treating-sheet-52-12","title":"Treating (sheet 52-12)","kind":"machines","machines":[{"num":"1","name":"From Yellow-Bin Area (Upstream Bucket Elevator)","status":"Existing, upstream","sheet":"52-12","hasScope":true,"confirm":["Simatek E200 bucket elevator, around 20 t/h","Everything before this point is a separate project (Line 2 Yellow Bin Upgrade)"],"info":["Where this line should be treated as starting (at this elevator, or downstream of it)","Steady feed rate handed over to the treating area (t/h)"],"hasNotes":true,"notesLines":2},{"num":"2","name":"Metal Remover (Treating)","status":"New","sheet":"52-12","hasScope":true,"confirm":["Removes tramp metal before the buffer bin"],"info":["Throughput it has to pass (t/h)","Where removed metal goes, and how often it is cleared","Does product hold up here, or pass straight through"],"hasNotes":true,"notesLines":2},{"num":"3","name":"Treater Intermediary Buffer Bin","status":"Relocated","sheet":"52-12","hasScope":true,"confirm":["Working volume around 7.7 m3 (around 5.5 t)","Has bin level indication","Associated with a start-up area siren"],"info":["Confirmed working volume (m3) and how much it actually holds (t)","Level instruments fitted (continuous level, low, high, high-high) and their set points","What triggers it to discharge, and at what rate","What happens when it fills (backs up, stops the feed, or overflows)"],"hasNotes":true,"notesLines":2},{"num":"4","name":"Inlet Drum Feeder (Treating)","status":"New","sheet":"52-12","hasScope":true,"confirm":["Around 20 t/h"],"info":["Feed rate range it can be set to (t/h)","How it meters the flow (the two opening positions, what each does)","Start, stop and empty-out behaviour","Drive type and motor power"],"hasNotes":true,"notesLines":2},{"num":"5","name":"Bucket Elevator (Treating)","status":"New","sheet":"52-12","hasScope":true,"confirm":["Simatek E200 pendulum type, around 20 t/h","Around 176 buckets at 20.5 L each, chain around 105 m at 10.08 m/min","Height around 8731 mm"],"info":["Confirmed bucket count, bucket volume and chain length","Normal operating fill level (%)","Time for material to travel from inlet to discharge (transport delay)","Time to coast to a stop after the motor is stopped","Drive type and motor power"],"hasNotes":true,"notesLines":2},{"num":"6","name":"Treater Pre-Bin","status":"New","sheet":"52-12","hasScope":true,"confirm":["Working volume around 1.62 m3"],"info":["Confirmed working volume (m3)","Level instruments fitted and their set points","How it feeds the treater (continuous, or batch by batch)","What happens when it fills"],"hasNotes":true,"notesLines":2},{"num":"7","name":"Niklas WNS/200 Batch Treater","status":"New","sheet":"52-12","hasScope":true,"confirm":["Batch treater, around 4 to 18 t/h","Liquid chemical supplied from Formulation (sheet 52-15)","Waste water sent to an IBC tank","A future powder dosing station sits alongside it (shown dashed, not yet installed)"],"info":["Batch size (kg or L) and full cycle time","Phase breakdown within a batch (fill, treat, discharge) and how long each takes","Chemical dose rate, and whether the dose changes the bulk density or weight of the seed","Waste water produced per batch","What happens when the downstream blocks part way through a batch"],"hasNotes":true,"notesLines":2},{"num":"8","name":"Future Powder Dosing Station","status":"Future (not yet installed)","sheet":"52-12","hasScope":true,"confirm":["Would dose dry powder chemical into the treater","Shown dashed (future) on the drawing"],"info":["Should this be shown at all for now, or left out until it is installed","If shown, intended dose rate and how it is added"],"hasNotes":true,"notesLines":2},{"num":"9","name":"Chemical Supply from Formulation (Sheet 52-15)","status":"Reference, off this sheet","sheet":"52-15","hasScope":true,"confirm":["Supplies liquid chemical to the batch treater"],"info":["Dose rate or ratio supplied to the treater","Whether this needs to be shown as a flowing stream, or just as on/off"],"hasNotes":true,"notesLines":2},{"num":"10","name":"Waste Water IBC Tank","status":"New","sheet":"52-12","hasScope":true,"confirm":["Collects liquid waste from the treater area (1000 L container)"],"info":["Capacity, and how and how often it is emptied","Whether it needs to be shown in the demo at all"],"hasNotes":true,"notesLines":2},{"num":"11","name":"Treater After-Bin","status":"New","sheet":"52-12","hasScope":true,"confirm":["Working volume around 0.67 m3","Smooths the batch discharge into a continuous flow"],"info":["Confirmed working volume (m3)","Level instruments fitted and their set points","What triggers it to discharge, and at what rate","What happens when it fills"],"hasNotes":true,"notesLines":2},{"num":"12","name":"Treatment Scalping Screen","status":"New","sheet":"52-12","hasScope":true,"confirm":["Capacity figure read as around 64.4 t/h","Product carries on to sheet 52-13, scalpings go to a discard bin"],"info":["What the 64.4 t/h figure means (screen capacity, or something else)","Typical fraction sent to scalpings (waste) versus product","What happens on overload"],"hasNotes":true,"notesLines":2},{"num":"13","name":"Discard Scalpings Bin","status":"New","sheet":"52-12","hasScope":true,"confirm":["Collects scalpings (waste) from the screen"],"info":["Capacity, and how and how often it is emptied"],"hasNotes":true,"notesLines":2}],"questions":[],"static":[]},{"id":"packaging-and-outload-sheet-52-13","title":"Packaging and Outload (sheet 52-13)","kind":"machines","machines":[{"num":"14","name":"Pro Box Unloading Station","status":"New","sheet":"52-13","hasScope":true,"confirm":["Feeds one of the inlet drum feeders"],"info":["What it does operationally (returned boxed seed re-entering the line, or something else)","How often it is used, and at what rate"],"hasNotes":true,"notesLines":2},{"num":"15","name":"Inlet Drum Feeder 1","status":"New","sheet":"52-13","hasScope":true,"confirm":["Around 20 t/h, 0.15 kW, ethernet start","Two opening positions, with an empty-out cycle"],"info":["Which feeder takes the scalping screen line and which takes the Pro Box line","Feed rate range (t/h)","What each opening position does in flow terms"],"hasNotes":true,"notesLines":2},{"num":"16","name":"Inlet Drum Feeder 2","status":"New","sheet":"52-13","hasScope":true,"confirm":["Around 20 t/h, 0.15 kW, ethernet start"],"info":["Feed rate range (t/h)","Same metering and empty-cycle behaviour as Feeder 1"],"hasNotes":true,"notesLines":2},{"num":"17","name":"Lift to Top Conveyor","status":"New","sheet":"52-13","hasScope":true,"confirm":["4.0 kW, ethernet start","Has a safe-start alarm and start-up area siren"],"info":["Confirm it takes both drum feeders and lifts to the top transport conveyor","Throughput (t/h) and time to travel its length","Time to coast to a stop after stopping"],"hasNotes":true,"notesLines":2},{"num":"18","name":"Start-up Area Siren","status":"New","sheet":"52-13","hasScope":true,"confirm":["Sounds before equipment in the area starts moving"],"info":["How long it sounds before motion starts","Which equipment it covers and what order they start in"],"hasNotes":true,"notesLines":2},{"num":"19","name":"Top Transport Conveyor","status":"New","sheet":"52-13","hasScope":true,"confirm":["Distributes to three branches: outload bins, big bag filling, and the Concetti line"],"info":["Throughput (t/h), speed, and time to travel its length","Drive type, motor power, ramp-up and ramp-down times","Are the three branches fed at the same time or one at a time, and what decides routing"],"hasNotes":true,"notesLines":2},{"num":"20","name":"Distribution Hopper","status":"New","sheet":"52-13","hasScope":true,"confirm":["Sits on the top-conveyor distribution (exact role not yet clear)"],"info":["What this hopper does and where it sits in the flow","Working volume and level instruments"],"hasNotes":true,"notesLines":2},{"num":"21","name":"Distribution Conveyor","status":"New","sheet":"52-13","hasScope":true,"confirm":["Paired with the distribution hopper (exact role not yet clear)"],"info":["What this conveyor does and where it sits in the flow","Throughput, drive type and motor power"],"hasNotes":true,"notesLines":2},{"num":"22","name":"Pneumatic Outlet and Auto Sampler (Concetti Branch)","status":"New","sheet":"52-13","hasScope":true,"confirm":["Discharges toward the Concetti bagging line, with an auto sampler"],"info":["Does product hold up here or pass straight through","How much and how often the sampler takes off, and where the sample goes"],"hasNotes":true,"notesLines":2},{"num":"23","name":"Metal Remover (Concetti Branch)","status":"New","sheet":"52-13","hasScope":true,"confirm":["Removes tramp metal on the Concetti branch before the pre-bin"],"info":["Throughput (t/h)","Where removed metal goes, and how often it is cleared"],"hasNotes":true,"notesLines":2},{"num":"24","name":"Outload Buffer Bin","status":"New","sheet":"52-13","hasScope":true,"confirm":["Has an outlet valve feeding the packaging bucket elevator"],"info":["Working volume (m3)","Level instruments fitted and their set points","What happens when it fills"],"hasNotes":true,"notesLines":2},{"num":"25","name":"Bucket Elevator (Packaging)","status":"New","sheet":"52-13","hasScope":true,"confirm":["Simatek E200 pendulum type, around 20 t/h","196 buckets at 20.5 L each, chain 120 m at 10.08 m/min","5.0 kW, ethernet start","Output at 70% fill: 20.84 t/h, 347 kg/min"],"info":["Normal operating fill level (%)","The output table implies a bulk density of around 1.47 kg/L, which seems high for seed. Please confirm the real density and the figures in the table","Time for material to travel from inlet to discharge (transport delay)","Time to coast to a stop after stopping, and what the pressure switch protects"],"hasNotes":true,"notesLines":2},{"num":"26","name":"Conveyor after Packaging Elevator","status":"New","sheet":"52-13","hasScope":true,"confirm":["Variable-speed drive, sits at or after the packaging elevator"],"info":["Where it sits in the flow and what it feeds","Throughput, motor power, ramp-up and ramp-down times"],"hasNotes":true,"notesLines":2},{"num":"27","name":"Grain Break","status":"New","sheet":"52-13","hasScope":true,"confirm":["A cascade chute that slows falling grain on the elevator discharge"],"info":["Does product hold up here, or pass straight through"],"hasNotes":true,"notesLines":2},{"num":"28","name":"Outload Diverter","status":"New","sheet":"52-13","hasScope":true,"confirm":["Routes product to either Outload Metal Bin 1 or 2"],"info":["Is this one diverter, or two valves in series","Open and close time, and what decides which bin is fed"],"hasNotes":true,"notesLines":2},{"num":"29","name":"Treated Outload Metal Bin 1","status":"New","sheet":"52-13","hasScope":true,"confirm":["Has continuous level indication"],"info":["Working volume (m3 and t)","Where it discharges (truck loadout, and what controls the gate)","Level set points that trip or stop the feed"],"hasNotes":true,"notesLines":2},{"num":"30","name":"Treated Outload Metal Bin 2","status":"New","sheet":"52-13","hasScope":true,"confirm":["Has continuous level indication"],"info":["Working volume (m3 and t)","Where it discharges, and what controls the gate","Level set points that trip or stop the feed"],"hasNotes":true,"notesLines":2},{"num":"31","name":"Pneumatic Outlet and Auto Sampler (Big Bag Branch)","status":"New","sheet":"52-13","hasScope":true,"confirm":["Discharges toward the bin segment, with an auto sampler"],"info":["Does product hold up here, or pass straight through","How much and how often the sampler takes off, and where the sample goes"],"hasNotes":true,"notesLines":2},{"num":"32","name":"Bin Segment","status":"New","sheet":"52-13","hasScope":true,"confirm":["Working volume 4.51 m3 (3.25 t)","Has continuous level indication and pneumatic hammers"],"info":["Confirm working volume","Level set points that trip or stop the feed","What triggers it to discharge, and at what rate","What happens when it fills"],"hasNotes":true,"notesLines":2},{"num":"33","name":"Flexicon Pre-Bin","status":"Relocated","sheet":"52-13","hasScope":true,"confirm":["Feeds the big bag filling head through a vibrating conveyor","Has high and low level switches"],"info":["Working volume (m3)","High and low level set points and what they do"],"hasNotes":true,"notesLines":2},{"num":"34","name":"Vibrating Conveyor","status":"Relocated","sheet":"52-13","hasScope":true,"confirm":["Direct-on-line drive (on or off, no ramp)"],"info":["Throughput it feeds to the filling head (t/h)","Motor power"],"hasNotes":true,"notesLines":2},{"num":"35","name":"Flexicon Filling Head","status":"Relocated","sheet":"52-13","hasScope":true,"confirm":["Fills big bags (FIBC), bag sits on roller conveyors over a belt scale"],"info":["Big bag size (kg or m3)","Time to fill one bag","Time to change a bag (no bag present)","What happens when no empty bag is ready"],"hasNotes":true,"notesLines":2},{"num":"36","name":"Motorised Roller Conveyors 1 to 4","status":"Relocated","sheet":"52-13","hasScope":true,"confirm":["Four variable-speed roller conveyors carrying the big bag through the filling station"],"info":["Whether these need modelling, or are just bag handling after filling"],"hasNotes":true,"notesLines":2},{"num":"37","name":"Inline Belt Scale (Big Bag Line)","status":"Relocated","sheet":"52-13","hasScope":true,"confirm":["Weighs the big bag within the roller conveyor run"],"info":["What it is used for (check weight, batch control)"],"hasNotes":true,"notesLines":2},{"num":"38","name":"Flexicon Line 2 Main Field Supply","status":"Relocated (electrical panel)","sheet":"52-13","hasScope":true,"confirm":["Electrical supply panel, not process equipment"],"info":["Confirm this is out of scope for the demo"],"hasNotes":true,"notesLines":2}],"questions":[],"static":[]},{"id":"bagging-sheet-52-14","title":"Bagging (sheet 52-14)","kind":"machines","machines":[{"num":"39","name":"Concetti Pre-Bin","status":"New","sheet":"52-14","hasScope":true,"confirm":["Working volume around 0.72 m3, feeds the bagging scale"],"info":["Confirm working volume (m3)","Level instruments and set points"],"hasNotes":true,"notesLines":2},{"num":"40","name":"Concetti Bagging Scale","status":"New","sheet":"52-14","hasScope":true,"confirm":["Around 12 t/h, believed to be the slowest point on the line"],"info":["Confirmed sustained rate (t/h)","Bag size (kg) and time to fill one bag"],"hasNotes":true,"notesLines":2},{"num":"41","name":"Concetti Filling and Sewing","status":"New","sheet":"52-14","hasScope":true,"confirm":["Fills and sews the bags"],"info":["Time per bag, and behaviour when no empty bag is ready"],"hasNotes":true,"notesLines":2},{"num":"42","name":"Inline Weigher Conveyor","status":"Existing or relocated","sheet":"52-14","hasScope":true,"confirm":["Carries the filled bag across the checkweigher"],"info":["Whether anything past the filler needs modelling beyond a bag count"],"hasNotes":true,"notesLines":2},{"num":"43","name":"Inline Belt Scale (Checkweigher)","status":"Existing or relocated","sheet":"52-14","hasScope":true,"confirm":["Check-weighs each filled bag"],"info":["What happens to an out-of-weight bag"],"hasNotes":true,"notesLines":2},{"num":"44","name":"Palletiser Conveyor 1","status":"Relocated","sheet":"52-14","hasScope":true,"confirm":[],"info":["Bag handling only, or anything that could back up to the filler"],"hasNotes":true,"notesLines":1},{"num":"45","name":"Palletiser Conveyor 2","status":"Relocated","sheet":"52-14","hasScope":true,"confirm":[],"info":["Bag handling only, or anything that could back up to the filler"],"hasNotes":true,"notesLines":1},{"num":"46","name":"Pallet Index Conveyor 1","status":"Relocated","sheet":"52-14","hasScope":true,"confirm":[],"info":["Bag or pallet handling only"],"hasNotes":true,"notesLines":1},{"num":"47","name":"Pallet Index Conveyor 2","status":"Relocated","sheet":"52-14","hasScope":true,"confirm":[],"info":["Bag or pallet handling only"],"hasNotes":true,"notesLines":1},{"num":"48","name":"Concetti Palletiser 2","status":"Relocated","sheet":"52-14","hasScope":true,"confirm":["Stacks filled bags onto pallets"],"info":["Bags per pallet and pallet rate (pallets per hour)","Whether the model should end at the bagging scale and treat everything after as a count"],"hasNotes":true,"notesLines":1},{"num":"49","name":"Incline Roller Conveyor 1","status":"Relocated","sheet":"52-14","hasScope":true,"confirm":[],"info":["Pallet handling only"],"hasNotes":true,"notesLines":1},{"num":"50","name":"Incline Roller Conveyor 2","status":"Relocated","sheet":"52-14","hasScope":true,"confirm":[],"info":["Pallet handling only"],"hasNotes":true,"notesLines":1},{"num":"51","name":"Decline Roller Conveyor 1","status":"Relocated","sheet":"52-14","hasScope":true,"confirm":[],"info":["Pallet handling only"],"hasNotes":true,"notesLines":1},{"num":"52","name":"Decline Roller Conveyor 2","status":"Relocated","sheet":"52-14","hasScope":true,"confirm":[],"info":["Pallet handling only"],"hasNotes":true,"notesLines":1},{"num":"53","name":"Pallet Magazine Conveyor 1","status":"Relocated","sheet":"52-14","hasScope":true,"confirm":["Supplies empty pallets to the palletiser"],"info":["Whether this matters to the model at all"],"hasNotes":true,"notesLines":1},{"num":"54","name":"Pallet Magazine Conveyor 2","status":"Relocated","sheet":"52-14","hasScope":true,"confirm":["Supplies empty pallets to the palletiser"],"info":["Whether this matters to the model at all"],"hasNotes":true,"notesLines":1},{"num":"55","name":"Concetti Bagging Line 2 Main Field Supply","status":"Existing (electrical panel)","sheet":"52-14","hasScope":true,"confirm":["Electrical supply panel, not process equipment"],"info":["Confirm this is out of scope for the demo"],"hasNotes":true,"notesLines":1}],"questions":[],"static":[]},{"id":"line-wide-questions","title":"Line-wide questions","kind":"questions","machines":[],"questions":["Interlocks: when a bin reaches a high level, or a machine trips, which upstream equipment stops, in what order, and after how long? Is there a cause-and-effect list we can have?","Conveyor ramp times: how long does each variable-speed conveyor take to speed up and slow down? Which equipment stops almost instantly (direct-on-line)?","Control response: is there a typical delay between a sensor reading and the equipment reacting (controller scan, network) that is worth allowing for?","High-high level switches: where are these actually fitted along the line?","Start-up sequence: how long does the siren sound before motion, and in what order does the line start up?","Routing: at the top conveyor, what decides which of the three branches runs?","Where removed metal, samples, and rejects go, for each take-off point along the line.","Where the outload metal bins discharge (truck loadout), and how that is controlled."],"static":[]},{"id":"open-decisions-for-the-model","title":"Open decisions (for the model)","kind":"questions","machines":[],"questions":["Where to truncate the model: a likely start is the feed into the treating area, and likely end points are the bag and bin level counts. Confirm against the answers.","Whether to represent the chemical and formulation input as a flowing stream or as a simple on/off state on the treater.","Whether to show the waste water and dust extraction networks, or leave them out.","Default value to plot on the shared chart for each machine (throughput or fill level)."],"static":[]},{"id":"after-the-meeting","title":"After the meeting","kind":"static","machines":[],"questions":[],"static":["Move confirmed answers from this sheet into:","docs/REAL_LINE_SPECS.md (the durable record of the line)","src/line/lineData.js (the machine names, parameters, and connections that drive the demo)"]}]};</script>
+<script>const STORE_KEY = "treaterWorksheet:" + location.pathname;
+const app = document.getElementById("app");
+const el = (tag, props, kids) => {
+  const n = document.createElement(tag);
+  if (props) for (const k in props) {
+    if (k === "class") n.className = props[k];
+    else if (k === "text") n.textContent = props[k];
+    else n.setAttribute(k, props[k]);
+  }
+  if (kids) (Array.isArray(kids) ? kids : [kids]).forEach(c => c && n.appendChild(c));
+  return n;
+};
+const fields = [];
+
+function addField(id, kind) { fields.push({ id: id, kind: kind }); }
+
+function render() {
+  const intro = el("div", { class: "intro" });
+  data.intro.forEach(function (b) {
+    if (b.t === "li") intro.appendChild(el("div", { class: "intro-li", text: "• " + b.text }));
+    else intro.appendChild(el("p", { text: b.text }));
+  });
+  app.appendChild(intro);
+
+  data.sections.forEach(function (s) {
+    const sec = el("section", { id: s.id, class: "sec" });
+    sec.appendChild(el("h2", { text: s.title }));
+    if (s.kind === "static") {
+      const ul = el("ul", { class: "static" });
+      s.static.forEach(function (t) { ul.appendChild(el("li", { text: t })); });
+      sec.appendChild(ul);
+    } else if (s.kind === "questions") {
+      s.questions.forEach(function (q, i) {
+        const id = "q_" + s.id + "_" + i;
+        const card = el("div", { class: "qcard" });
+        card.appendChild(el("label", { class: "qlabel", text: q }));
+        const ta = el("textarea", { id: id, rows: "2", placeholder: "answer / notes" });
+        addField(id, "text");
+        card.appendChild(ta);
+        sec.appendChild(card);
+      });
+    } else {
+      s.machines.forEach(function (m) { sec.appendChild(machineCard(m)); });
+    }
+    app.appendChild(sec);
+  });
+}
+
+function machineCard(m) {
+  const card = el("div", { class: "machine" });
+  card.appendChild(el("h3", { text: m.num + ". " + m.name }));
+  const meta = [];
+  if (m.status) meta.push("Status: " + m.status);
+  if (m.sheet) meta.push("Sheet: " + m.sheet);
+  if (meta.length) card.appendChild(el("div", { class: "meta", text: meta.join("   \u00b7   ") }));
+
+  if (m.hasScope) {
+    const id = "m" + m.num + "_scope";
+    const wrap = el("div", { class: "scope" });
+    wrap.appendChild(el("span", { class: "scope-q", text: "Part of this line?" }));
+    ["Yes", "No"].forEach(function (v) {
+      const lab = el("label", { class: "pill" });
+      const r = el("input", { type: "radio", name: id, value: v.toLowerCase() });
+      lab.appendChild(r);
+      lab.appendChild(el("span", { text: v }));
+      wrap.appendChild(lab);
+    });
+    addField(id, "radio");
+    card.appendChild(wrap);
+  }
+
+  if (m.confirm.length) {
+    card.appendChild(el("div", { class: "subh", text: "Confirm or correct" }));
+    m.confirm.forEach(function (t, i) {
+      const id = "m" + m.num + "_c" + i;
+      const row = el("label", { class: "check" });
+      row.appendChild(el("input", { type: "checkbox", id: id }));
+      row.appendChild(el("span", { text: t }));
+      addField(id, "check");
+      card.appendChild(row);
+    });
+  }
+
+  if (m.info.length) {
+    card.appendChild(el("div", { class: "subh", text: "Information required" }));
+    m.info.forEach(function (t, i) {
+      const id = "m" + m.num + "_i" + i;
+      const row = el("div", { class: "field" });
+      row.appendChild(el("label", { class: "flabel", for: id, text: t }));
+      row.appendChild(el("input", { type: "text", id: id, placeholder: "type here" }));
+      addField(id, "text");
+      card.appendChild(row);
+    });
+  }
+
+  if (m.hasNotes) {
+    const id = "m" + m.num + "_notes";
+    card.appendChild(el("div", { class: "subh", text: "Notes" }));
+    const ta = el("textarea", { id: id, rows: "2", placeholder: "notes" });
+    addField(id, "text");
+    card.appendChild(ta);
+  }
+  return card;
+}
+
+function getVal(f) {
+  if (f.kind === "check") { const n = document.getElementById(f.id); return n ? n.checked : false; }
+  if (f.kind === "radio") { const n = document.querySelector("input[name=\"" + f.id + "\"]:checked"); return n ? n.value : ""; }
+  const n = document.getElementById(f.id); return n ? n.value : "";
+}
+function setVal(f, v) {
+  if (f.kind === "check") { const n = document.getElementById(f.id); if (n) n.checked = !!v; return; }
+  if (f.kind === "radio") { const n = document.querySelector("input[name=\"" + f.id + "\"][value=\"" + v + "\"]"); if (n) n.checked = true; return; }
+  const n = document.getElementById(f.id); if (n) n.value = v;
+}
+
+let saveTimer = null;
+function save() {
+  const out = {};
+  fields.forEach(function (f) { const v = getVal(f); if (v !== "" && v !== false) out[f.id] = v; });
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(out)); } catch (e) {}
+  const s = document.getElementById("status");
+  const d = new Date();
+  const pad = function (x) { return (x < 10 ? "0" : "") + x; };
+  s.textContent = "Saved " + pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+  updateProgress();
+}
+function queueSave() { clearTimeout(saveTimer); saveTimer = setTimeout(save, 250); }
+function restore() {
+  let stored = {};
+  try { stored = JSON.parse(localStorage.getItem(STORE_KEY) || "{}"); } catch (e) {}
+  fields.forEach(function (f) { if (f.id in stored) setVal(f, stored[f.id]); });
+  updateProgress();
+}
+function updateProgress() {
+  let filled = 0;
+  fields.forEach(function (f) { const v = getVal(f); if (v !== "" && v !== false) filled += 1; });
+  document.getElementById("progress").textContent = filled + " / " + fields.length + " fields filled";
+}
+
+function exportMd() {
+  const L = [];
+  L.push("# " + data.title);
+  L.push("");
+  data.sections.forEach(function (s) {
+    L.push("## " + s.title);
+    if (s.kind === "static") { s.static.forEach(function (t) { L.push("- " + t); }); L.push(""); return; }
+    if (s.kind === "questions") {
+      s.questions.forEach(function (q, i) {
+        L.push("- " + q);
+        const v = getVal({ id: "q_" + s.id + "_" + i, kind: "text" });
+        L.push("  Answer: " + (v || ""));
+      });
+      L.push("");
+      return;
+    }
+    s.machines.forEach(function (m) {
+      L.push("### " + m.num + ". " + m.name);
+      const meta = [];
+      if (m.status) meta.push("Status: " + m.status);
+      if (m.sheet) meta.push("Sheet: " + m.sheet);
+      if (meta.length) L.push(meta.join("     "));
+      if (m.hasScope) { const v = getVal({ id: "m" + m.num + "_scope", kind: "radio" }); L.push("Part of this line? " + (v ? (v === "yes" ? "Yes" : "No") : "(unanswered)")); }
+      if (m.confirm.length) {
+        L.push("Confirm or correct:");
+        m.confirm.forEach(function (t, i) { const c = getVal({ id: "m" + m.num + "_c" + i, kind: "check" }); L.push("- [" + (c ? "x" : " ") + "] " + t); });
+      }
+      if (m.info.length) {
+        L.push("Information required:");
+        m.info.forEach(function (t, i) { const v = getVal({ id: "m" + m.num + "_i" + i, kind: "text" }); L.push("- " + t + ": " + (v || "")); });
+      }
+      if (m.hasNotes) {
+        const v = getVal({ id: "m" + m.num + "_notes", kind: "text" });
+        L.push("Notes:");
+        (v ? v.split(/\n/) : [""]).forEach(function (ln) { L.push("> " + ln); });
+      }
+      L.push("");
+    });
+  });
+  const blob = new Blob([L.join("\n")], { type: "text/markdown" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  const d = new Date();
+  const pad = function (x) { return (x < 10 ? "0" : "") + x; };
+  a.download = "treater-line2-filled-" + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + ".md";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+
+function buildNav() {
+  const sel = document.getElementById("nav");
+  data.sections.forEach(function (s) {
+    const o = document.createElement("option"); o.value = s.id; o.textContent = s.title; sel.appendChild(o);
+  });
+  sel.addEventListener("change", function () { const t = document.getElementById(sel.value); if (t) t.scrollIntoView({ behavior: "smooth" }); });
+}
+
+render();
+buildNav();
+restore();
+document.addEventListener("input", queueSave);
+document.addEventListener("change", queueSave);
+document.getElementById("export").addEventListener("click", exportMd);
+document.getElementById("print").addEventListener("click", function () { window.print(); });</script>
+</body>
+</html>
