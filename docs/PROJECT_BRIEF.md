@@ -138,6 +138,7 @@ These are in `src/GrainFlowSim.jsx` today and should be **lifted, not rewritten*
 
 ## 7. Open questions (deferred, not blocking)
 
+- Engineer walkthrough prep is now captured as a fillable, machine-by-machine form at `docs/TREATER_LINE2_WORKSHEET.md` (drawing facts to confirm + metrics to find out, one block per machine). Drawing facts and per-machine questions were removed from the app (`lineData.js` / `MachinePopup.jsx`) so the doc is their only home.
 - Engineer meeting outcomes (2026-06-16) — per-machine behaviour, confirmed motor ratings, resolution of [MED]/[LOW] items in `docs/REAL_LINE_SPECS.md` §12. Ask user at start of next session.
 - Default time-series metric for the shared chart (throughput vs fill level).
 - Whether mass must be tracked independently once the treater adds chemical (composition changes but the primary unit is still volume for belt physics).

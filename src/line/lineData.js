@@ -40,8 +40,6 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out", "waste"] },
       anchors: { in: { x: 0, y: 25 }, out: { x: 45, y: 50 }, waste: { x: 90, y: 40 } },
       labelAt: { x: 110, y: 14 },
-      specs: [["role", "removes tramp metal before the buffer bin"]],
-      questions: ["Real tag?", "Where does removed metal go?"],
     },
     {
       id: "metalRejectStub1",
@@ -68,12 +66,6 @@ export const line = {
       instruments: ["LT"],
       labelAt: { x: -6, y: -16 },
       params: [{ id: "level", label: "start level", min: 0, max: 100, value: 55, unit: "%" }],
-      specs: [
-        ["volume", "~7.7 m³ (~5.5 t) · LOW confidence read"],
-        ["extras", "start-up area siren · bin level indication"],
-        ["full name", "Treater Intermediary Buffer Bin"],
-      ],
-      questions: ["Confirm volume.", "Confirm level instrumentation (LT or switches?)."],
     },
     {
       id: "treatDrumFeeder",
@@ -87,8 +79,6 @@ export const line = {
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 36 } },
       labelAt: { x: -160, y: 24 },
       params: [{ id: "rate", label: "feed rate", min: 0, max: 30, value: 20, unit: "t/h" }],
-      specs: [["rate", "20 t/h"]],
-      questions: ["Metering behaviour: how do the two opening positions work?"],
     },
     {
       id: "treatingElevator",
@@ -104,12 +94,6 @@ export const line = {
       instruments: ["ST"],
       labelAt: { x: 200, y: -14 },
       params: [{ id: "speed", label: "speed", min: 0, max: 100, value: 100, unit: "%" }],
-      specs: [
-        ["model", "Simatek E200 pendulum · 20 t/h"],
-        ["buckets", "~176 × 20.5 L · chain ~105 m @ 10.08 m/min"],
-        ["height", "~8731 mm · LOW confidence read"],
-      ],
-      questions: ["Real tag?", "Confirm bucket count / chain length (screenshot read)."],
     },
     {
       id: "treaterPreBin",
@@ -123,8 +107,6 @@ export const line = {
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 100 } },
       fill: 0.4,
       labelAt: { x: -10, y: -16 },
-      specs: [["volume", "~1.62 m³ · LOW confidence read"]],
-      questions: ["Confirm volume.", "Batch-feed logic into the treater?"],
     },
     {
       id: "batchTreater",
@@ -143,17 +125,6 @@ export const line = {
       },
       labelAt: { x: -160, y: 75 },
       params: [{ id: "batchRate", label: "treat rate", min: 4, max: 18, value: 18, unit: "t/h" }],
-      specs: [
-        ["type", "batch treater · ~4-18 t/h"],
-        ["chemical", "from Formulation, sheet 52-15"],
-        ["future", "powder dosing station (dashed on drawing)"],
-        ["waste", "waste water to IBC tank"],
-      ],
-      questions: [
-        "Batch size and cycle time (fill / treat / discharge)?",
-        "What happens when downstream blocks mid-batch?",
-        "Does treatment change bulk density?",
-      ],
     },
     {
       id: "chemStub",
@@ -178,7 +149,6 @@ export const line = {
       anchors: { in: { x: 30, y: 0 } },
       smallLabel: true,
       labelAt: { x: 70, y: 28 },
-      questions: ["How is it emptied / how often?"],
     },
     {
       id: "treaterAfterBin",
@@ -192,8 +162,6 @@ export const line = {
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 80 } },
       fill: 0.3,
       labelAt: { x: -150, y: 30 },
-      specs: [["volume", "~0.67 m³ · LOW confidence read"]],
-      questions: ["Confirm volume (smooths batch discharge into continuous flow?)."],
     },
     {
       id: "scalpingScreen",
@@ -207,8 +175,6 @@ export const line = {
       anchors: { in: { x: 30, y: 0 }, out: { x: 140, y: 35 }, waste: { x: 70, y: 70 } },
       labelAt: { x: -210, y: 40 },
       params: [{ id: "wasteFrac", label: "scalpings split", min: 0, max: 20, value: 3, unit: "%" }],
-      specs: [["capacity", "~64.4 t/h · LOW confidence read"]],
-      questions: ["Typical scalpings fraction?", "Meaning of the 64.4 t/h figure?"],
     },
     {
       id: "discardBin",
@@ -222,7 +188,6 @@ export const line = {
       anchors: { in: { x: 50, y: 0 } },
       fill: 0.2,
       labelAt: { x: 0, y: 106 },
-      questions: ["How is it emptied?"],
     },
 
     // ============ PACKAGING & OUTLOAD (sheet 52-13) ============
@@ -237,7 +202,6 @@ export const line = {
       ports: { inputs: [], outputs: ["out"] },
       anchors: { out: { x: 60, y: 80 } },
       labelAt: { x: 0, y: -14 },
-      questions: ["Operational role: returned boxed seed re-entering the line? Frequency?"],
     },
     {
       id: "inletDrumFeeder1",
@@ -251,8 +215,6 @@ export const line = {
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 36 } },
       labelAt: { x: -160, y: 24 },
       params: [{ id: "rate", label: "feed rate", min: 0, max: 30, value: 20, unit: "t/h" }],
-      specs: [["rate", "20 t/h · 0.15 kW · MX drive"], ["controls", "2 opening positions (XV4/XV5) · empty cycle (XS4)"]],
-      questions: ["Which feeder takes the Pro Box line vs the scalping screen line?"],
     },
     {
       id: "inletDrumFeeder2",
@@ -266,7 +228,6 @@ export const line = {
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 36 } },
       labelAt: { x: 90, y: 24 },
       params: [{ id: "rate", label: "feed rate", min: 0, max: 30, value: 20, unit: "t/h" }],
-      specs: [["rate", "20 t/h · 0.15 kW · MX drive"]],
     },
     {
       id: "liftConveyor",
@@ -280,11 +241,6 @@ export const line = {
       anchors: { in1: { x: 30, y: 0 }, in2: { x: 160, y: 0 }, out: { x: 215, y: 8 } },
       instruments: ["LSH"],
       labelAt: { x: 0, y: 64 },
-      specs: [
-        ["motor", "4.0 kW · MX drive"],
-        ["extras", "safe start alarm (XA0) + start-up area siren"],
-      ],
-      questions: ["Confirm routing: drum feeders â†’ 52.604.E00 â†’ top conveyor (the one MED-confidence edge)."],
     },
     {
       id: "topConveyor",
@@ -303,11 +259,6 @@ export const line = {
       },
       labelAt: { x: 560, y: -14 },
       params: [{ id: "speed", label: "speed", min: 0, max: 100, value: 100, unit: "%" }],
-      specs: [["distribution", "3 branches: outload bins · big bag · Concetti"]],
-      questions: [
-        "Tag mapping unresolved (52.605.X00?): confirm.",
-        "Are the three branches simultaneous or selected? What decides routing?",
-      ],
     },
     {
       id: "outloadBufferBin",
@@ -321,8 +272,6 @@ export const line = {
       anchors: { in: { x: 30, y: 0 }, out: { x: 65, y: 145 } },
       fill: 0.62,
       labelAt: { x: -190, y: 30 },
-      specs: [["outlet valve", "52.701.V00 (relocated)"]],
-      questions: ["Confirm volume (not stated on sheet 52-13)."],
     },
     {
       id: "packagingElevator",
@@ -338,17 +287,6 @@ export const line = {
       instruments: ["ST"],
       labelAt: { x: 30, y: 296 },
       params: [{ id: "speed", label: "speed", min: 0, max: 100, value: 100, unit: "%" }],
-      specs: [
-        ["model", "Simatek E200 pendulum · 20 t/h"],
-        ["motor", "5,0 kW · MX (ethernet start)"],
-        ["buckets", "196 × 20.5 L · chain 120 m @ 10.08 m/min"],
-        ["output @70% fill", "20.84 t/h · 347 kg/min"],
-        ["instruments", "SS, ST, PSL, ZS12 + 2 LCPs"],
-      ],
-      questions: [
-        "Resolve density inconsistency in the output table (implies 1.47 kg/L).",
-        "Spin-down time after stop?",
-      ],
     },
     {
       id: "grainBreak",
@@ -361,8 +299,6 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 24, y: 0 }, out: { x: 24, y: 36 } },
       labelAt: { x: -150, y: 8 },
-      specs: [["role", "cascade chute slowing falling grain"]],
-      questions: ["Pass-through only, or any holdup?"],
     },
     {
       id: "outloadDiverter",
@@ -376,8 +312,6 @@ export const line = {
       anchors: { in: { x: 16, y: 0 }, out1: { x: 8, y: 24 }, out2: { x: 32, y: 16 } },
       smallLabel: true,
       labelAt: { x: 44, y: -4 },
-      specs: [["feedback", "ZS1/ZS2 open-close · XV0 pneumatic"]],
-      questions: ["Is routing one diverter, or V00 + V01 in series?"],
     },
     {
       id: "metalBin1",
@@ -392,7 +326,6 @@ export const line = {
       fill: 0.35,
       instruments: ["LT"],
       labelAt: { x: 0, y: 198 },
-      questions: ["Where does it discharge (truck loadout)?"],
     },
     {
       id: "dischargeStub1",
@@ -418,7 +351,6 @@ export const line = {
       fill: 0.12,
       instruments: ["LT"],
       labelAt: { x: 0, y: 198 },
-      questions: ["Where does it discharge (truck loadout)?"],
     },
     {
       id: "dischargeStub2",
@@ -443,7 +375,6 @@ export const line = {
       anchors: { in: { x: 30, y: 0 }, out: { x: 30, y: 36 } },
       smallLabel: true,
       labelAt: { x: -180, y: 40 },
-      questions: ["Pass-through (assume yes)?"],
     },
     {
       id: "binSegment",
@@ -458,11 +389,6 @@ export const line = {
       fill: 0.7,
       instruments: ["LT"],
       labelAt: { x: -15, y: -16 },
-      specs: [
-        ["volume", "4.51 m³ (3.25 t)"],
-        ["extras", "pneumatic hammers (rev L)"],
-      ],
-      questions: ["Tag mapping: 52.610.H00 or 52.612.H00?"],
     },
     {
       id: "flexiconPreBin",
@@ -477,7 +403,6 @@ export const line = {
       fill: 0.45,
       instruments: ["LSH", "LSL"],
       labelAt: { x: 120, y: 55 },
-      questions: ["Is 52.610.H00 (LSH+LSL) this bin or the bin segment?"],
     },
     {
       id: "vibratingConveyor",
@@ -490,8 +415,6 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 110, y: 30 } },
       labelAt: { x: -188, y: 2 },
-      specs: [["drive", "MDOL (direct-on-line, no ramp)"]],
-      questions: ["Confirm tag mapping (52.703.L00?)."],
     },
     {
       id: "flexiconFillingHead",
@@ -504,7 +427,6 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 70 } },
       labelAt: { x: 105, y: 30 },
-      questions: ["Big bag size (m³/kg)?", "Fill time and bag-change time?"],
     },
     {
       id: "rollerScale",
@@ -517,7 +439,6 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 90, y: 0 }, out: { x: 170, y: 13 } },
       labelAt: { x: 0, y: 46 },
-      specs: [["drives", "C00-C03 all VFD · scale 52.704.K00"]],
     },
     {
       id: "bigBagStub",
@@ -554,7 +475,6 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out", "waste"] },
       anchors: { in: { x: 30, y: 0 }, out: { x: 30, y: 46 }, waste: { x: 60, y: 23 } },
       labelAt: { x: -230, y: 30 },
-      questions: ["Real tag (sheet 52-14 references it)?"],
     },
     {
       id: "metalRejectStub2",
@@ -581,8 +501,6 @@ export const line = {
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 90 } },
       fill: 0.5,
       labelAt: { x: 110, y: 30 },
-      specs: [["volume", "~0.72 m³ · LOW confidence read"]],
-      questions: ["Confirm volume."],
     },
     {
       id: "concettiScale",
@@ -596,8 +514,6 @@ export const line = {
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 46 } },
       labelAt: { x: -220, y: 30 },
       params: [{ id: "rate", label: "bagging rate", min: 0, max: 15, value: 12, unit: "t/h" }],
-      specs: [["rate", "~12 t/h · LOW confidence read · the line's choke point"]],
-      questions: ["Confirm sustained t/h.", "Bag size?"],
     },
     {
       id: "concettiFiller",
@@ -610,7 +526,6 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 50, y: 0 }, out: { x: 50, y: 70 } },
       labelAt: { x: 115, y: 35 },
-      specs: [["line", "Concetti Bagging Line 2"]],
     },
     {
       id: "palletising",
@@ -623,11 +538,6 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 70, y: 0 }, out: { x: 70, y: 80 } },
       labelAt: { x: -260, y: 40 },
-      specs: [
-        ["contains", "inline weigher · palletiser conveyors · Concetti Palletiser 2"],
-        ["also", "incline/decline rollers · pallet magazines"],
-      ],
-      questions: ["Anything here worth modelling beyond a bag counter?"],
     },
     {
       id: "palletStub",
