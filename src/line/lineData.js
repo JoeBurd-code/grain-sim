@@ -1,6 +1,11 @@
 // Hand-authored line definition for the real Treater Line 2.
-// Authored from docs/REAL_LINE_SPECS.md; corrections from the engineer
-// meeting are edits to this file, never to components.
+// Authored from docs/REAL_LINE_SPECS.md; corrections are edits to this
+// file, never to components. Engineer worksheet answers (2026-06-30)
+// merged for confirmed-certain values only: bin level switches, drum
+// feeder 2-20 t/h ranges, treater 14.4 t/h batch rate, and the now-
+// confirmed lift -> top-conveyor routing. Out-of-scope decisions
+// (chemical stream, waste-water IBC, Concetti metal remover) left as-is
+// pending sign-off; see REAL_LINE_SPECS.md §12.
 //
 // Coordinates are world units, side elevation, gravity-true: grain falls
 // down the screen, elevators climb, what catches sits below what drops.
@@ -63,7 +68,7 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 45, y: 0 }, out: { x: 85, y: 190 } },
       fill: 0.55,
-      instruments: ["LT"],
+      instruments: ["LT", "LSH", "LSL"],
       labelAt: { x: -6, y: -16 },
       params: [{ id: "level", label: "start level", min: 0, max: 100, value: 55, unit: "%" }],
     },
@@ -78,7 +83,7 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 36 } },
       labelAt: { x: -160, y: 24 },
-      params: [{ id: "rate", label: "feed rate", min: 0, max: 30, value: 20, unit: "t/h" }],
+      params: [{ id: "rate", label: "feed rate", min: 2, max: 20, value: 12, unit: "t/h" }],
     },
     {
       id: "treatingElevator",
@@ -106,6 +111,7 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 100 } },
       fill: 0.4,
+      instruments: ["LSH", "LSL"],
       labelAt: { x: -10, y: -16 },
     },
     {
@@ -124,7 +130,8 @@ export const line = {
         wasteOut: { x: 100, y: 110 },
       },
       labelAt: { x: -160, y: 75 },
-      params: [{ id: "batchRate", label: "treat rate", min: 4, max: 18, value: 18, unit: "t/h" }],
+      // Confirmed 2026-06-30: batch = 160 kg every ~40 s ≈ 14.4 t/h; line bottleneck.
+      params: [{ id: "batchRate", label: "treat rate", min: 4, max: 18, value: 14.4, unit: "t/h" }],
     },
     {
       id: "chemStub",
@@ -161,6 +168,7 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 80 } },
       fill: 0.3,
+      instruments: ["LSH", "LSL"],
       labelAt: { x: -150, y: 30 },
     },
     {
@@ -214,7 +222,7 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 36 } },
       labelAt: { x: -160, y: 24 },
-      params: [{ id: "rate", label: "feed rate", min: 0, max: 30, value: 20, unit: "t/h" }],
+      params: [{ id: "rate", label: "feed rate", min: 2, max: 20, value: 12, unit: "t/h" }],
     },
     {
       id: "inletDrumFeeder2",
@@ -227,7 +235,7 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 36 } },
       labelAt: { x: 90, y: 24 },
-      params: [{ id: "rate", label: "feed rate", min: 0, max: 30, value: 20, unit: "t/h" }],
+      params: [{ id: "rate", label: "feed rate", min: 2, max: 20, value: 12, unit: "t/h" }],
     },
     {
       id: "liftConveyor",
@@ -271,6 +279,7 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 30, y: 0 }, out: { x: 65, y: 145 } },
       fill: 0.62,
+      instruments: ["LSH", "LSL"],
       labelAt: { x: -190, y: 30 },
     },
     {
@@ -572,7 +581,7 @@ export const line = {
     { from: { machine: "proBoxStation", port: "out" }, to: { machine: "inletDrumFeeder1", port: "in" }, kind: "product" },
     { from: { machine: "inletDrumFeeder1", port: "out" }, to: { machine: "liftConveyor", port: "in1" }, kind: "product" },
     { from: { machine: "inletDrumFeeder2", port: "out" }, to: { machine: "liftConveyor", port: "in2" }, kind: "product" },
-    { from: { machine: "liftConveyor", port: "out" }, to: { machine: "topConveyor", port: "in" }, kind: "product", tbc: true, via: [{ x: 1440, y: 808 }, { x: 1440, y: 166 }] },
+    { from: { machine: "liftConveyor", port: "out" }, to: { machine: "topConveyor", port: "in" }, kind: "product", via: [{ x: 1440, y: 808 }, { x: 1440, y: 166 }] },
     // branch B: outload metal bins
     { from: { machine: "topConveyor", port: "outBuffer" }, to: { machine: "outloadBufferBin", port: "in" }, kind: "product" },
     { from: { machine: "outloadBufferBin", port: "out" }, to: { machine: "packagingElevator", port: "in" }, kind: "product" },
