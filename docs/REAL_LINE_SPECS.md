@@ -4,12 +4,30 @@
 > engineering drawings on 2026-06-12. A new session should read this instead of
 > re-reading the PDF/screenshots. Confidence flags are inline: **[HIGH]** = read
 > directly off the drawing, **[MED]** = inferred from layout/tag sequence, **[LOW]** =
-> small print at the edge of legibility or guessed. Everything marked [MED]/[LOW] and
-> everything in §12 was agenda material for the engineer meeting (2026-06-16).
+> small print at the edge of legibility or guessed. **[CONFIRMED 2026-06-30]** = the
+> engineer answered this on the returned worksheet (see below); it overrides any
+> earlier confidence flag.
 >
-> **Engineer meeting happened 2026-06-16.** Outcomes not yet recorded here — start
-> the next session by asking the user what was confirmed, corrected, or deferred.
-> Until then, all [MED]/[LOW] items remain unconfirmed.
+> **Engineer answers received 2026-06-30.** The engineer filled and returned the
+> confirmation worksheet (`docs/treater-line2-filled-20260630 (1) (1).md`). Confirmed
+> answers are merged into the sections below and tagged **[CONFIRMED 2026-06-30]**.
+> Items the engineer left blank or deferred remain open and are listed in §12. This
+> was a returned worksheet, not a live meeting; several answers point to follow-ups
+> (supplier data, a spreadsheet of feeder rates, and 4 unseen drawing sheets).
+>
+> **Headline corrections from the 2026-06-30 answers (read these first):**
+> - **Sustained line rate is ~12 t/h, not 20 t/h.** 20 t/h is equipment capacity. The
+>   **treater is the bottleneck**, not the Concetti bagging scale.
+> - **Treatment does NOT meaningfully change density or mass** ("slight but
+>   negligible"). The treater is a batch machine but is not a density/mass transformer
+>   for modelling. This reverses the §10 "density change: YES" conclusion.
+> - **Chemical/formulation input and the waste-water IBC are both out of demo scope**
+>   (client manages dosing; waste water is a ~monthly cleaning event, not per-batch).
+> - **Only one outload branch runs at a time** (A/B/C selected by operators), and only
+>   one of the two 52-13 drum feeders runs at a time into lift 52.604.E00.
+> - **Sim start point = the ~7.7 m³ buffer bin** (the engineer's "7T bin," after the 8
+>   yellow bins). Everything upstream (colour sorter, yellow bins) is out of the
+>   initial sim.
 >
 > **Vocabulary clarified 2026-06-17:**
 > - **IBC** = Intermediate Bulk Container (1000 L plastic cube in a metal cage on a
@@ -183,26 +201,27 @@ LSHH being the classic safety trip), **SS/ST** (machine actually running/speed),
 
 | Equipment | Tag | Status | Specs / instruments | Confidence |
 |---|---|---|---|---|
-| Simatek E200 Bucket Elevator (upstream, "CONTINUED") | 52.414.E00 | EXISTING, out of scope | 20 t/h. Note on sheet: all equipment before this is NOT in project scope, refer to "Line 2 Yellow Bin Upgrade Project" | [HIGH] |
-| Metal Remover | unknown | NEW | between upstream elevator and buffer bin | [HIGH presence, MED position] |
-| Treater Intermediary Buffer Bin | unknown | RELOCATED | ~7.7 m³ (~5.5 t?), bin level indication + **start-up area siren** | [MED, volume LOW] |
-| Inlet Drum Feeder (treating side) | unknown | NEW | 20 t/h | [HIGH] |
-| Simatek E200 Bucket Elevator - Treating | unknown | NEW | 20 t/h; spec block: 20.5 L/bucket, 10.08 m/min, **176 buckets, 105 m chain, 8731 mm height, 4584 mm lower horizontal** (upper horizontal cut off in screenshot) | [MED, numbers LOW] |
-| Treater Pre-Bin | unknown | NEW | ~1.62 m³ | [MED, volume LOW] |
-| **Niklas WNS/200 Batch Treater** | unknown | NEW | ~4-18 t/h. Chemical inlet **from Formulation, sheet 52-15**. Adjacent **Future Powder Dosing Station** (dashed/future) | [HIGH presence, rate LOW] |
-| Waste Water IBC Tank | unknown | | takes liquid waste off the treater area | [MED] |
-| Treater After-Bin | unknown | NEW | ~0.67 m³ (small surge bin smoothing batch discharge into continuous flow) | [MED, volume LOW] |
-| Treatment Scalping Screen | **52.602.F00** | | ~64.4 t/h(?). Product out to sheet 52-13; scalpings out to discard bin | [HIGH tag (cross-referenced on 52-13), rate LOW] |
-| Discard Scalpings Bin | unknown | | waste sink below/after scalping screen | [HIGH] |
+| Simatek E200 Bucket Elevator (upstream, "CONTINUED") | 52.414.E00 | EXISTING, out of scope | 20 t/h; hands ~12 t/h to the treating area. **Out of the initial sim** (engineer: "we do not need this in the initial flow simulator") | [CONFIRMED 2026-06-30] |
+| Metal Remover | unknown | NEW | **40 t/h** rating (oversized). PLC-controlled pneumatic magnet extraction, cleared ~weekly into a bucket. **Must pass straight through with zero holdup, or the magnets fail** | [CONFIRMED 2026-06-30] |
+| Treater Intermediary Buffer Bin ("7T bin") | unknown | RELOCATED | **7.7 m³ / 5.5 t confirmed.** High + low level transmitters + **continuous level (IO-Link)**. SCADA commands the yellow bins to discharge into it; yellow-bin pan feeders set to **12 t/h**; when it fills, the **yellow-bin outlet valve closes**. This is the **sim start point** | [CONFIRMED 2026-06-30] |
+| Inlet Drum Feeder (treating side) | unknown | NEW | **Range 2-20 t/h, but NOT proportional** — % opening only ("10% ≠ 10%; 40% could be ~12 t/h; settings need review"). 220 V single-phase, own local controller, remote via SCADA. **Starts once the bucket elevator is confirmed running** | [CONFIRMED 2026-06-30] |
+| Simatek E200 Bucket Elevator - Treating | unknown | NEW | 20.5 L/bucket, 10.08 m/min; ~176 buckets, ~105 m chain, ~8731 mm height, ~4584 mm lower horizontal (bucket count TBC by engineer). **Normal fill ~50%. Motor 1.5 kW with a VFD** (transport delay depends on speed; coast configurable) | [CONFIRMED 2026-06-30 for fill/motor; bucket geometry MED/LOW, count TBC] |
+| Treater Pre-Bin | unknown | NEW | 1.62 m³; **high + low level switches**. Feeds the batch treater continuously. **When full, the treating bucket elevator slows then stops** | [CONFIRMED 2026-06-30] |
+| **Niklas WNS/200 Batch Treater** | unknown | NEW | **Batch = 160 kg every ~40 s (≈14.4 t/h).** Batch phase breakdown (fill/treat/discharge) unknown, supplier question. Chemical dose changes density **negligibly**. Chemical inlet from Formulation (52-15) but **out of demo scope**. Adjacent **Future Powder Dosing Station** (dashed/future, left out) | [CONFIRMED 2026-06-30; phase timing OPEN] |
+| Waste Water IBC Tank | unknown | | Waste water produced **only during cleaning, ~1×/month** (not per-batch). **Out of demo scope** (engineer: "does not need to be shown") | [CONFIRMED 2026-06-30] |
+| Treater After-Bin | unknown | NEW | 0.67 m³; **low + high level switches**. Discharges when the high-level switch is healthy. **When full, the treater will not accept the next batch until the switch clears and seed moves through** (batch interlock) | [CONFIRMED 2026-06-30] |
+| Treatment Scalping Screen | **52.602.F00** | | **64.4 t/h = capacity, well oversized.** **16 mm aperture; only oversize (>16 mm) goes to waste** (waste fraction tiny). Overload → drive trips. Product out to 52-13; scalpings to discard bin | [CONFIRMED 2026-06-30] |
+| Discard Scalpings Bin | unknown | | Waste sink; emptied when full | [CONFIRMED 2026-06-30] |
 
 ### Flow (sheet 52-12)
 
-1. [Out-of-scope yellow-bin area] → 52.414.E00 elevator **[HIGH]**
-2. 52.414.E00 → Metal Remover → Treater Intermediary Buffer Bin **[HIGH]** (where removed metal goes: not captured)
+0. [8 yellow bins, out of scope] → each with a pan feeder set to 12 t/h, SCADA-commanded, feeding the buffer bin **[CONFIRMED 2026-06-30]**
+1. [Out-of-scope yellow-bin area] → 52.414.E00 elevator **[HIGH]** (out of the initial sim)
+2. 52.414.E00 → Metal Remover → Treater Intermediary Buffer Bin **[HIGH]** (removed metal → bucket, cleared ~weekly; pass-through, no holdup) **[CONFIRMED 2026-06-30]**
 3. Buffer bin → Inlet Drum Feeder → Treating Bucket Elevator (lifts back to top) **[MED, inferred from layout: red line runs from buffer bin down across the bottom through the feeder/elevator and up to the pre-bin]**
 4. Treating elevator → Treater Pre-Bin → Niklas WNS/200 Batch Treater **[HIGH]**
-5. Formulation (sheet 52-15) → chemical line → treater **[HIGH]**; Future Powder Dosing Station → treater **[FUTURE, dashed]**
-6. Treater → Waste water → IBC Tank **[MED]**
+5. Formulation (sheet 52-15) → chemical line → treater **[HIGH on sheet, but OUT OF DEMO SCOPE per engineer]**; Future Powder Dosing Station → treater **[FUTURE, dashed, left out]**
+6. Treater → Waste water → IBC Tank **[HIGH on sheet, but OUT OF DEMO SCOPE; ~monthly cleaning only]**
 7. Treater → Treater After-Bin **[HIGH]**
 8. After-bin → Treatment Scalping Screen 52.602.F00 **[MED-HIGH]**
 9. Scalping screen → scalpings (waste) → Discard Scalpings Bin **[HIGH]**
@@ -216,17 +235,17 @@ LSHH being the classic safety trip), **SS/ST** (machine actually running/speed),
 |---|---|---|---|---|
 | Inlet Drum Feeder 1 | 52.603.L00 | NEW | 20 t/h, 0.15 kW, .MX | [HIGH tag+kW, MED which-is-which vs L01] |
 | Inlet Drum Feeder 2 | 52.603.L01 | NEW | 20 t/h, 0.15 kW, .MX | [HIGH] |
-| Pro Box Unloading Station | unknown | NEW | feeds one drum feeder | [HIGH] |
-| Lift from drum feeders to top conveyor | 52.604.E00 | NEW | 4.0 kW .MX; **XA0 safe start alarm**, **LSH0**; associated **Start-up Area Siren** label mid-sheet; valves 52.604.V00/V01 (NEW) on its path | [HIGH tag/instr, **MED routing — the one edge to eyeball-confirm**] |
+| Pro Box Unloading Station | unknown | NEW | **Returns treated, stored seed to be re-bagged; ~1 day/month.** Feeds its own drum feeder (feeders are two independent units, one per branch) | [CONFIRMED 2026-06-30] |
+| Lift from drum feeders to top conveyor | 52.604.E00 | NEW | 4.0 kW (TBC) .MX, 20 t/h; **XA0 safe start alarm**, **LSH0**; associated **Start-up Area Siren**; valves 52.604.V00/V01. **Takes both drum feeders but only one runs at a time** — this confirms the previously MED routing edge | [CONFIRMED 2026-06-30] |
 | Top transport conveyor / metal remover group | 52.605.X00 | | top-left area. Sheet 52-14 entry says "FROM METAL REMOVER ... SHEET 52-13", so a metal remover sits on the Concetti branch; 52.605.X00 is the top-left equipment but the exact tag↔name pairing is unresolved | [LOW mapping] |
 | Simatek Pneumatic Outlet (left) + Auto Sampler | unknown | NEW | discharge → Concetti line | [HIGH] |
 | Simatek Pneumatic Outlet (right) + Auto Sampler | unknown | NEW | discharge → Bin Segment | [HIGH] |
 | Outload Buffer Bin | 52.701.H00 | NEW | valve 52.701.V00 (RELOCATED) | [HIGH] |
 | **Simatek E200 Bucket Elevator - Packaging** | 52.702.U00 | NEW | 5.0 kW .MX, 20 t/h; full spec block in §8; big instrument cluster (SS0, ST0, PSL0, ZS12, two LCPs, E-stops, pull-keys) | [HIGH] |
 | Conveyor at/after elevator | 52.702.C00 | | .MVFD ??kW | [HIGH tag, MED role] |
-| Grain Break | unknown | NEW | on elevator discharge path (cascade chute slowing falling grain) | [HIGH presence] |
+| Grain Break | unknown | NEW | on elevator discharge path (cascade chute slowing falling grain); **pass-through, no holdup** | [CONFIRMED 2026-06-30] |
 | Hopper + conveyor pair | 52.608.H00, 52.609.X00 (+52.609.V01 NEW) | NEW | role/position unresolved, likely on the top-conveyor distribution | [LOW mapping] |
-| Bin Segment | likely 52.610.H00 or 52.612.H00 (unresolved) | NEW | **4.51 m³ (3.25 t)**, LT0 level transmitter, **pneumatic hammers (rev L)**; gates 52.610.X00 / 52.612.X00 (XV0), valves 52.611.V00 / 52.612.V00 (ZS1/ZS2, XV0) sit in this column | [HIGH specs, LOW tag mapping] |
+| Bin Segment | likely 52.610.H00 or 52.612.H00 (unresolved) | NEW | **4.51 m³ (3.25 t) confirmed**, LT0 level transmitter, **pneumatic hammers (rev L)**; level set points trip the feed; **SCADA-triggered discharge**; gates 52.610.X00 / 52.612.X00 (XV0), valves 52.611.V00 / 52.612.V00 sit in this column | [CONFIRMED 2026-06-30 specs; LOW tag mapping] |
 | 52.610.H00 | 52.610.H00 | | has **LSH0 + LSL0** (could be the Bin Segment or the Flexicon Pre-Bin) | [LOW mapping] |
 | Treated Outload Metal Bin 1 | 52.613.H00 | NEW | LT0 level transmitter; fed via diverter valve 52.613.V00 (NEW, ZS1/ZS2, XV0) | [HIGH] |
 | Treated Outload Metal Bin 2 | 52.613.H01 | NEW | LT0 level transmitter; fed via diverter valve 52.613.V01 (NEW, ZS1/ZS2, XV0) | [HIGH] |
@@ -236,7 +255,9 @@ LSHH being the classic safety trip), **SS/ST** (machine actually running/speed),
 | Flexicon Line 2 Main Field Supply | unknown | RELOCATED | electrical supply panel, not process equipment | [HIGH] |
 | Motorised Roller Conveyors 1..4 | 52.704.C00..C03 | RELOCATED | all .MVFD ??kW; carry the big bag through the filling station | [HIGH] |
 | Inline Belt Scale | 52.704.K00 | RELOCATED | sits within the roller conveyor row (between conveyors 2 and 3 by layout) | [HIGH tag, MED position] |
-| Start-up Area Siren | tied to 52.604.E00 (XA0) | NEW | | [MED] |
+| Start-up Area Siren | tied to 52.604.E00 (XA0) | NEW | **Sounds 20 s before any motion**; covers any equipment in the area | [CONFIRMED 2026-06-30] |
+| Auto Samplers (Concetti + Big Bag branches) | unknown | NEW | **Pass-through, no holdup.** Sample taken ~every 3 hours / per QC team | [CONFIRMED 2026-06-30] |
+| Outload Diverter | 52.613.V00/V01 | NEW | **A single diverter; operators decide which of bin 1/2 is fed** | [CONFIRMED 2026-06-30] |
 
 Off-sheet references **[HIGH]**: in = "FROM TREATMENT SCALPING SCREEN 52.602.F00 -
 SHEET 52-12"; out = "TO CONCETTI BAGGING LINE 2 PRE-BIN 52.705.H00 - SHEET 52-14".
@@ -251,15 +272,15 @@ have two discrete opening positions, two actuators, and an empty-out cycle.
 Two infeeds converge, one distribution conveyor splits three ways:
 
 1. Scalping screen product (from 52-12) → Inlet Drum Feeder (one of 52.603.L00/L01) **[HIGH]**
-2. Pro Box Unloading Station → the other Inlet Drum Feeder **[HIGH]**
-3. Both drum feeders → 52.604.E00 (4 kW lift) → top transport conveyor **[MED — fits tag sequence, layout, and the 52.604.V00/V01 valves, but this is the single least-certain edge on the sheet]**
-4. Top conveyor, branch A (left): Simatek Pneumatic Outlet → Auto Sampler → metal remover → **Concetti Bagging Line 2 Pre-Bin 52.705.H00 (sheet 52-14)** **[HIGH]**
+2. Pro Box Unloading Station → the other Inlet Drum Feeder **[HIGH]** (feeders are two independent units, one per branch) **[CONFIRMED 2026-06-30]**
+3. Both drum feeders → 52.604.E00 (4 kW lift) → top transport conveyor. **Only one drum feeder runs at a time; they never run together** — this resolves the previously MED edge **[CONFIRMED 2026-06-30]**
+4. Top conveyor, branch A (left): Simatek Pneumatic Outlet → Auto Sampler → (metal remover: engineer marked this **not part of the line**, see §11) → **Concetti Bagging Line 2 Pre-Bin 52.705.H00 (sheet 52-14)** **[HIGH]**
 5. Top conveyor, branch B (middle): drop → Outload Buffer Bin 52.701.H00 (+52.701.V00) → Bucket Elevator 52.702.U00 → Grain Break → diverter valves 52.613.V00/V01 → **Treated Outload Metal Bins 1/2 (52.613.H00/H01)** **[HIGH, valve-level detail MED]**
 6. Top conveyor, branch C (right): Simatek Pneumatic Outlet → Auto Sampler → **Bin Segment (4.51 m³)** → Flexicon Pre-Bin → Vibrating Conveyor → **Flexicon Filling Head** → big bag riding Motorised Roller Conveyors 1..4 over the Inline Belt Scale 52.704.K00 **[HIGH chain, MED at the Bin-Segment→Pre-Bin joint]**
 7. Discharge of Metal Bins 1/2 (truck outload?) — **not shown / not captured** (§12)
 
-Whether the three branches run simultaneously or are selected one-at-a-time by
-diverters is **not determinable from the drawing** (§12).
+**The three branches run one at a time, selected by operators** (engineer: "only one
+at a time"). Resolves the former §12-Q2 open question. **[CONFIRMED 2026-06-30]**
 
 ## 7. Sheet 52-14 — Concetti Bagging Line 2 (from screenshot, no text layer)
 
@@ -268,7 +289,7 @@ diverters is **not determinable from the drawing** (§12).
 | Equipment | Tag | Status | Specs | Confidence |
 |---|---|---|---|---|
 | Concetti Bagging Line 2 Pre-Bin | 52.705.H00 | NEW | ~0.72 m³(?) | [HIGH tag, volume LOW] |
-| Concetti Bagging Line 2 Scale | unknown | | **~12 t/h** | [MED, rate LOW] |
+| Concetti Bagging Line 2 Scale | unknown | | ~12 t/h (rate unconfirmed on worksheet). **Note: no longer believed to be the line bottleneck — the treater is** | [MED, rate still OPEN] |
 | Concetti Bagging Line 2 Filling & Sewing | unknown | | fills + sews bags | [HIGH] |
 | Concetti Bagging Line 2 Main Field Supply | unknown | | electrical panel | [HIGH] |
 | Inline Belt Scale | unknown | | checkweigher after filling | [MED] |
@@ -308,7 +329,8 @@ vertical lift → upper horizontal), which is why they have horizontal run lengt
 | Height | 9157 mm | ~8731 mm |
 | Lower horizontal | 7084 mm | ~4584 mm |
 | Upper horizontal | 14846 mm | not captured (cut off) |
-| Motor | 5.0 kW, .MX | not captured |
+| Motor | 5.0 kW, .MX (fill to confirm, 50% normal) | **1.5 kW with VFD** [CONFIRMED 2026-06-30] |
+| Normal operating fill | **50%** [CONFIRMED 2026-06-30] | **50%** [CONFIRMED 2026-06-30] |
 
 Operating output table for 52.702.U00 (exact, at 100% speed / 50 Hz):
 
@@ -323,7 +345,7 @@ Derived figures (computed, not on drawing):
 - Full chain circuit: 120 m at 10.08 m/min ≈ **11.9 min**; treating elevator ≈ 10.4 min.
 - Carrying-side transit (roughly half the loop) ≈ **6 min** of pure transport lag.
 - Bucket pitch = 120 m / 196 ≈ 0.61 m; bucket pass rate = 10.08 / 0.61 ≈ 16.5 buckets/min.
-- Implied bulk density from the 70% row: 347.29 kg/min ÷ (16.5 buckets/min × 20.5 L × 0.70) ≈ **1.47 kg/L**?? That is implausibly high for seed (~0.6-0.8 kg/L), so either the table assumes a different bucket pass rate or density — **resolve with engineer** before trusting any derived density.
+- Implied bulk density from the 70% row: 347.29 kg/min ÷ (16.5 buckets/min × 20.5 L × 0.70) ≈ **1.47 kg/L**?? That is implausibly high for seed (~0.6-0.8 kg/L), so either the table assumes a different bucket pass rate or density. **Still unresolved as of 2026-06-30** — engineer deferred ("lets look at the table for this calculation") and gave no numeric maize density. Note the elevators actually run at **50% fill, not the 70% table row**. Follow-up needed.
 
 ## 9. End-to-end line summary (one paragraph)
 
@@ -340,15 +362,19 @@ line 2** (pre-bin → ~12 t/h scale → fill/sew → palletiser); (B) into the o
 bin, up the **packaging bucket elevator 52.702.U00**, through the grain break and
 diverters into **treated outload metal bins 1 and 2**; (C) through an auto sampler into
 the 4.51 m³ **bin segment**, then Flexicon pre-bin → vibrating conveyor → **Flexicon
-big-bag filling head** (bag on roller conveyors over an inline belt scale). Nominal
-line rate 20 t/h end to end, choked at the Concetti scale (~12 t/h) and the treater's
-4-18 t/h batch cycle.
+big-bag filling head** (bag on roller conveyors over an inline belt scale). Equipment
+capacity is ~20 t/h, but **sustained line rate is ~12 t/h, choked at the batch treater**
+(160 kg / ~40 s ≈ 14.4 t/h), which the engineer names as the slowest point. Only one of
+the three outload branches runs at a time, selected by operators. The product is **maize,
+always the same crop**, with size/shape varying ~10%. **[CONFIRMED 2026-06-30]**
 
 ## 10. What this resolves for the sim (vs PROJECT_BRIEF §7 open questions)
 
-- **Density change: YES.** The batch treater applies liquid chemical to seed (mass up,
-  slight volume/density change) and rejects waste water. The treater is the
-  transformer-primitive case. (Open question answered.)
+- **Density change: effectively NO (reversed 2026-06-30).** The engineer says the dose
+  changes seed density/weight only "negligibly." The treater is still a batch machine
+  but is **not** a meaningful density/mass transformer for the model. The former
+  "transformer-primitive" reading is dropped. Chemical is client-managed and out of
+  demo scope; waste water is a ~monthly cleaning event (also out of scope).
 - **Recirculation: NONE seen.** All three sheets form a DAG. Elevator return legs are
   mechanical loops, not material loops. (Open question answered, pending engineer
   confirmation.)
@@ -357,7 +383,8 @@ line rate 20 t/h end to end, choked at the Concetti scale (~12 t/h) and the trea
 - **Splitters confirmed everywhere:** scalping screen (product/waste), 2 metal removers
   (product/contaminant), top conveyor 3-way distribution, bin 1/2 diverter pair.
 - **Sinks:** 3 product sinks (Concetti bagged, Flexicon big bags, bulk outload metal
-  bins) + 2 waste sinks (discard scalpings bin, waste water IBC) + removed-metal.
+  bins) + 1 in-scope waste sink (discard scalpings bin). Waste-water IBC and removed-
+  metal bucket are real but **out of demo scope** per the 2026-06-30 answers.
 - **Transport lag is real and large:** ~6 min carrying-side transit per elevator at
   10 m/min; this alone powers the delayed-cascade thesis.
 - **Ramp-down vs instant stop maps to drive types:** MVFD conveyors ramp; MDOL stops
@@ -370,74 +397,89 @@ line rate 20 t/h end to end, choked at the Concetti scale (~12 t/h) and the trea
 - **Interlock flavour visible:** XA0 safe start alarm + start-up area sirens imply a
   timed start-up sequence (siren before motion); "software or datalink" lines are
   literal signal paths.
-- **Choke-point story:** 20 t/h line into a ~12 t/h bagging scale and a 4-18 t/h batch
-  treater, buffered by 0.67-7.7 m³ bins. Backups at those bins are where LSH/LSHH
-  trips and spills will happen.
+- **Choke-point story (revised 2026-06-30):** ~20 t/h capacity but ~12 t/h sustained,
+  **choked at the batch treater** (160 kg / ~40 s ≈ 14.4 t/h), buffered by 0.67-7.7 m³
+  bins. The pre-bin-full → elevator-slows-then-stops and after-bin-full → no-next-batch
+  interlocks are where backups and holds happen. LSH/LSL trips confirmed on pre-bin,
+  after-bin, buffer bin, outload buffer bin, bin segment, Flexicon pre-bin.
 
 ## 11. Known reading uncertainties (recap)
 
-- All sheet 52-12 and 52-14 numbers are from screenshots: 7.7 m³, 5.5 t, 1.62 m³,
-  0.67 m³, 64.4 t/h, 4-18 t/h, 176 buckets, 105 m, 8731 mm, 4584 mm, 0.72 m³, 12 t/h.
-  Treat as "probably right, confirm before encoding".
-- Edge 52.603 drum feeders → 52.604.E00 → top conveyor is inferred [MED].
-- Tag↔name mapping unresolved for: 52.605.X00, 52.608.H00, 52.609.X00/V01,
-  52.610.H00/X00, 52.611.V00, 52.612.V00/X00 (which is the bin segment, which is the
-  Flexicon pre-bin, where the hopper/conveyor pair sits), and most sheet 52-12/52-14
-  equipment tags (not legible in screenshots).
-- Where removed metal and sampler take-offs go: not captured.
-- The implied-bulk-density inconsistency in §8.
+- Screenshot-sourced volumes now **confirmed** by the engineer: 7.7 m³/5.5 t (buffer),
+  1.62 m³ (pre-bin), 0.67 m³ (after-bin), 64.4 t/h (screen capacity), 4.51 m³/3.25 t
+  (bin segment). Still unconfirmed on the worksheet: 0.72 m³ (Concetti pre-bin), the
+  treater elevator bucket count (engineer to check), and every outload/Flexicon bin
+  working volume left blank.
+- Edge 52.603 drum feeders → 52.604.E00 → top conveyor is **confirmed** (only one feeder
+  at a time). No longer a MED edge.
+- **Concetti-branch metal remover (#23):** engineer marked "Part of this line? No" and
+  left it blank, which **contradicts** the sheet 52-14 "FROM METAL REMOVER ... SHEET
+  52-13" reference. Needs a direct clarification before it is dropped or kept.
+- **Distribution hopper 52.608.H00:** the engineer himself did not recognise it ("Not
+  too sure what this is???"). Role genuinely unknown; the paired distribution conveyor
+  is also unexplained.
+- Tag↔name mapping still unresolved for: 52.605.X00, 52.608.H00, 52.609.X00/V01,
+  52.610.H00/X00, 52.611.V00, 52.612.V00/X00, and most sheet 52-12/52-14 tags.
+- Where removed metal goes: **answered** (bucket, cleared ~weekly). Sampler take-offs:
+  frequency answered (~3 hourly / per QC), destination still unstated.
+- The implied-bulk-density inconsistency in §8 remains open (engineer deferred; no
+  maize density number given).
 
-## 12. Still missing — agenda for the engineer meeting (Mon 2026-06-16)
+## 12. Status after the 2026-06-30 answers (resolved vs still open)
 
-> **Live prep surface:** the machine-by-machine confirmation worksheet now lives at
-> `docs/TREATER_LINE2_WORKSHEET.md`. It is the fillable form to walk in the meeting (or
-> to hand to the engineer). The list below stays as the underlying record; confirmed
-> answers flow from the worksheet back into this doc and into `src/line/lineData.js`.
+> The confirmation worksheet (`docs/TREATER_LINE2_WORKSHEET.md`) was returned filled on
+> 2026-06-30 (`docs/treater-line2-filled-20260630 (1) (1).md`). Items below are marked
+> **[RESOLVED]** or **[OPEN]**. Resolved answers are already merged into §1-§11 above.
 
-**Topology confirmations (walk the doc, machine by machine):**
+**Topology:**
 
-1. Confirm the [MED]/[LOW] edges and the tag↔name mappings in §11.
-2. Are the top conveyor's three branches simultaneous or selected (diverter positions)?
-   What decides routing?
-3. Where do Treated Outload Metal Bins 1/2 discharge (truck loadout? gate logic)?
-4. What is the Pro Box Unloading Station operationally (returned boxed seed re-entering
-   the line? frequency, rate)?
-5. Sheets not yet seen: full set is 7 sheets; get 52-15 (Formulation) at least as a
-   reference, plus whatever sheets 1-2 and 6-7 cover.
+1. [PARTIAL] Most [MED]/[LOW] edges confirmed (drum-feeder→lift edge, branch selection).
+   Tag↔name mappings for 52.605/608/609/610/611/612 still **[OPEN]**.
+2. [RESOLVED] Three branches run **one at a time, selected by operators**.
+3. [OPEN] Treated Outload Metal Bins 1/2 discharge (truck loadout, gate logic) — bins
+   left blank; §11 truck-discharge question still unanswered.
+4. [RESOLVED] Pro Box = returns treated stored seed to be re-bagged, ~1 day/month.
+5. [OPEN, promised] Engineer will send sheet 52-15 (Formulation) plus sheets 1, 2, 6, 7.
 
-**Per-machine behaviour (the planned Phase 5 grilling, brief §5):**
+**Per-machine behaviour:**
 
-6. Niklas WNS/200 batch cycle: batch size (kg or L), cycle time, fill/treat/discharge
-   phases, what happens when downstream blocks mid-batch.
-7. Drum feeders: what the two opening-degree positions (XV4/XV5) mean in flow terms;
-   metering behaviour; empty-cycle (XS4) use.
-8. Scalping screen: typical scalpings fraction (waste split ratio), and the real
-   meaning of the ~64.4 t/h figure.
-9. Auto samplers and grain break: pass-through (assume yes?) or any holdup.
-10. Bucket elevator: resolve the §8 density inconsistency; confirm operating filling
-    degree (70%?); spin-down time after stop; what PSL0 protects.
-11. Flexicon filling head: big bag size (m³ or kg), fill time, bag-change time.
-12. Concetti line: bag size, actual sustained t/h, pre-bin volume.
-13. Bulk density of the seed (treated and untreated) and which crop(s) — needed for the
-    volume↔mass unit decision (brief §3.2).
+6. [PARTIAL] Batch = 160 kg / ~40 s. Phase breakdown (fill/treat/discharge) and mid-batch
+   downstream-block behaviour still **[OPEN]** (supplier question).
+7. [RESOLVED, with caveat] Drum feeder is a **non-proportional % opening** (2-20 t/h);
+   exact opening-position flow values to come from the engineer's spreadsheet **[OPEN]**.
+8. [RESOLVED] 64.4 t/h = oversized screen capacity; 16 mm aperture, only oversize wasted.
+9. [RESOLVED] Auto samplers and grain break are pass-through.
+10. [OPEN] §8 density inconsistency unresolved (engineer deferred). Fill confirmed at 50%
+    (not 70%). Spin-down time and PSL0 protection still **[OPEN]**.
+11. [OPEN] Flexicon filling head: bag size, fill time, bag-change time all blank.
+12. [OPEN] Concetti line: bag size, sustained t/h, pre-bin volume all blank (but the
+    treater, not this scale, is now the confirmed bottleneck).
+13. [PARTIAL] Crop = maize, always same, ±10% size/shape. **Numeric bulk density still
+    [OPEN]** — needed for the volume↔mass decision and the §8 anomaly.
 
-**Control/interlock (Phase 3 inputs):**
+**Control/interlock:**
 
-14. Interlock philosophy: which trips stop which upstream feeders, in what order, with
-    what delays (the cause-and-effect matrix if one exists at FEL 3).
-15. VFD ramp-up/ramp-down times per conveyor; MDOL stop behaviour.
-16. Signal latency assumptions (PLC scan, network) worth modelling.
-17. Where LSHH switches will actually be fitted (legend lists LSHH but placements were
-    not identified on the sheets).
-18. Start-up sequence semantics: XA0 safe start alarm + siren timing (siren duration
-    before motion), start order down the line.
-19. Which parameters the engineer most wants tunable in the demo (their answer should
-    drive the popup sliders).
+14. [OPEN] Interlock cause-and-effect matrix — left blank. Individual interlocks known
+    (pre-bin-full slows/stops elevator; after-bin-full holds next batch; buffer-full
+    closes yellow-bin valve) but no ordered matrix.
+15. [OPEN] VFD ramp times and MDOL stop behaviour — left blank.
+16. [OPEN] Signal latency assumptions — left blank.
+17. [OPEN] LSHH placements — left blank.
+18. [PARTIAL] Siren = **20 s before motion**, covers any equipment in the area. Full
+    start-order sequence down the line still **[OPEN]**.
+19. [OPEN] Which parameters the engineer most wants tunable — not asked/answered.
 
-**Demo-scope decisions (ours, after the meeting):**
+**Demo-scope decisions (ours):**
 
-20. Where to truncate the model: suggest source = scalping-screen feed or the 52.414
-    elevator; sinks = bag counters + bin levels.
-21. Whether to model the chemical/formulation input as a stream or a boolean
-    (treater-has-chemical), and whether waste water is worth showing.
-22. Dust aspiration network: recommend out of scope.
+20. [RESOLVED] Truncate: **source = the 7.7 m³ buffer bin** (engineer's stated start
+    point); sinks = bag/bin counters. Upstream (colour sorter, yellow bins) excluded.
+21. [RESOLVED] Chemical/formulation and waste water are **both out of scope** (not shown).
+22. [RESOLVED] Dust aspiration network: out of scope (unchanged).
+
+**Newly raised by the answers:**
+
+23. [OPEN] Concetti-branch metal remover: engineer marked "not part of this line,"
+    contradicting the 52-14 cross-reference (see §11).
+24. [OPEN] Distribution hopper 52.608.H00: engineer did not recognise it; role unknown.
+25. [OPEN] Default value to plot on the shared chart per machine (throughput vs fill
+    level) — left blank; ours to decide.
