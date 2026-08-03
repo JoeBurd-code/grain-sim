@@ -9,9 +9,9 @@ npm run dev       # start dev server (Vite HMR)
 npm run build     # production build to dist/
 npm run preview   # serve the production build locally
 npm run lint      # ESLint check
+npm test          # Vitest, single run
+npm run test:watch
 ```
-
-No test suite is configured.
 
 ## Architecture
 
@@ -42,6 +42,13 @@ Three named presets (`bucket`, `belt`, `balanced`) in the `PRESETS` object demon
 ### Styling
 
 All styles are inline CSS-in-JS. The colour palette is the `C` constant object. Fonts: `Anton` (display headings) and `JetBrains Mono` (data/labels), loaded from Google Fonts at runtime.
+
+## Deployment
+
+Deployed to Vercel at `grain-sim.vercel.app`. `middleware.js` at the repo root is Vercel
+Routing Middleware that Basic-auth gates every path against a shared password held in the
+Vercel environment. It does not run under `npm run dev`. Configuration, verification and
+the limits of what it protects are in `docs/DEPLOY_ACCESS.md`.
 
 ## Agent skills
 

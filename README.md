@@ -1,5 +1,8 @@
 # React + Vite
 
+The deployed demo is password protected at the edge. See [docs/DEPLOY_ACCESS.md](docs/DEPLOY_ACCESS.md)
+for the environment variables it needs and how to verify it.
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:
