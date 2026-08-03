@@ -66,7 +66,7 @@ describe("accumulator", () => {
     // before apply() runs, but a future machine fed by more than one
     // upstream source could overshoot in a single tick.
     const state = { kind: "accumulator", capacity: 10, stored: 8, initialStored: 0, spill: 0 };
-    const out = BEHAVIORS.accumulator.apply(state, 0.05, 5, 2); // cap says only 2 fits
+    const out = BEHAVIORS.accumulator.apply(state, 0.05, 5, 2); // cap says only 2 fits, no downstream given
 
     expect(out).toBe(0);
     expect(state.stored).toBe(10);
@@ -76,6 +76,72 @@ describe("accumulator", () => {
   it("capacityAvailable reports remaining headroom, ignoring the downstream param", () => {
     const state = { kind: "accumulator", capacity: 10, stored: 6 };
     expect(BEHAVIORS.accumulator.capacityAvailable(state)).toBe(4);
+  });
+
+  it("discharges up to whatever the downstream can accept this tick, bounded by what's stored (issue #20)", () => {
+    const state = { kind: "accumulator", capacity: 10, stored: 3, initialStored: 0, spill: 0 };
+    const out = BEHAVIORS.accumulator.apply(state, 0.05, 0, 10, 2); // downstreamCap = 2
+
+    expect(out).toBe(2);
+    expect(state.stored).toBe(1);
+    expect(state.discharged).toBe(2);
+  });
+
+  it("never discharges more than it holds, even when downstream would accept more", () => {
+    const state = { kind: "accumulator", capacity: 10, stored: 1.5, initialStored: 0, spill: 0 };
+    const out = BEHAVIORS.accumulator.apply(state, 0.05, 0, 10, 5); // downstream could take 5, only 1.5 stored
+
+    expect(out).toBe(1.5);
+    expect(state.stored).toBe(0);
+  });
+
+  it("fills and discharges in the same tick without double counting", () => {
+    const state = { kind: "accumulator", capacity: 10, stored: 5, initialStored: 0, spill: 0 };
+    const out = BEHAVIORS.accumulator.apply(state, 0.05, 2, 10, 3); // +2 in, -3 out
+
+    expect(out).toBe(3);
+    expect(state.stored).toBe(4); // 5 + 2 - 3
+  });
+
+  it("with no downstream capacity given, discharges nothing (default behaviour unchanged from issue #18)", () => {
+    const state = { kind: "accumulator", capacity: 10, stored: 5, initialStored: 0, spill: 0 };
+    const out = BEHAVIORS.accumulator.apply(state, 0.05, 0, 10);
+
+    expect(out).toBe(0);
+    expect(state.stored).toBe(5);
+  });
+});
+
+describe("meteredFeeder (issue #20)", () => {
+  it("draws at its configured rate, bounded by the tick's time step", () => {
+    const state = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10 } });
+    const wantsToDraw = BEHAVIORS.meteredFeeder.capacityAvailable(state, 0.05, Infinity);
+    expect(wantsToDraw).toBeCloseTo(0.5); // 10 m3/s * 0.05s
+  });
+
+  it("draw demand is also bounded by whatever its own downstream can accept", () => {
+    const state = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10 } });
+    expect(BEHAVIORS.meteredFeeder.capacityAvailable(state, 0.05, 0.1)).toBe(0.1);
+  });
+
+  it("forwards exactly what it receives and holds no volume of its own", () => {
+    const state = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10 } });
+    const out = BEHAVIORS.meteredFeeder.apply(state, 0.05, 0.3, 0.5);
+    expect(out).toBe(0.3);
+    expect(state.drawn).toBeCloseTo(0.3);
+  });
+
+  it("draws nothing when nothing is fed to it (e.g. the upstream bin is empty)", () => {
+    const state = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10 } });
+    const out = BEHAVIORS.meteredFeeder.apply(state, 0.05, 0, 0.5);
+    expect(out).toBe(0);
+    expect(state.drawn).toBe(0);
+  });
+
+  it("reports its cumulative draw as delivered, for the conservation identity", () => {
+    const state = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10 } });
+    BEHAVIORS.meteredFeeder.apply(state, 0.05, 0.3, 0.5);
+    expect(BEHAVIORS.meteredFeeder.conserve(state)).toEqual({ delivered: 0.3 });
   });
 });
 

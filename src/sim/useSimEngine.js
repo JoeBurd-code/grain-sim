@@ -4,7 +4,7 @@
 // consumed per wall-clock second, never the fixed timestep itself.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  createSim, stepSim, setSourceRate, setAccumulatorLevel, DT,
+  createSim, stepSim, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay,
 } from "./engine";
 import { BEHAVIORS } from "./behaviors";
@@ -92,6 +92,10 @@ export function useSimEngine(line) {
     setSourceRate(sim, machineId, rateM3PerSec);
   }, [sim]);
 
+  const setFeedRate = useCallback((machineId, rateM3PerSec) => {
+    setFeederRate(sim, machineId, rateM3PerSec);
+  }, [sim]);
+
   // Jumps take effect immediately even while paused, so publish right away
   // rather than waiting for the next throttled tick (which may never come
   // if the sim isn't running).
@@ -118,7 +122,7 @@ export function useSimEngine(line) {
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
   return {
-    snap, running, start, pause, stepOnce, speed, setSpeed, setRate, setLevel,
+    snap, running, start, pause, stepOnce, speed, setSpeed, setRate, setFeedRate, setLevel,
     setInterlockHigh, setInterlockLow, setInterlockDelay,
   };
 }
