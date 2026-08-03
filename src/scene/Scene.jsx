@@ -59,14 +59,16 @@ function connectionPath(line, c) {
 }
 
 // Single point of resolution for a machine's dynamic (per-tick) values.
-// Today every machine's fill is still the static value authored in the line
-// data, so this is a passthrough; once a machine is wired to the sim, this
-// is the only place that changes to source its live value instead.
-function resolveDynamic(machine) {
-  return { fill: machine.fill };
+// `simSnap` is the live sim's published snapshot (Map<machineId, {fill}>);
+// a machine the sim hasn't reached yet, or that has no dynamic value at
+// all, falls back to the static value authored in the line data so the
+// scene never looks broken mid build.
+function resolveDynamic(machine, simSnap) {
+  const live = simSnap?.get(machine.id);
+  return { fill: live?.fill ?? machine.fill };
 }
 
-export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelect }) {
+export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelect, simSnap }) {
   return (
     <svg
       viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`}
@@ -132,7 +134,7 @@ export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelec
                 fill="none" stroke={SELECT_STROKE} strokeWidth="1.5" strokeDasharray="6 4" opacity="0.9" rx="4"
               />
             )}
-            <Symbol machine={m} dynamic={resolveDynamic(m)} />
+            <Symbol machine={m} dynamic={resolveDynamic(m, simSnap)} />
             {m.type !== "stub" && <MachineLabel machine={m} />}
           </g>
         );
