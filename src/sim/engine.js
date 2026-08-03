@@ -3,6 +3,7 @@
 // state back. Internals (the two-phase step, how behaviours are wired) are
 // not part of this seam.
 import { BEHAVIORS, REGISTERED_KINDS } from "./behaviors";
+import { initControl, stepControl } from "./control";
 
 export const DT = 0.05; // s, fixed sim timestep (matches the proven mock)
 
@@ -57,7 +58,8 @@ export function createSim(line) {
   const simEnabledIds = new Set(machines.keys());
   const downstream = buildDownstreamMap(line, simEnabledIds);
   const order = topoOrder(simEnabledIds, downstream);
-  return { t: 0, line, machines, downstream, order };
+  const control = initControl(line);
+  return { t: 0, line, machines, downstream, order, control };
 }
 
 export function stepSim(sim, dt) {
@@ -89,6 +91,7 @@ export function stepSim(sim, dt) {
   }
 
   sim.t += dt;
+  stepControl(sim);
   return sim;
 }
 
@@ -96,12 +99,20 @@ export function getMachineState(sim, id) {
   return sim.machines.get(id);
 }
 
+// Read access to an interlock's runtime state (phase, event log, live
+// parameters), keyed by its sensor machine — the same public seam
+// getMachineState offers for a plain machine, so a test or the UI never
+// needs to reach into `sim.control` directly.
+export function getInterlockState(sim, sensorMachineId) {
+  return sim.control.find((r) => r.sensorId === sensorMachineId);
+}
+
 export function setSourceRate(sim, id, rateM3PerSec) {
   const state = sim.machines.get(id);
   if (!state || state.kind !== "source") {
     throw new Error(`machine "${id}" is not a source`);
   }
-  state.rate = rateM3PerSec;
+  state.nominalRate = rateM3PerSec;
 }
 
 // Presenter/demo control: jump an accumulator straight to a given fill
@@ -118,4 +129,26 @@ export function setAccumulatorLevel(sim, id, fraction) {
   const nextStored = Math.max(0, Math.min(state.capacity, fraction * state.capacity));
   state.initialStored += nextStored - state.stored;
   state.stored = nextStored;
+}
+
+function findInterlock(sim, sensorMachineId) {
+  const rule = getInterlockState(sim, sensorMachineId);
+  if (!rule) throw new Error(`machine "${sensorMachineId}" has no interlock`);
+  return rule;
+}
+
+// Live controls (issue #19): the sensor's set points and the interlock's
+// signal delay all take effect on the rule's very next tick, mid run —
+// there's no need to touch the actuator directly, since a set point only
+// changes when stepControl next compares the sensor's level against it.
+export function setInterlockHighSetpoint(sim, sensorMachineId, fraction) {
+  findInterlock(sim, sensorMachineId).highSetpoint = fraction;
+}
+
+export function setInterlockLowSetpoint(sim, sensorMachineId, fraction) {
+  findInterlock(sim, sensorMachineId).lowSetpoint = fraction;
+}
+
+export function setInterlockSignalDelay(sim, sensorMachineId, seconds) {
+  findInterlock(sim, sensorMachineId).signalDelaySec = seconds;
 }

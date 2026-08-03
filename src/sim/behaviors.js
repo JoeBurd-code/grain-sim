@@ -17,16 +17,44 @@ function forwardDownstreamCapacity(state, dt, downstreamCap) {
   return downstreamCap;
 }
 
+// `openness` (0..1, the valve's actual position) slews toward
+// `opennessTarget` at `opennessRampPerSec`, rather than snapping — this is
+// what lets material already released keep arriving after a close command,
+// the overshoot the control layer (control.js) exists to demonstrate.
+// Defaults to fully open with an instant (infinite) slew rate so a source
+// with nothing commanding it behaves exactly as before this existed.
 function initSource(m) {
-  return { kind: "source", rate: m.sim.rateM3PerSec, fed: 0 };
+  return {
+    kind: "source",
+    nominalRate: m.sim.rateM3PerSec,
+    openness: 1,
+    opennessTarget: 1,
+    opennessRampPerSec: Infinity,
+    fed: 0,
+  };
 }
 function applySource(state, dt, inflow, cap) {
-  const out = Math.min(state.rate * dt, cap);
+  if (state.openness !== state.opennessTarget) {
+    const step = state.opennessRampPerSec * dt;
+    const diff = state.opennessTarget - state.openness;
+    state.openness = Math.abs(diff) <= step ? state.opennessTarget : state.openness + Math.sign(diff) * step;
+  }
+  const out = Math.min(state.nominalRate * state.openness * dt, cap);
   state.fed += out;
   return out;
 }
 function conserveSource(state) {
   return { fed: state.fed };
+}
+// Commands the valve toward fully open or fully closed over `rampTimeSec`.
+// The control layer is the only caller; a source with no interlock never
+// has this invoked and keeps its default openness of 1.
+function commandSource(state, direction, rampTimeSec) {
+  state.opennessTarget = direction === "close" ? 0 : 1;
+  state.opennessRampPerSec = rampTimeSec > 0 ? 1 / rampTimeSec : Infinity;
+}
+function isSettledSource(state) {
+  return state.openness === state.opennessTarget;
 }
 
 // Holds zero volume at all times: whatever it can accept, it emits the same tick.
@@ -67,7 +95,7 @@ function snapshotAccumulator(state) {
 export const BEHAVIORS = {
   source: {
     init: initSource, capacityAvailable: forwardDownstreamCapacity, apply: applySource,
-    conserve: conserveSource,
+    conserve: conserveSource, command: commandSource, isSettled: isSettledSource,
   },
   passThrough: {
     init: initPassThrough, capacityAvailable: forwardDownstreamCapacity, apply: applyPassThrough,

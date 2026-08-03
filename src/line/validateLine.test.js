@@ -129,4 +129,61 @@ describe("validateLine", () => {
     expect(result.ok).toBe(false);
     expect(result.errors.join("\n")).toContain("teleporter");
   });
+
+  it("accepts an interlock whose sensor and actuator both reference real machines", () => {
+    const line = makeValidLine();
+    line.machines[0].sim = { kind: "source", rateM3PerSec: 1 }; // feedStub
+    line.interlocks = [{
+      id: "trip", sensor: { machine: "bufferBin" }, highSetpoint: 0.9, lowSetpoint: 0.3,
+      signalDelaySec: 3, action: { machine: "feedStub", rampTimeSec: 5 },
+    }];
+    const result = validateLine(line);
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects an interlock whose sensor references an unknown machine", () => {
+    const line = makeValidLine();
+    line.interlocks = [{
+      id: "trip", sensor: { machine: "ghostBin" }, highSetpoint: 0.9, lowSetpoint: 0.3,
+      signalDelaySec: 3, action: { machine: "feedStub", rampTimeSec: 5 },
+    }];
+    const result = validateLine(line);
+    expect(result.ok).toBe(false);
+    expect(result.errors.join("\n")).toContain("ghostBin");
+  });
+
+  it("rejects an interlock whose action references an unknown machine", () => {
+    const line = makeValidLine();
+    line.interlocks = [{
+      id: "trip", sensor: { machine: "bufferBin" }, highSetpoint: 0.9, lowSetpoint: 0.3,
+      signalDelaySec: 3, action: { machine: "ghostValve", rampTimeSec: 5 },
+    }];
+    const result = validateLine(line);
+    expect(result.ok).toBe(false);
+    expect(result.errors.join("\n")).toContain("ghostValve");
+  });
+
+  it("rejects an interlock whose action targets a machine that cannot be commanded", () => {
+    const line = makeValidLine();
+    line.machines[1].sim = { kind: "accumulator", capacityM3: 1 }; // bufferBin: no `command` behaviour method
+    line.interlocks = [{
+      id: "trip", sensor: { machine: "bufferBin" }, highSetpoint: 0.9, lowSetpoint: 0.3,
+      signalDelaySec: 3, action: { machine: "bufferBin", rampTimeSec: 5 },
+    }];
+    const result = validateLine(line);
+    expect(result.ok).toBe(false);
+    expect(result.errors.join("\n")).toContain("bufferBin");
+  });
+
+  it("accepts an interlock whose action targets a source (which can be commanded)", () => {
+    const line = makeValidLine();
+    line.machines[0].sim = { kind: "source", rateM3PerSec: 1 }; // feedStub
+    line.machines[1].sim = { kind: "accumulator", capacityM3: 1 };
+    line.interlocks = [{
+      id: "trip", sensor: { machine: "bufferBin" }, highSetpoint: 0.9, lowSetpoint: 0.3,
+      signalDelaySec: 3, action: { machine: "feedStub", rampTimeSec: 5 },
+    }];
+    const result = validateLine(line);
+    expect(result.ok).toBe(true);
+  });
 });

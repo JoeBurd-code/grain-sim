@@ -1,7 +1,7 @@
 // Validates a hand-authored line definition (machines, connections, zones).
 // Returns { ok, errors } where errors are human-readable strings, so a bad
 // data edit made in a hurry (e.g. during the engineer meeting) fails loudly.
-import { REGISTERED_KINDS } from "../sim/behaviors";
+import { REGISTERED_KINDS, BEHAVIORS } from "../sim/behaviors";
 
 export function validateLine(line) {
   const errors = [];
@@ -41,6 +41,18 @@ export function validateLine(line) {
       } else if (!m.ports[side].includes(end.port)) {
         errors.push(`machine "${end.machine}" has no ${side.slice(0, -1)} port "${end.port}"`);
       }
+    }
+  }
+
+  for (const rule of line.interlocks ?? []) {
+    if (!byId.has(rule.sensor.machine)) {
+      errors.push(`interlock "${rule.id}" references unknown sensor machine "${rule.sensor.machine}"`);
+    }
+    const actuator = byId.get(rule.action.machine);
+    if (!actuator) {
+      errors.push(`interlock "${rule.id}" references unknown action machine "${rule.action.machine}"`);
+    } else if (!BEHAVIORS[actuator.sim?.kind]?.command) {
+      errors.push(`interlock "${rule.id}" targets machine "${rule.action.machine}", whose sim.kind cannot be commanded`);
     }
   }
 
