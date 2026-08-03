@@ -94,8 +94,16 @@ export const line = {
       labelAt: { x: -6, y: -16 },
       // Live jump, not just an initial condition: dragging this sets the
       // running sim's current level immediately (see PARAM_BINDERS.levelJump
-      // in MeetingApp.jsx), for staging a scenario mid-presentation.
-      params: [{ id: "level", label: "fill level", min: 0, max: 100, value: 55, unit: "%", bind: "levelJump" }],
+      // in MeetingApp.jsx), for staging a scenario mid-presentation — this is
+      // also how a presenter demonstrates the low-set-point reopen (issue
+      // #19) without waiting on a downstream drain that doesn't exist yet
+      // (the drum feeder's own metering behaviour is issue #20's scope).
+      params: [
+        { id: "level", label: "fill level", min: 0, max: 100, value: 55, unit: "%", bind: "levelJump" },
+        { id: "highSetpoint", label: "LSH set point", min: 55, max: 100, value: 85, unit: "%", bind: "interlockHighSetpoint" },
+        { id: "lowSetpoint", label: "LSL set point", min: 0, max: 55, value: 35, unit: "%", bind: "interlockLowSetpoint" },
+        { id: "signalDelay", label: "signal delay", min: 0, max: 15, value: 3, unit: "s", bind: "interlockSignalDelay" },
+      ],
       // 7.7 m3 / 5.5 t working volume [CONFIRMED 2026-06-30,
       // REAL_LINE_SPECS.md §5]. LSH/LSL set points and the 55% start level
       // are assumed (see docs/OPEN_QUESTIONS.md) — low sensitivity per
@@ -644,5 +652,29 @@ export const line = {
     { from: { machine: "concettiScale", port: "out" }, to: { machine: "concettiFiller", port: "in" }, kind: "product" },
     { from: { machine: "concettiFiller", port: "out" }, to: { machine: "palletising", port: "in" }, kind: "product" },
     { from: { machine: "palletising", port: "out" }, to: { machine: "palletStub", port: "in" }, kind: "product" },
+  ],
+
+  // The control layer (issue #19): declarative threshold rules, each
+  // reading one machine's level and, after a signal delay, commanding an
+  // action on another machine. `treaterBufferBin.params` above exposes the
+  // set points and signal delay declared here as live sliders; `control.js`
+  // turns each entry into one runtime rule.
+  interlocks: [
+    {
+      id: "bufferBinHighTrip",
+      sensor: { machine: "treaterBufferBin" },
+      // Engineer confirmed the interlock itself (buffer bin full -> close
+      // the source valve) but not its set points, delay or ramp time — the
+      // real yellow-bin valve's close time and the PLC scan/signal path are
+      // both in the pending operational spec. See docs/OPEN_QUESTIONS.md.
+      highSetpoint: 0.85,
+      lowSetpoint: 0.35,
+      signalDelaySec: 3,
+      action: { machine: "upstreamStub", rampTimeSec: 6 },
+      provenance: {
+        highSetpoint: "assumed", lowSetpoint: "assumed",
+        signalDelaySec: "assumed", rampTimeSec: "assumed",
+      },
+    },
   ],
 };

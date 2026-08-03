@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { createSim, stepSim, getMachineState, setSourceRate, setAccumulatorLevel, DT } from "./engine";
+import {
+  createSim, stepSim, getMachineState, setSourceRate, setAccumulatorLevel, DT,
+  setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, getInterlockState,
+} from "./engine";
 import { assertConserved, conservationTotals } from "./conservation";
 import { tPerHourToM3PerSec } from "./units";
 import { line } from "../line/lineData";
@@ -7,6 +10,10 @@ import { line } from "../line/lineData";
 const SOURCE_ID = "upstreamStub";
 const METAL_REMOVER_ID = "treatMetalRemover";
 const BUFFER_BIN_ID = "treaterBufferBin";
+
+function interlockRule(sim) {
+  return getInterlockState(sim, BUFFER_BIN_ID);
+}
 
 describe("createSim / stepSim (real Treater Line 2 data)", () => {
   it("creates a sim and steps it by a fixed timestep", () => {
@@ -22,6 +29,12 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
     const sim = createSim(line);
     expect(getMachineState(sim, BUFFER_BIN_ID).kind).toBe("accumulator");
     expect(getMachineState(sim, "notAMachine")).toBeUndefined();
+  });
+
+  it("reads an interlock's current state back by its sensor machine", () => {
+    const sim = createSim(line);
+    expect(getInterlockState(sim, BUFFER_BIN_ID).phase).toBe("open");
+    expect(getInterlockState(sim, "notAMachine")).toBeUndefined();
   });
 
   it("source injects at its configured rate, accumulating in the empty-headroom bin", () => {
@@ -63,6 +76,7 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
   it("buffer bin fills and rejects once full; rejected material backs up to the source instead of vanishing", () => {
     const sim = createSim(line);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20)); // fast enough to fill it
+    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 2); // unreachable: isolates raw accumulator backpressure from the issue #19 interlock
     for (let i = 0; i < 20000; i++) stepSim(sim, DT);
 
     const bin = getMachineState(sim, BUFFER_BIN_ID);
@@ -125,5 +139,136 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
   it("setAccumulatorLevel rejects a non-accumulator machine", () => {
     const sim = createSim(line);
     expect(() => setAccumulatorLevel(sim, SOURCE_ID, 0.5)).toThrow(/not an accumulator/);
+  });
+});
+
+describe("buffer bin's high-set-point interlock closes the source valve, late (issue #19)", () => {
+  it("keeps the valve fully open through the signal delay after the high set point trips", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6); // just above the 55% start level
+    setInterlockSignalDelay(sim, BUFFER_BIN_ID, 5);
+
+    let tripped = false;
+    for (let i = 0; i < 2000; i++) {
+      stepSim(sim, DT);
+      if (interlockRule(sim).phase !== "open") { tripped = true; break; }
+    }
+    expect(tripped).toBe(true);
+    expect(interlockRule(sim).phase).toBe("delayedClose");
+    expect(getMachineState(sim, SOURCE_ID).openness).toBe(1); // still fully open mid-delay
+
+    for (let i = 0; i < 120; i++) stepSim(sim, DT); // consume the remaining ~6s of the 5s delay, with margin
+    expect(interlockRule(sim).phase).not.toBe("delayedClose");
+    expect(getMachineState(sim, SOURCE_ID).openness).toBeLessThan(1); // now ramping shut
+  });
+
+  it("grain released before the valve fully closes still arrives at the bin, and conservation holds throughout", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
+    setInterlockSignalDelay(sim, BUFFER_BIN_ID, 2);
+
+    let storedAtTrip = null;
+    for (let i = 0; i < 3000; i++) {
+      stepSim(sim, DT);
+      assertConserved(sim);
+      if (storedAtTrip === null && interlockRule(sim).phase !== "open") {
+        storedAtTrip = getMachineState(sim, BUFFER_BIN_ID).stored;
+      }
+    }
+    const finalStored = getMachineState(sim, BUFFER_BIN_ID).stored;
+    expect(finalStored).toBeGreaterThan(storedAtTrip); // arrived after the trip
+    expect(getMachineState(sim, SOURCE_ID).openness).toBe(0); // valve now fully closed
+    expect(() => assertConserved(sim)).not.toThrow();
+  });
+
+  it("the bin overshoots the high set point rather than stopping exactly at it", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
+    setInterlockSignalDelay(sim, BUFFER_BIN_ID, 3);
+    for (let i = 0; i < 3000; i++) stepSim(sim, DT);
+
+    const bin = getMachineState(sim, BUFFER_BIN_ID);
+    expect(bin.stored / bin.capacity).toBeGreaterThan(0.6);
+  });
+
+  it("a larger signal delay produces a larger overshoot", () => {
+    function peakOvershoot(signalDelaySec) {
+      const sim = createSim(line);
+      // Faster than the demo default so the trip arrives well inside the
+      // step budget below, but still slow enough relative to the 15% of
+      // capacity above the set point that neither run saturates the bin
+      // (see the comment's arithmetic: rate * (delay + rampTime/2) must
+      // stay under capacity * 0.15 even at the larger delay).
+      setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(100));
+      setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.85);
+      setInterlockSignalDelay(sim, BUFFER_BIN_ID, signalDelaySec);
+      for (let i = 0; i < 6000; i++) stepSim(sim, DT); // long past delay + 6s ramp
+      const bin = getMachineState(sim, BUFFER_BIN_ID);
+      expect(getMachineState(sim, SOURCE_ID).openness).toBe(0); // confirms the run reached steady state
+      return bin.stored / bin.capacity - 0.85;
+    }
+
+    const smallDelayOvershoot = peakOvershoot(2);
+    const largeDelayOvershoot = peakOvershoot(8);
+    expect(largeDelayOvershoot).toBeGreaterThan(smallDelayOvershoot);
+  });
+
+  it("the valve reopens once the level falls past the low set point", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
+    setInterlockLowSetpoint(sim, BUFFER_BIN_ID, 0.3);
+    setInterlockSignalDelay(sim, BUFFER_BIN_ID, 1);
+    for (let i = 0; i < 2000; i++) stepSim(sim, DT);
+    expect(interlockRule(sim).phase).toBe("closed");
+    expect(getMachineState(sim, SOURCE_ID).openness).toBe(0);
+
+    // presenter stages the reopen scenario by dragging the level down, same
+    // control used to stage a near-overflow (setAccumulatorLevel)
+    setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.3);
+    for (let i = 0; i < 2000; i++) stepSim(sim, DT);
+
+    expect(interlockRule(sim).phase).toBe("open");
+    expect(getMachineState(sim, SOURCE_ID).openness).toBe(1);
+    expect(() => assertConserved(sim)).not.toThrow();
+  });
+
+  it("records the trip, the delayed action and the reopen in the buffer bin's event log, each with its simulated time", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
+    setInterlockLowSetpoint(sim, BUFFER_BIN_ID, 0.3);
+    setInterlockSignalDelay(sim, BUFFER_BIN_ID, 1);
+    for (let i = 0; i < 2000; i++) stepSim(sim, DT);
+    setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.3);
+    for (let i = 0; i < 2000; i++) stepSim(sim, DT);
+
+    const log = interlockRule(sim).log;
+    expect(log.length).toBeGreaterThanOrEqual(4); // high trip, close commanded, low trip, open commanded
+    for (const entry of log) {
+      expect(typeof entry.t).toBe("number");
+      expect(typeof entry.message).toBe("string");
+    }
+    expect(log[0].t).toBeLessThan(log[log.length - 1].t); // strictly ordered in sim time
+  });
+
+  it("high set point, low set point and signal delay are live controls that take effect while the sim is running", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    for (let i = 0; i < 50; i++) stepSim(sim, DT); // a few ticks of "already running"
+
+    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
+    setInterlockLowSetpoint(sim, BUFFER_BIN_ID, 0.3);
+    setInterlockSignalDelay(sim, BUFFER_BIN_ID, 1);
+
+    let tripped = false;
+    for (let i = 0; i < 2000; i++) {
+      stepSim(sim, DT);
+      if (interlockRule(sim).phase !== "open") { tripped = true; break; }
+    }
+    expect(tripped).toBe(true); // the mid-run parameter changes were honoured
   });
 });

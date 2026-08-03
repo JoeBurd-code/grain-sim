@@ -30,7 +30,7 @@ function Slider({ param, onChange }) {
   );
 }
 
-export default function MachinePopup({ machine: m, plotted, onTogglePlot, onClose, onParamChange }) {
+export default function MachinePopup({ machine: m, plotted, onTogglePlot, onClose, onParamChange, events }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -78,12 +78,20 @@ export default function MachinePopup({ machine: m, plotted, onTogglePlot, onClos
       )}
 
       <div style={sectionTitle}>event log</div>
-      <div style={{ fontSize: 10, color: C.muted, fontStyle: "italic", padding: "2px 0 4px" }}>
-        awaiting engine · events will appear here
-      </div>
-      {[64, 48, 56].map((w, i) => (
-        <div key={i} style={{ height: 6, width: `${w}%`, background: C.panel2, borderRadius: 3, marginBottom: 5 }} />
-      ))}
+      {(!events || events.length === 0) ? (
+        <div style={{ fontSize: 10, color: C.muted, fontStyle: "italic", padding: "2px 0 4px" }}>
+          no events yet
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          {[...events].reverse().map((e, i) => (
+            <div key={i} style={{ fontSize: 10, lineHeight: 1.4 }}>
+              <span style={{ color: C.wheat, fontFamily: FONT_MONO }}>{e.t.toFixed(1)}s</span>{" "}
+              <span style={{ color: C.text }}>{e.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
         <button

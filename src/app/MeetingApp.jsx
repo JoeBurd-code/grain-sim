@@ -20,9 +20,13 @@ import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 const PARAM_BINDERS = {
   sourceRate: (engine, machineId, value) => engine.setRate(machineId, tPerHourToM3PerSec(value)),
   // Jumps the live accumulator to this fill % now, for staging a scenario
-  // mid-presentation (e.g. drag to 95% to demo a near-overflow) rather than
-  // waiting for the source to fill it there.
+  // mid-presentation (e.g. drag to 95% to demo a near-overflow, or below the
+  // low set point to stage the interlock's reopen) rather than waiting for
+  // the source to fill or drain it there.
   levelJump: (engine, machineId, value) => engine.setLevel(machineId, value / 100),
+  interlockHighSetpoint: (engine, machineId, value) => engine.setInterlockHigh(machineId, value / 100),
+  interlockLowSetpoint: (engine, machineId, value) => engine.setInterlockLow(machineId, value / 100),
+  interlockSignalDelay: (engine, machineId, value) => engine.setInterlockDelay(machineId, value),
 };
 
 const validation = validateLine(line);
@@ -116,6 +120,7 @@ export default function MeetingApp() {
               onTogglePlot={togglePlot}
               onClose={closePopup}
               onParamChange={onParamChange}
+              events={engine.snap.machines.get(selected.id)?.events}
             />
           )}
         </main>

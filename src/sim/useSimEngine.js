@@ -3,7 +3,10 @@
 // (GrainFlowSim.jsx): the speed multiplier scales how much sim time is
 // consumed per wall-clock second, never the fixed timestep itself.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createSim, stepSim, setSourceRate, setAccumulatorLevel, DT } from "./engine";
+import {
+  createSim, stepSim, setSourceRate, setAccumulatorLevel, DT,
+  setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay,
+} from "./engine";
 import { BEHAVIORS } from "./behaviors";
 
 const MAX_STEPS_PER_FRAME = 60;
@@ -14,6 +17,11 @@ function publishSnap(sim) {
   for (const [id, state] of sim.machines) {
     const snap = BEHAVIORS[state.kind]?.snapshot?.(state);
     if (snap) machines.set(id, snap);
+  }
+  // A rule's event log is published on its sensor machine's snapshot, since
+  // that's the machine whose popup surfaces it (see MachinePopup.jsx).
+  for (const rule of sim.control) {
+    machines.set(rule.sensorId, { ...machines.get(rule.sensorId), events: rule.log });
   }
   return { t: sim.t, machines };
 }
@@ -92,7 +100,25 @@ export function useSimEngine(line) {
     publish();
   }, [sim, publish]);
 
+  const setInterlockHigh = useCallback((machineId, fraction) => {
+    setInterlockHighSetpoint(sim, machineId, fraction);
+    publish();
+  }, [sim, publish]);
+
+  const setInterlockLow = useCallback((machineId, fraction) => {
+    setInterlockLowSetpoint(sim, machineId, fraction);
+    publish();
+  }, [sim, publish]);
+
+  const setInterlockDelay = useCallback((machineId, seconds) => {
+    setInterlockSignalDelay(sim, machineId, seconds);
+    publish();
+  }, [sim, publish]);
+
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
-  return { snap, running, start, pause, stepOnce, speed, setSpeed, setRate, setLevel };
+  return {
+    snap, running, start, pause, stepOnce, speed, setSpeed, setRate, setLevel,
+    setInterlockHigh, setInterlockLow, setInterlockDelay,
+  };
 }
