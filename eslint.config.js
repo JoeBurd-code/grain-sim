@@ -20,4 +20,12 @@ export default defineConfig([
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
   },
+  {
+    // Runs on Vercel's edge, not in the browser: web APIs plus process.env.
+    // The test drives it under Node, so it also needs Buffer.
+    files: ['middleware.js', 'middleware.test.js'],
+    languageOptions: {
+      globals: { ...globals.browser, process: 'readonly', Buffer: 'readonly' },
+    },
+  },
 ])
