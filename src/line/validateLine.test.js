@@ -105,4 +105,28 @@ describe("validateLine", () => {
     expect(result.errors.join("\n")).toContain("atlantis");
     expect(result.errors.join("\n")).toContain("bufferBin");
   });
+
+  it("rejects a machine declaring an unregistered sim.kind", () => {
+    const line = makeValidLine();
+    line.machines[1].sim = { kind: "teleporter" };
+    const result = validateLine(line);
+    expect(result.ok).toBe(false);
+    expect(result.errors.join("\n")).toContain("teleporter");
+    expect(result.errors.join("\n")).toContain("bufferBin");
+  });
+
+  it("accepts a machine declaring a registered sim.kind", () => {
+    const line = makeValidLine();
+    line.machines[1].sim = { kind: "accumulator", capacityM3: 1 };
+    const result = validateLine(line);
+    expect(result.ok).toBe(true);
+  });
+
+  it("checks sim.kind on stub machines too (a stub can carry real sim behaviour, e.g. a source)", () => {
+    const line = makeValidLine();
+    line.machines[0].sim = { kind: "teleporter" };
+    const result = validateLine(line);
+    expect(result.ok).toBe(false);
+    expect(result.errors.join("\n")).toContain("teleporter");
+  });
 });

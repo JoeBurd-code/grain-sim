@@ -13,6 +13,15 @@
 //
 // Tags marked TBC-nn were not legible / not present on the drawings; the
 // real tags are an engineer-meeting question.
+//
+// `sim` blocks (added machine by machine per issue #15) carry the engine's
+// behaviour kind and parameters, already converted to the engine's m3 / m3-
+// per-second currency (see src/sim/units.js). Each numeric field's source is
+// named inline; `provenance` marks it confirmed / derived / assumed so the
+// operational spec can replace assumed values by find-and-replace when it
+// lands (docs/OPEN_QUESTIONS.md tracks the assumed ones).
+
+import { tPerHourToM3PerSec } from "../sim/units";
 
 export const line = {
   zones: [
@@ -33,6 +42,15 @@ export const line = {
       x: 60, y: 60, w: 8, h: 8,
       ports: { inputs: [], outputs: ["out"] },
       anchors: { out: { x: 4, y: 4 } },
+      // Yellow-bin pan feeders set to 12 t/h, SCADA-commanded [CONFIRMED
+      // 2026-06-30, REAL_LINE_SPECS.md §5]. Stands in for the real upstream
+      // source (out of sim scope) as a settable valve.
+      sim: {
+        kind: "source",
+        rateM3PerSec: tPerHourToM3PerSec(12),
+        provenance: { rateM3PerSec: "confirmed" },
+      },
+      params: [{ id: "rate", label: "source rate", min: 2, max: 20, value: 12, unit: "t/h", bind: "sourceRate" }],
     },
     {
       id: "treatMetalRemover",
@@ -45,6 +63,10 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out", "waste"] },
       anchors: { in: { x: 0, y: 25 }, out: { x: 45, y: 50 }, waste: { x: 90, y: 40 } },
       labelAt: { x: 110, y: 14 },
+      // "Must pass straight through with zero holdup, or the magnets will
+      // not work" [CONFIRMED 2026-06-30, REAL_LINE_SPECS.md §5]. Extracted
+      // metal is real but negligible in volume; not modelled as a split.
+      sim: { kind: "passThrough" },
     },
     {
       id: "metalRejectStub1",
@@ -71,6 +93,16 @@ export const line = {
       instruments: ["LT", "LSH", "LSL"],
       labelAt: { x: -6, y: -16 },
       params: [{ id: "level", label: "start level", min: 0, max: 100, value: 55, unit: "%" }],
+      // 7.7 m3 / 5.5 t working volume [CONFIRMED 2026-06-30,
+      // REAL_LINE_SPECS.md §5]. LSH/LSL set points and the 55% start level
+      // are assumed (see docs/OPEN_QUESTIONS.md) — low sensitivity per
+      // issue #18, so not raised with the engineer.
+      sim: {
+        kind: "accumulator",
+        capacityM3: 7.7,
+        initialLevelFraction: 0.55,
+        provenance: { capacityM3: "confirmed", initialLevelFraction: "assumed" },
+      },
     },
     {
       id: "treatDrumFeeder",

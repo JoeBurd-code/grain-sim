@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 
 
-function Slider({ param }) {
+function Slider({ param, onChange }) {
   const [value, setValue] = useState(param.value);
   return (
     <div style={{ marginBottom: 10 }}>
@@ -19,14 +19,18 @@ function Slider({ param }) {
         min={param.min}
         max={param.max}
         value={value}
-        onChange={(e) => setValue(Number(e.target.value))}
+        onChange={(e) => {
+          const v = Number(e.target.value);
+          setValue(v);
+          onChange?.(v);
+        }}
         style={{ width: "100%", accentColor: C.wheat, height: 14 }}
       />
     </div>
   );
 }
 
-export default function MachinePopup({ machine: m, plotted, onTogglePlot, onClose }) {
+export default function MachinePopup({ machine: m, plotted, onTogglePlot, onClose, onParamChange }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -67,7 +71,9 @@ export default function MachinePopup({ machine: m, plotted, onTogglePlot, onClos
       {(m.params ?? []).length > 0 && (
         <>
           <div style={sectionTitle}>parameters</div>
-          {m.params.map((p) => <Slider key={`${m.id}-${p.id}`} param={p} />)}
+          {m.params.map((p) => (
+            <Slider key={`${m.id}-${p.id}`} param={p} onChange={(v) => onParamChange?.(m.id, p, v)} />
+          ))}
         </>
       )}
 

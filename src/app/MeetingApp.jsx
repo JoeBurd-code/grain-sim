@@ -11,7 +11,15 @@ import MachinePopup from "./MachinePopup";
 import TransportControls from "./TransportControls";
 import ChartDock from "./ChartDock";
 import { useViewport } from "../scene/useViewport";
+import { useSimEngine } from "../sim/useSimEngine";
+import { tPerHourToM3PerSec } from "../sim/units";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
+
+// Params that opt into live sim control declare `bind`; anything else (e.g.
+// the buffer bin's "start level") is a display-only initial condition.
+const PARAM_BINDERS = {
+  sourceRate: (engine, machineId, value) => engine.setRate(machineId, tPerHourToM3PerSec(value)),
+};
 
 const validation = validateLine(line);
 
@@ -28,6 +36,7 @@ export default function MeetingApp() {
 
   const home = useMemo(() => lineBounds(line), []);
   const { containerRef, vb, fitTo, wasDrag, handlers } = useViewport(home);
+  const engine = useSimEngine(line);
 
   const togglePlot = useCallback((id) => {
     setPlotted((prev) => {
@@ -38,6 +47,10 @@ export default function MeetingApp() {
     });
   }, []);
   const closePopup = useCallback(() => setSelectedId(null), []);
+  const onParamChange = useCallback(
+    (machineId, param, value) => PARAM_BINDERS[param.bind]?.(engine, machineId, value),
+    [engine]
+  );
 
   return (
     <div style={{ background: C.bg, color: C.text, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_MONO }}>
@@ -55,7 +68,14 @@ export default function MeetingApp() {
         display: "flex", justifyContent: "space-between", alignItems: "center",
         padding: "10px 16px", borderBottom: `1px solid ${C.line}`, flex: "none", gap: 16, flexWrap: "wrap",
       }}>
-        <TransportControls />
+        <TransportControls
+          running={engine.running}
+          onStart={engine.start}
+          onPause={engine.pause}
+          onStep={engine.stepOnce}
+          speed={engine.speed}
+          onSpeedChange={engine.setSpeed}
+        />
         <div style={{ display: "flex", gap: 6, flex: "none" }}>
           {line.zones.map((z) => (
             <button key={z.id} className="zonebtn" style={zoneBtnStyle} onClick={() => fitTo(zoneBounds(line, z.id))}>
@@ -81,6 +101,7 @@ export default function MeetingApp() {
               wasDrag={wasDrag}
               selectedId={selectedId}
               onSelect={setSelectedId}
+              simSnap={engine.snap.machines}
             />
           )}
           {selected && (
@@ -90,6 +111,7 @@ export default function MeetingApp() {
               plotted={plotted}
               onTogglePlot={togglePlot}
               onClose={closePopup}
+              onParamChange={onParamChange}
             />
           )}
         </main>
