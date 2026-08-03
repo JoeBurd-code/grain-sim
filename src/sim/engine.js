@@ -79,12 +79,19 @@ export function stepSim(sim, dt) {
   }
 
   // Forward pass: actually move volume, capped by the availability just computed.
+  // `downstreamCap` re-derives the same value the reverse pass used as this
+  // node's own downstream bound (see issue #20) — a node that both holds
+  // and discharges (the accumulator) needs it to know how much it may push
+  // out this tick, separately from `capAvail.get(id)` (how much it may
+  // accept in). Nodes with nothing sim-enabled downstream get 0: nowhere
+  // for them to discharge into.
   const inflowOf = new Map();
   for (const id of order) {
     const state = machines.get(id);
     const inflow = inflowOf.get(id) ?? 0;
-    const outflow = BEHAVIORS[state.kind].apply(state, dt, inflow, capAvail.get(id));
     const downstreamId = downstream.get(id);
+    const downstreamCap = downstreamId != null ? capAvail.get(downstreamId) : 0;
+    const outflow = BEHAVIORS[state.kind].apply(state, dt, inflow, capAvail.get(id), downstreamCap);
     if (downstreamId != null) {
       inflowOf.set(downstreamId, (inflowOf.get(downstreamId) ?? 0) + outflow);
     }
@@ -113,6 +120,17 @@ export function setSourceRate(sim, id, rateM3PerSec) {
     throw new Error(`machine "${id}" is not a source`);
   }
   state.nominalRate = rateM3PerSec;
+}
+
+// Live control (issue #20): the drum feeder's metering rate takes effect on
+// its very next capacityAvailable call, mid run — same immediacy as
+// setSourceRate, no ramp modelled for the feeder itself.
+export function setFeederRate(sim, id, rateM3PerSec) {
+  const state = sim.machines.get(id);
+  if (!state || state.kind !== "meteredFeeder") {
+    throw new Error(`machine "${id}" is not a metered feeder`);
+  }
+  state.rate = rateM3PerSec;
 }
 
 // Presenter/demo control: jump an accumulator straight to a given fill

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  createSim, stepSim, getMachineState, setSourceRate, setAccumulatorLevel, DT,
+  createSim, stepSim, getMachineState, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, getInterlockState,
 } from "./engine";
 import { assertConserved, conservationTotals } from "./conservation";
@@ -10,6 +10,7 @@ import { line } from "../line/lineData";
 const SOURCE_ID = "upstreamStub";
 const METAL_REMOVER_ID = "treatMetalRemover";
 const BUFFER_BIN_ID = "treaterBufferBin";
+const FEEDER_ID = "treatDrumFeeder";
 
 function interlockRule(sim) {
   return getInterlockState(sim, BUFFER_BIN_ID);
@@ -270,5 +271,108 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
       if (interlockRule(sim).phase !== "open") { tripped = true; break; }
     }
     expect(tripped).toBe(true); // the mid-run parameter changes were honoured
+  });
+});
+
+describe("inlet drum feeder meters the buffer bin's discharge (issue #20)", () => {
+  it("starts off: the bin doesn't drain on its own, pending the elevator-confirmed-running interlock (issue #21+)", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, 0);
+    const startStored = getMachineState(sim, BUFFER_BIN_ID).stored;
+    for (let i = 0; i < 200; i++) stepSim(sim, DT);
+    expect(getMachineState(sim, BUFFER_BIN_ID).stored).toBe(startStored);
+    expect(getMachineState(sim, FEEDER_ID).drawn).toBe(0);
+  });
+
+  it("draws from the bin at its configured rate once started, and the two reconcile exactly", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, 0); // isolate the draw from any inflow
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(12));
+    const bin = getMachineState(sim, BUFFER_BIN_ID);
+    const startStored = bin.stored;
+
+    for (let i = 0; i < 200; i++) stepSim(sim, DT); // 10s
+
+    const feeder = getMachineState(sim, FEEDER_ID);
+    expect(feeder.drawn).toBeCloseTo(tPerHourToM3PerSec(12) * DT * 200);
+    expect(bin.stored).toBeCloseTo(startStored - feeder.drawn);
+    expect(bin.discharged).toBeCloseTo(feeder.drawn); // the bin's discharge and the feeder's throughput reconcile exactly
+  });
+
+  it("draws nothing once the bin runs dry, and never drives it negative", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, 0);
+    setAccumulatorLevel(sim, BUFFER_BIN_ID, 0);
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(20));
+
+    for (let i = 0; i < 500; i++) stepSim(sim, DT);
+
+    const bin = getMachineState(sim, BUFFER_BIN_ID);
+    const feeder = getMachineState(sim, FEEDER_ID);
+    expect(bin.stored).toBe(0);
+    expect(feeder.drawn).toBe(0);
+  });
+
+  it("draws down to empty and then stops, without ever going negative or fabricating material", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, 0);
+    setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.05); // a little stock, drains fast
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(20));
+
+    for (let i = 0; i < 2000; i++) stepSim(sim, DT);
+    assertConserved(sim);
+
+    const bin = getMachineState(sim, BUFFER_BIN_ID);
+    expect(bin.stored).toBeCloseTo(0);
+    expect(bin.stored).toBeGreaterThanOrEqual(0);
+  });
+
+  it("feed exceeding draw fills the bin; draw exceeding feed empties it; the crossover behaves correctly", () => {
+    const filling = createSim(line);
+    setSourceRate(filling, SOURCE_ID, tPerHourToM3PerSec(20));
+    setFeederRate(filling, FEEDER_ID, tPerHourToM3PerSec(2));
+    const fillingStart = getMachineState(filling, BUFFER_BIN_ID).stored;
+    for (let i = 0; i < 500; i++) stepSim(filling, DT);
+    expect(getMachineState(filling, BUFFER_BIN_ID).stored).toBeGreaterThan(fillingStart);
+
+    const draining = createSim(line);
+    setSourceRate(draining, SOURCE_ID, tPerHourToM3PerSec(2));
+    setFeederRate(draining, FEEDER_ID, tPerHourToM3PerSec(20));
+    const drainingStart = getMachineState(draining, BUFFER_BIN_ID).stored;
+    for (let i = 0; i < 500; i++) stepSim(draining, DT);
+    expect(getMachineState(draining, BUFFER_BIN_ID).stored).toBeLessThan(drainingStart);
+  });
+
+  it("feed rate is a live control that takes effect while running", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, 0);
+    setFeederRate(sim, FEEDER_ID, 0);
+    for (let i = 0; i < 50; i++) stepSim(sim, DT);
+    expect(getMachineState(sim, FEEDER_ID).drawn).toBe(0);
+
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(12));
+    for (let i = 0; i < 50; i++) stepSim(sim, DT);
+    expect(getMachineState(sim, FEEDER_ID).drawn).toBeGreaterThan(0);
+  });
+
+  it("conserves volume across the fill/draw pair (fed + initialStored = stored + delivered + spilled)", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(12));
+    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 2); // isolate from the #19 interlock
+
+    for (let i = 0; i < 20000; i++) {
+      stepSim(sim, DT);
+      assertConserved(sim);
+    }
+
+    const totals = conservationTotals(sim);
+    const feeder = getMachineState(sim, FEEDER_ID);
+    expect(totals.delivered).toBeCloseTo(feeder.drawn);
+  });
+
+  it("setFeederRate rejects a non-feeder machine", () => {
+    const sim = createSim(line);
+    expect(() => setFeederRate(sim, SOURCE_ID, tPerHourToM3PerSec(10))).toThrow(/not a metered feeder/);
   });
 });

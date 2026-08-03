@@ -96,8 +96,8 @@ export const line = {
       // running sim's current level immediately (see PARAM_BINDERS.levelJump
       // in MeetingApp.jsx), for staging a scenario mid-presentation — this is
       // also how a presenter demonstrates the low-set-point reopen (issue
-      // #19) without waiting on a downstream drain that doesn't exist yet
-      // (the drum feeder's own metering behaviour is issue #20's scope).
+      // #19) without waiting on the drum feeder's own drain (issue #20),
+      // which starts off by default (see treatDrumFeeder below).
       params: [
         { id: "level", label: "fill level", min: 0, max: 100, value: 55, unit: "%", bind: "levelJump" },
         { id: "highSetpoint", label: "LSH set point", min: 55, max: 100, value: 85, unit: "%", bind: "interlockHighSetpoint" },
@@ -126,7 +126,23 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 36 } },
       labelAt: { x: -160, y: 24 },
-      params: [{ id: "rate", label: "feed rate", min: 2, max: 20, value: 12, unit: "t/h" }],
+      // Confirmed 2-20 t/h operating range [CONFIRMED 2026-06-30,
+      // REAL_LINE_SPECS.md §5]. Starts at 0 (off): the engineer confirmed
+      // the real feeder starts as soon as the bucket elevator is confirmed
+      // running, which this sim can't yet honour (the elevator isn't
+      // sim-enabled — issue #21+). Until then the presenter starts it live
+      // with this slider, the same staging pattern issue #19 used for the
+      // bin's level. The real feeder is also not a direct rate control but
+      // a non-proportional percentage opening — a linear opening -> rate
+      // mapping is assumed across the confirmed range until the engineer's
+      // spreadsheet of estimated values (referenced, never sent) arrives;
+      // see docs/OPEN_QUESTIONS.md.
+      params: [{ id: "rate", label: "feed rate", min: 0, max: 20, value: 0, unit: "t/h", bind: "feederRate" }],
+      sim: {
+        kind: "meteredFeeder",
+        rateM3PerSec: 0,
+        provenance: { rateM3PerSec: "assumed" },
+      },
     },
     {
       id: "treatingElevator",

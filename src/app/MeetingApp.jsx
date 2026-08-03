@@ -19,6 +19,7 @@ import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 // one is a display-only value with no runtime effect.
 const PARAM_BINDERS = {
   sourceRate: (engine, machineId, value) => engine.setRate(machineId, tPerHourToM3PerSec(value)),
+  feederRate: (engine, machineId, value) => engine.setFeedRate(machineId, tPerHourToM3PerSec(value)),
   // Jumps the live accumulator to this fill % now, for staging a scenario
   // mid-presentation (e.g. drag to 95% to demo a near-overflow, or below the
   // low set point to stage the interlock's reopen) rather than waiting for
