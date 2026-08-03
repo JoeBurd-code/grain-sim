@@ -15,10 +15,14 @@ import { useSimEngine } from "../sim/useSimEngine";
 import { tPerHourToM3PerSec } from "../sim/units";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 
-// Params that opt into live sim control declare `bind`; anything else (e.g.
-// the buffer bin's "start level") is a display-only initial condition.
+// Params that opt into live sim control declare `bind`; anything without
+// one is a display-only value with no runtime effect.
 const PARAM_BINDERS = {
   sourceRate: (engine, machineId, value) => engine.setRate(machineId, tPerHourToM3PerSec(value)),
+  // Jumps the live accumulator to this fill % now, for staging a scenario
+  // mid-presentation (e.g. drag to 95% to demo a near-overflow) rather than
+  // waiting for the source to fill it there.
+  levelJump: (engine, machineId, value) => engine.setLevel(machineId, value / 100),
 };
 
 const validation = validateLine(line);

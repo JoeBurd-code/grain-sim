@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createSim, stepSim, getMachineState, setSourceRate, DT } from "./engine";
+import { createSim, stepSim, getMachineState, setSourceRate, setAccumulatorLevel, DT } from "./engine";
 import { assertConserved, conservationTotals } from "./conservation";
 import { tPerHourToM3PerSec } from "./units";
 import { line } from "../line/lineData";
@@ -98,5 +98,32 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
       ),
     };
     expect(() => createSim(badLine)).toThrow(/unregistered sim\.kind/);
+  });
+
+  it("setAccumulatorLevel jumps the live level and stays conserved", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(12));
+    for (let i = 0; i < 100; i++) stepSim(sim, DT); // some fed volume in the mix already
+
+    setAccumulatorLevel(sim, BUFFER_BIN_ID, 0);
+    let bin = getMachineState(sim, BUFFER_BIN_ID);
+    expect(bin.stored).toBe(0);
+    expect(() => assertConserved(sim)).not.toThrow();
+
+    setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.95);
+    bin = getMachineState(sim, BUFFER_BIN_ID);
+    expect(bin.stored).toBeCloseTo(bin.capacity * 0.95);
+    expect(() => assertConserved(sim)).not.toThrow();
+
+    // out-of-range fractions clamp to the bin's physical limits
+    setAccumulatorLevel(sim, BUFFER_BIN_ID, 5);
+    expect(getMachineState(sim, BUFFER_BIN_ID).stored).toBeCloseTo(bin.capacity);
+    setAccumulatorLevel(sim, BUFFER_BIN_ID, -1);
+    expect(getMachineState(sim, BUFFER_BIN_ID).stored).toBe(0);
+  });
+
+  it("setAccumulatorLevel rejects a non-accumulator machine", () => {
+    const sim = createSim(line);
+    expect(() => setAccumulatorLevel(sim, SOURCE_ID, 0.5)).toThrow(/not an accumulator/);
   });
 });

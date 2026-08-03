@@ -3,7 +3,7 @@
 // (GrainFlowSim.jsx): the speed multiplier scales how much sim time is
 // consumed per wall-clock second, never the fixed timestep itself.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createSim, stepSim, setSourceRate, DT } from "./engine";
+import { createSim, stepSim, setSourceRate, setAccumulatorLevel, DT } from "./engine";
 import { BEHAVIORS } from "./behaviors";
 
 const MAX_STEPS_PER_FRAME = 60;
@@ -84,7 +84,15 @@ export function useSimEngine(line) {
     setSourceRate(sim, machineId, rateM3PerSec);
   }, [sim]);
 
+  // Jumps take effect immediately even while paused, so publish right away
+  // rather than waiting for the next throttled tick (which may never come
+  // if the sim isn't running).
+  const setLevel = useCallback((machineId, fraction) => {
+    setAccumulatorLevel(sim, machineId, fraction);
+    publish();
+  }, [sim, publish]);
+
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
-  return { snap, running, start, pause, stepOnce, speed, setSpeed, setRate };
+  return { snap, running, start, pause, stepOnce, speed, setSpeed, setRate, setLevel };
 }

@@ -92,7 +92,10 @@ export const line = {
       fill: 0.55,
       instruments: ["LT", "LSH", "LSL"],
       labelAt: { x: -6, y: -16 },
-      params: [{ id: "level", label: "start level", min: 0, max: 100, value: 55, unit: "%" }],
+      // Live jump, not just an initial condition: dragging this sets the
+      // running sim's current level immediately (see PARAM_BINDERS.levelJump
+      // in MeetingApp.jsx), for staging a scenario mid-presentation.
+      params: [{ id: "level", label: "fill level", min: 0, max: 100, value: 55, unit: "%", bind: "levelJump" }],
       // 7.7 m3 / 5.5 t working volume [CONFIRMED 2026-06-30,
       // REAL_LINE_SPECS.md §5]. LSH/LSL set points and the 55% start level
       // are assumed (see docs/OPEN_QUESTIONS.md) — low sensitivity per

@@ -103,3 +103,19 @@ export function setSourceRate(sim, id, rateM3PerSec) {
   }
   state.rate = rateM3PerSec;
 }
+
+// Presenter/demo control: jump an accumulator straight to a given fill
+// fraction, e.g. to stage a near-overflow scenario without waiting for the
+// source to fill it there. This adds or removes volume from outside the
+// modelled source, so it folds into `initialStored` (the same bucket the
+// t=0 seed level uses) rather than `stored` alone, keeping the conservation
+// identity (fed + initialStored = stored + ...) true afterwards.
+export function setAccumulatorLevel(sim, id, fraction) {
+  const state = sim.machines.get(id);
+  if (!state || state.kind !== "accumulator") {
+    throw new Error(`machine "${id}" is not an accumulator`);
+  }
+  const nextStored = Math.max(0, Math.min(state.capacity, fraction * state.capacity));
+  state.initialStored += nextStored - state.stored;
+  state.stored = nextStored;
+}
