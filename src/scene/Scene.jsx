@@ -58,6 +58,14 @@ function connectionPath(line, c) {
   return pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
 }
 
+// Single point of resolution for a machine's dynamic (per-tick) values.
+// Today every machine's fill is still the static value authored in the line
+// data, so this is a passthrough; once a machine is wired to the sim, this
+// is the only place that changes to source its live value instead.
+function resolveDynamic(machine) {
+  return { fill: machine.fill };
+}
+
 export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelect }) {
   return (
     <svg
@@ -124,7 +132,7 @@ export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelec
                 fill="none" stroke={SELECT_STROKE} strokeWidth="1.5" strokeDasharray="6 4" opacity="0.9" rx="4"
               />
             )}
-            <Symbol machine={m} />
+            <Symbol machine={m} dynamic={resolveDynamic(m)} />
             {m.type !== "stub" && <MachineLabel machine={m} />}
           </g>
         );

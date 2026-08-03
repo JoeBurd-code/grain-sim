@@ -70,7 +70,7 @@ function FillLevel({ clipId, innerPath, x, w, top, bottom, ratio }) {
 }
 
 // Trapezoid hopper bin, parameterized by the machine footprint (w x h).
-export function BinSymbol({ machine: m }) {
+export function BinSymbol({ machine: m, dynamic }) {
   const { w, h } = m;
   const taper = Math.min(45, h * 0.32);
   const bodyH = h - taper;
@@ -80,14 +80,14 @@ export function BinSymbol({ machine: m }) {
   return (
     <g>
       <path className="body" d={outer} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
-      <FillLevel clipId={`fill-${m.id}`} innerPath={inner} x={0} w={w} top={4} bottom={h - 4} ratio={m.fill} />
+      <FillLevel clipId={`fill-${m.id}`} innerPath={inner} x={0} w={w} top={4} bottom={h - 4} ratio={dynamic.fill} />
       <Instruments machine={m} x={w + 25} y={20} />
     </g>
   );
 }
 
 // Rectangular bin on legs, parameterized by the machine footprint (w x h).
-export function MetalBinSymbol({ machine: m }) {
+export function MetalBinSymbol({ machine: m, dynamic }) {
   const { w, h } = m;
   const taper = Math.min(42, h * 0.28);
   const legH = Math.min(52, h * 0.3);
@@ -100,7 +100,7 @@ export function MetalBinSymbol({ machine: m }) {
       <line x1="8" y1={bodyH} x2="8" y2={h} stroke={C.line} strokeWidth="4" />
       <line x1={w - 8} y1={bodyH} x2={w - 8} y2={h} stroke={C.line} strokeWidth="4" />
       <path className="body" d={outer} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
-      <FillLevel clipId={`fill-${m.id}`} innerPath={inner} x={0} w={w} top={4} bottom={bodyH + taper - 4} ratio={m.fill} />
+      <FillLevel clipId={`fill-${m.id}`} innerPath={inner} x={0} w={w} top={4} bottom={bodyH + taper - 4} ratio={dynamic.fill} />
       <Instruments machine={m} x={w + 25} y={20} />
     </g>
   );
