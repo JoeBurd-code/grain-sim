@@ -9,6 +9,7 @@ import {
 import { assertConserved, conservationTotals } from "./conservation";
 import { tPerHourToM3PerSec } from "./units";
 import { line } from "../line/lineData";
+import { BEHAVIORS } from "./behaviors";
 
 const SOURCE_ID = "upstreamStub";
 const METAL_REMOVER_ID = "treatMetalRemover";
@@ -17,6 +18,7 @@ const FEEDER_ID = "treatDrumFeeder";
 const ELEVATOR_ID = "treatingElevator";
 const PRE_BIN_ID = "treaterPreBin";
 const TREATER_ID = "batchTreater";
+const AFTER_BIN_ID = "treaterAfterBin";
 
 function interlockRule(sim) {
   return getInterlockState(sim, BUFFER_BIN_ID);
@@ -108,11 +110,13 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
 
     const totals = conservationTotals(sim);
     const bin = getMachineState(sim, BUFFER_BIN_ID);
-    // Since issue #22, the pre-bin is also a sim-enabled accumulator and
-    // contributes its own (here, constant — the drum feeder defaults to
-    // off) stored volume to the total.
+    // Since issue #22, the pre-bin is also a sim-enabled accumulator, and
+    // since issue #25 so is the after-bin — both contribute their own
+    // (here, constant — the drum feeder defaults to off, so nothing moves
+    // past the buffer bin) stored volume to the total.
     const preBin = getMachineState(sim, PRE_BIN_ID);
-    expect(totals.stored).toBeCloseTo(bin.stored + preBin.stored);
+    const afterBin = getMachineState(sim, AFTER_BIN_ID);
+    expect(totals.stored).toBeCloseTo(bin.stored + preBin.stored + afterBin.stored);
   });
 
   it("throws when a line declares an unregistered sim.kind", () => {
@@ -419,9 +423,13 @@ function feedElevator(sim, tPerHour = 12) {
 // where set — a concern the batch treater would otherwise confound — so
 // they share this one variant with its sim block stripped, rather than each
 // re-deriving the same "no batch treater" line.
+// afterBinHoldTreater (issue #25) also targets batchTreater, so it's
+// stripped alongside the machine's own sim block — otherwise stepControl
+// would resolve an actuator with no sim state at all and throw.
 const lineWithoutBatchTreater = {
   ...line,
   machines: line.machines.map((m) => (m.id === "batchTreater" ? { ...m, sim: undefined } : m)),
+  interlocks: line.interlocks.filter((r) => r.action.machine !== "batchTreater"),
 };
 
 describe("treating elevator carries grain with a real transport delay (issue #21)", () => {
@@ -787,6 +795,134 @@ describe("batch treater takes a fixed charge every cycle and discharges it as a 
     expect(() => assertConserved(sim)).not.toThrow();
     expect(sawHeldMidCycle).toBe(true); // material genuinely sat mid-charge/mid-cycle at some point
     expect(treater.delivered).toBeGreaterThan(treater.chargeM3); // several cycles genuinely completed, no drift
+  });
+});
+
+function afterBinInterlock(sim) {
+  return getInterlockState(sim, AFTER_BIN_ID);
+}
+
+describe("treater after-bin holds the next batch (issue #25)", () => {
+  it("reuses the accumulator behaviour verbatim: no new material physics for the after-bin", () => {
+    const sim = createSim(line);
+    expect(getMachineState(sim, AFTER_BIN_ID).kind).toBe("accumulator");
+  });
+
+  it("is wired to a holdNextBatch interlock reading the after-bin and commanding the treater", () => {
+    const sim = createSim(line);
+    const rule = afterBinInterlock(sim);
+    expect(rule.kind).toBe("holdNextBatch");
+    expect(rule.actuatorId).toBe(TREATER_ID);
+    expect(rule.phase).toBe("released");
+  });
+
+  it("when the high level switch trips, the treater completes its current cycle and then does not start another", () => {
+    const sim = createSim(line);
+    feedElevator(sim, 20); // keep the pre-bin supplied so the treater can always draw a fresh charge
+    const treater = getMachineState(sim, TREATER_ID); // real 40s cycle: the 5s signal delay can only ever catch one cycle already under way
+
+    stepSim(sim, DT); // draws its first charge, starts holding
+    expect(treater.phase).toBe("holding");
+    expect(treater.held).toBeGreaterThan(0);
+
+    // Above the 60% high set point, but with enough headroom left (0.67 -
+    // 0.62*0.67 ≈ 0.25 m3) for the in-flight charge (0.222 m3) to land in
+    // full — isolates the interlock's own "does not start another" from the
+    // accumulator's separate, already-tested backpressure-waits-mid-
+    // discharge behaviour (issue #24), which this test is not about.
+    setAccumulatorLevel(sim, AFTER_BIN_ID, 0.62);
+    for (let i = 0; i < Math.round(45 / DT); i++) stepSim(sim, DT); // past the 5s signal delay and the 40s cycle time
+    expect(afterBinInterlock(sim).phase).toBe("held");
+    expect(treater.blocked).toBe(true);
+
+    // The cycle already under way when the interlock tripped ran to
+    // completion and discharged normally, not lost mid-cycle.
+    expect(treater.delivered).toBeCloseTo(treater.chargeM3);
+    // With the gate shut, no further charge has started.
+    expect(treater.held).toBe(0);
+    expect(treater.phase).toBe("charging");
+  });
+
+  it("the treater's waiting state is distinguishable from it being stopped, in both the event log and the machine's reported state", () => {
+    const sim = createSim(line);
+    feedElevator(sim, 20);
+    stepSim(sim, DT); // draws its first charge, starts holding
+    setAccumulatorLevel(sim, AFTER_BIN_ID, 0.62); // above the high set point, with headroom for the in-flight charge
+
+    for (let i = 0; i < Math.round(45 / DT); i++) stepSim(sim, DT); // past the 5s delay and the 40s cycle: gate shuts, cycle discharges, no new charge starts
+
+    const treater = getMachineState(sim, TREATER_ID);
+    expect(afterBinInterlock(sim).phase).toBe("held");
+    expect(treater.blocked).toBe(true);
+    expect(treater.phase).toBe("charging"); // the raw state machine never introduces a "stopped" phase
+    expect(treater.held).toBe(0);
+    expect(BEHAVIORS.batchCycle.snapshot(treater).phase).toBe("waiting"); // but the reported state is distinct from "charging"
+
+    const messages = afterBinInterlock(sim).log.map((e) => e.message);
+    expect(messages.some((m) => /hold/i.test(m))).toBe(true);
+    expect(messages.some((m) => /stop/i.test(m))).toBe(false); // never described as a stop — the plant distinguishes the two
+  });
+
+  it("the treater resumes only once the level has fallen back below the clearing threshold", () => {
+    const sim = createSim(line);
+    feedElevator(sim, 20);
+    setAccumulatorLevel(sim, AFTER_BIN_ID, 0.9);
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(afterBinInterlock(sim).phase).toBe("held");
+    const treater = getMachineState(sim, TREATER_ID);
+    expect(treater.blocked).toBe(true);
+
+    setAccumulatorLevel(sim, AFTER_BIN_ID, 0.5); // still above the 20% clearing threshold
+    stepSim(sim, DT);
+    expect(afterBinInterlock(sim).phase).toBe("held"); // does not resume yet
+    expect(treater.blocked).toBe(true);
+
+    setAccumulatorLevel(sim, AFTER_BIN_ID, 0.1); // now below the clearing threshold
+    stepSim(sim, DT);
+    expect(afterBinInterlock(sim).phase).toBe("released");
+    expect(treater.blocked).toBe(false);
+
+    for (let i = 0; i < Math.round(45 / DT); i++) stepSim(sim, DT); // past a full cycle
+    expect(treater.delivered).toBeGreaterThan(0); // genuinely resumed batching
+  });
+
+  it("a full after-bin never causes a spill, however hard the treater hammers it — conservation holds throughout", () => {
+    const sim = createSim(line);
+    feedElevator(sim, 20);
+    setBatchCycleSec(sim, TREATER_ID, 2); // short cycle: many more batches than the 0.67 m3 bin could ever hold, deliberately overwhelming it
+    const treater = getMachineState(sim, TREATER_ID);
+    const afterBin = getMachineState(sim, AFTER_BIN_ID);
+
+    let sawHeld = false;
+    for (let i = 0; i < Math.round(120 / DT); i++) {
+      stepSim(sim, DT);
+      assertConserved(sim);
+      expect(afterBin.spill).toBeCloseTo(0); // never spills, at any point in the run — the reverse-pass capacity check (issue #18) already guarantees this
+      if (treater.held > 0) sawHeld = true;
+    }
+    expect(sawHeld).toBe(true);
+    expect(afterBinInterlock(sim).phase).toBe("held"); // the after-bin did fill and trip, given how small it is against 20 t/h
+    expect(afterBin.spill).toBeCloseTo(0);
+  });
+
+  it("resumes batching after a full block-and-recover cycle, still without ever spilling", () => {
+    const sim = createSim(line);
+    feedElevator(sim, 20);
+    setAccumulatorLevel(sim, AFTER_BIN_ID, 0.62); // trips, with headroom for the in-flight charge (as above)
+    const afterBin = getMachineState(sim, AFTER_BIN_ID);
+    const treater = getMachineState(sim, TREATER_ID);
+
+    for (let i = 0; i < Math.round(45 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
+    expect(afterBinInterlock(sim).phase).toBe("held");
+    expect(treater.blocked).toBe(true);
+    expect(afterBin.spill).toBeCloseTo(0);
+
+    setAccumulatorLevel(sim, AFTER_BIN_ID, 0.1); // presenter drains it for the demo, below the clearing threshold
+    for (let i = 0; i < Math.round(45 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
+    expect(afterBinInterlock(sim).phase).toBe("released");
+    expect(treater.blocked).toBe(false);
+    expect(treater.delivered).toBeGreaterThan(treater.chargeM3); // a second cycle genuinely completed after recovery
+    expect(afterBin.spill).toBeCloseTo(0);
   });
 });
 

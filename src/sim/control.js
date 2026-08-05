@@ -170,9 +170,61 @@ function stepTwoStageThrottle(rule, sim) {
   }
 }
 
+// Hold-next-batch (issue #25 — the treater after-bin's response to a full
+// bin): the third distinct response to a full bin on this line, after
+// thresholdTrip's valve close (issue #19) and twoStageThrottle's slow-then-
+// stop (issue #22). Unlike those two, the actuator here (a batchCycle
+// machine's `blocked` gate, see behaviors.js) is a plain accept/block flag
+// with no ramp to wait on, so this phase machine has no closing/opening or
+// slowing/stopping equivalent — commanding it takes effect immediately, the
+// same tick isSettled would otherwise have waited for.
+//   released -> [level >= highSetpoint] -> armed -> [delay elapses, command
+//   hold] -> held -> [level <= lowSetpoint] -> command release -> released
+// Latches exactly like the other two kinds: once armed, the hold always
+// fires, even if the level dips back below highSetpoint before the delay
+// elapses. The batch-cycle behaviour itself is what guarantees a held gate
+// never interrupts a batch already under way (see capacityAvailableBatchCycle) —
+// this rule only ever decides when the gate opens and closes.
+function initHoldNextBatch(cfg) {
+  return {
+    kind: "holdNextBatch",
+    id: cfg.id,
+    sensorId: cfg.sensor.machine,
+    actuatorId: cfg.action.machine,
+    highSetpoint: cfg.highSetpoint,
+    lowSetpoint: cfg.lowSetpoint,
+    signalDelaySec: cfg.signalDelaySec,
+    phase: "released",
+    fireAt: null,
+    log: [],
+  };
+}
+function stepHoldNextBatch(rule, sim) {
+  const level = readLevel(sim.machines, rule.sensorId);
+  const { actuator, behavior } = resolveActuator(rule, sim);
+
+  if (rule.phase === "released" && level >= rule.highSetpoint) {
+    logEvent(rule, sim.t, `high set point reached at ${pct(level)} — hold signal armed`);
+    rule.phase = "armed";
+    rule.fireAt = sim.t + rule.signalDelaySec;
+  } else if (rule.phase === "held" && level <= rule.lowSetpoint) {
+    behavior.command(actuator, false);
+    logEvent(rule, sim.t, `level cleared to ${pct(level)} — treater released to start its next batch`);
+    rule.phase = "released";
+  }
+
+  if (rule.phase === "armed" && sim.t >= rule.fireAt) {
+    behavior.command(actuator, true);
+    logEvent(rule, sim.t, `treater commanded to hold — will finish its current batch, then wait`);
+    rule.phase = "held";
+    rule.fireAt = null;
+  }
+}
+
 const CONTROL_KINDS = {
   thresholdTrip: { init: initThresholdTrip, step: stepThresholdTrip },
   twoStageThrottle: { init: initTwoStageThrottle, step: stepTwoStageThrottle },
+  holdNextBatch: { init: initHoldNextBatch, step: stepHoldNextBatch },
 };
 
 export function initControl(line) {

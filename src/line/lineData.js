@@ -316,6 +316,32 @@ export const line = {
       fill: 0.3,
       instruments: ["LSH", "LSL"],
       labelAt: { x: -150, y: 30 },
+      // Reuses the same accumulator behaviour as the buffer bin (issue #18)
+      // and the pre-bin (issue #22) unchanged — the third reuse the parent
+      // spec names explicitly. What's new is afterBinHoldTreater below: the
+      // third distinct response to a full bin on this line. The scalping
+      // screen downstream (52.602.F00) isn't sim-enabled yet, so this bin
+      // has no live discharge for now and simply accumulates toward
+      // highSetpoint, same as the buffer bin before the drum feeder (#20)
+      // existed — the engine's reverse-pass capacity check already
+      // guarantees this can never spill regardless (see docs/OPEN_QUESTIONS.md).
+      params: [
+        { id: "level", label: "fill level", min: 0, max: 100, value: 30, unit: "%", bind: "levelJump" },
+        { id: "highSetpoint", label: "LSH0 set point", min: 30, max: 100, value: 60, unit: "%", bind: "interlockHighSetpoint" },
+        { id: "lowSetpoint", label: "LSL0 clear point", min: 0, max: 30, value: 20, unit: "%", bind: "interlockLowSetpoint" },
+        { id: "signalDelay", label: "signal delay", min: 0, max: 15, value: 5, unit: "s", bind: "interlockSignalDelay" },
+      ],
+      // 0.67 m3 working volume [CONFIRMED 2026-06-30, REAL_LINE_SPECS.md
+      // §5]. LSH0/LSL0 set points and the 30% start level are assumed, same
+      // low-sensitivity reasoning as the buffer bin (#18/#19) and pre-bin
+      // (#22): the FD confirms these are operator-adjustable SCADA
+      // configuration, not fixed plant values.
+      sim: {
+        kind: "accumulator",
+        capacityM3: 0.67,
+        initialLevelFraction: 0.3,
+        provenance: { capacityM3: "confirmed", initialLevelFraction: "assumed" },
+      },
     },
     {
       id: "scalpingScreen",
@@ -818,6 +844,40 @@ export const line = {
         "slow.speedFraction": "assumed", "slow.rampTimeSec": "assumed",
         "stop.setpoint": "assumed", "stop.delaySec": "confirmed", "stop.rampTimeSec": "assumed",
         recoverRampTimeSec: "assumed",
+      },
+    },
+    {
+      id: "afterBinHoldTreater",
+      kind: "holdNextBatch",
+      sensor: { machine: "treaterAfterBin" },
+      // The third distinct response to a full bin on this line (issue #25),
+      // and the FD's own words for it: "Treater after-bin high
+      // 52.601.H00.LSH0 -> Treater 52.508.T00 -> 5 s -> treater stops
+      // accepting batches" (docs/PLC_FUNCTIONAL_DESCRIPTION.md §5). Unlike
+      // the buffer bin and pre-bin trips, there is no ramp on the actuator
+      // side to time: the batch-cycle behaviour's `blocked` gate is either
+      // open or shut (src/sim/behaviors.js `commandBatchCycle`), so the
+      // signal delay below is the only timing this interlock has.
+      //
+      // highSetpoint is assumed, like every other bin's LSH0, but not
+      // arbitrarily: a single charge (0.222 m3) is ~33% of this bin's own
+      // 0.67 m3 capacity, far larger relative to its vessel than any other
+      // bin on the line, and the batch already mid-cycle when the trip
+      // fires is not stopped (see acceptance criteria) — it still has to
+      // land somewhere. 60%, not the buffer bin/pre-bin's 85%, is chosen so
+      // one more full charge always has room to discharge after the trip
+      // without the physical backpressure the accumulator already enforces
+      // ever coming into play. lowSetpoint (the clearing threshold) keeps
+      // the same low-sensitivity reasoning as the buffer bin (#18/#19) and
+      // pre-bin (#22): operator-adjustable SCADA configuration, not a fixed
+      // plant value.
+      highSetpoint: 0.6,
+      lowSetpoint: 0.2,
+      signalDelaySec: 5,
+      action: { machine: "batchTreater" },
+      provenance: {
+        highSetpoint: "assumed", lowSetpoint: "assumed",
+        signalDelaySec: "confirmed",
       },
     },
   ],
