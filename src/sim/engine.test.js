@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   createSim, stepSim, getMachineState, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, getInterlockState,
+  setElevatorSpeed,
 } from "./engine";
 import { assertConserved, conservationTotals } from "./conservation";
 import { tPerHourToM3PerSec } from "./units";
@@ -11,6 +12,7 @@ const SOURCE_ID = "upstreamStub";
 const METAL_REMOVER_ID = "treatMetalRemover";
 const BUFFER_BIN_ID = "treaterBufferBin";
 const FEEDER_ID = "treatDrumFeeder";
+const ELEVATOR_ID = "treatingElevator";
 
 function interlockRule(sim) {
   return getInterlockState(sim, BUFFER_BIN_ID);
@@ -368,11 +370,154 @@ describe("inlet drum feeder meters the buffer bin's discharge (issue #20)", () =
 
     const totals = conservationTotals(sim);
     const feeder = getMachineState(sim, FEEDER_ID);
-    expect(totals.delivered).toBeCloseTo(feeder.drawn);
+    // Since issue #21, everything the feeder forwards lands in the
+    // treating elevator's transport delay rather than leaving the modelled
+    // boundary at the feeder itself — some of it is always still mid-lift
+    // (totals.inTransit) rather than delivered, so the two together (not
+    // delivered alone) reconcile against the feeder's cumulative draw.
+    expect(totals.inTransit + totals.delivered).toBeCloseTo(feeder.drawn);
+    expect(totals.inTransit).toBeGreaterThan(0); // continuous flow always has some material mid-transit
   });
 
   it("setFeederRate rejects a non-feeder machine", () => {
     const sim = createSim(line);
     expect(() => setFeederRate(sim, SOURCE_ID, tPerHourToM3PerSec(10))).toThrow(/not a metered feeder/);
+  });
+});
+
+// Rise 8.731 m at the drawing's 10.08 m/min chain speed derives to ~52s
+// (REAL_LINE_SPECS.md §5/§8, and the parent issue's own worked example).
+const EXPECTED_TRANSIT_SEC = 8.731 / (10.08 / 60);
+
+function feedElevator(sim, tPerHour = 12) {
+  setSourceRate(sim, SOURCE_ID, 0); // isolate the feeder's draw from the bin's own stock
+  setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(tPerHour));
+}
+
+describe("treating elevator carries grain with a real transport delay (issue #21)", () => {
+  it("derives its transit delay from rise and chain speed rather than a hardcoded constant", () => {
+    expect(EXPECTED_TRANSIT_SEC).toBeCloseTo(52, 0);
+  });
+
+  it("nothing arrives at the discharge until the derived transit delay has elapsed", () => {
+    const sim = createSim(line);
+    feedElevator(sim);
+    for (let i = 0; i < Math.round((EXPECTED_TRANSIT_SEC - 5) / DT); i++) stepSim(sim, DT);
+
+    const elevator = getMachineState(sim, ELEVATOR_ID);
+    expect(elevator.delivered).toBe(0);
+    expect(elevator.queue.reduce((a, p) => a + p.vol, 0)).toBeGreaterThan(0); // material is genuinely mid-lift
+  });
+
+  it("material arrives at the discharge once the derived transit delay has elapsed", () => {
+    const sim = createSim(line);
+    feedElevator(sim);
+    for (let i = 0; i < Math.round((EXPECTED_TRANSIT_SEC + 15) / DT); i++) stepSim(sim, DT);
+
+    expect(getMachineState(sim, ELEVATOR_ID).delivered).toBeGreaterThan(0);
+  });
+
+  it("material already in transit keeps discharging after the feeder stops, until the elevator clears", () => {
+    const sim = createSim(line);
+    feedElevator(sim);
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // 10s of feed, well under the ~52s transit
+    setFeederRate(sim, FEEDER_ID, 0); // feeder stops
+    expect(getMachineState(sim, ELEVATOR_ID).queue.length).toBeGreaterThan(0);
+
+    for (let i = 0; i < Math.round(70 / DT); i++) stepSim(sim, DT); // long past the transit delay
+    const elevator = getMachineState(sim, ELEVATOR_ID);
+    expect(elevator.delivered).toBeGreaterThan(0); // it did arrive, despite the feeder having stopped
+    expect(elevator.queue.length).toBe(0); // and the chain has fully cleared
+    expect(elevator.backlog).toBe(0);
+  });
+
+  it("enforces a throughput ceiling regardless of how fast the feeder tries to push material in", () => {
+    const sim = createSim(line);
+    feedElevator(sim, 1000); // wildly over the elevator's ceiling
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+
+    const feeder = getMachineState(sim, FEEDER_ID);
+    const ceiling = getMachineState(sim, ELEVATOR_ID).ceilingM3PerSec;
+    expect(feeder.drawn).toBeCloseTo(ceiling * 20, 2); // capped at the elevator's ceiling, not the feeder's own rate
+  });
+
+  it("speed is a live control, and slowing it scales the transit delay", () => {
+    const half = createSim(line);
+    feedElevator(half);
+    setElevatorSpeed(half, ELEVATOR_ID, 0.5);
+    for (let i = 0; i < Math.round((EXPECTED_TRANSIT_SEC + 15) / DT); i++) stepSim(half, DT);
+    // at half speed, material that would have arrived by now at full speed has not yet
+    expect(getMachineState(half, ELEVATOR_ID).delivered).toBe(0);
+
+    for (let i = 0; i < Math.round(EXPECTED_TRANSIT_SEC / DT); i++) stepSim(half, DT); // the rest of the doubled delay
+    expect(getMachineState(half, ELEVATOR_ID).delivered).toBeGreaterThan(0);
+  });
+
+  it("a live speed change re-paces material already in transit, not just newly fed material", () => {
+    const sim = createSim(line);
+    feedElevator(sim);
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // some material already mid-lift
+    setFeederRate(sim, FEEDER_ID, 0); // isolate: no new material enters during the stall
+    setElevatorSpeed(sim, ELEVATOR_ID, 0); // stall the chain entirely
+    const inTransitAtStall = getMachineState(sim, ELEVATOR_ID).queue.reduce((a, p) => a + p.vol, 0);
+
+    for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT); // long enough it would have arrived otherwise
+    const elevator = getMachineState(sim, ELEVATOR_ID);
+    expect(elevator.delivered).toBe(0); // stalled chain: nothing moves, nothing is lost either
+    expect(elevator.queue.reduce((a, p) => a + p.vol, 0)).toBeCloseTo(inTransitAtStall);
+  });
+
+  it("setElevatorSpeed rejects a non-transport-delay machine", () => {
+    const sim = createSim(line);
+    expect(() => setElevatorSpeed(sim, SOURCE_ID, 0.5)).toThrow(/not a transport-delay/);
+  });
+
+  it("conserves volume through the fill / feed / lift chain, with in-transit material neither delivered nor lost", () => {
+    const sim = createSim(line);
+    feedElevator(sim);
+    for (let i = 0; i < Math.round(120 / DT); i++) {
+      stepSim(sim, DT);
+      assertConserved(sim);
+    }
+    expect(() => assertConserved(sim)).not.toThrow();
+
+    const totals = conservationTotals(sim);
+    expect(totals.inTransit).toBeGreaterThan(0);
+    expect(totals.delivered).toBeGreaterThan(0);
+  });
+
+  // treaterPreBin has no `sim` block in the real line yet (that's the next
+  // machine, not this issue's scope), so the behaviour-level tests above
+  // exercise backpressure with a hand-fed `hasDownstream`. This test proves
+  // the same thing through the real engine wiring, using a test-only line
+  // variant (same pattern as the "unregistered sim.kind" test above) so a
+  // future change to the reverse/forward pass can't silently break the
+  // cascade this issue's acceptance criteria describes.
+  it("real backpressure cascades from a full downstream bin, through the elevator, to the feeder", () => {
+    const blockedLine = {
+      ...line,
+      machines: line.machines.map((m) =>
+        m.id === "treaterPreBin"
+          ? { ...m, sim: { kind: "accumulator", capacityM3: 1, initialLevelFraction: 1 } } // starts with zero headroom
+          : m
+      ),
+    };
+    const sim = createSim(blockedLine);
+    feedElevator(sim, 1000); // push hard enough that the elevator's own ceiling isn't the limiting factor
+
+    for (let i = 0; i < Math.round((EXPECTED_TRANSIT_SEC + 20) / DT); i++) {
+      stepSim(sim, DT);
+      assertConserved(sim);
+    }
+
+    const elevator = getMachineState(sim, ELEVATOR_ID);
+    expect(elevator.backlog).toBeGreaterThan(0); // material arrived at the top but the full bin refuses it
+    expect(elevator.delivered).toBe(0); // none of it actually left the elevator
+
+    const drawnAtBlock = getMachineState(sim, FEEDER_ID).drawn;
+    for (let i = 0; i < Math.round(5 / DT); i++) stepSim(sim, DT);
+    expect(getMachineState(sim, FEEDER_ID).drawn).toBeCloseTo(drawnAtBlock); // the feeder itself has now stalled too
+
+    expect(() => assertConserved(sim)).not.toThrow();
   });
 });

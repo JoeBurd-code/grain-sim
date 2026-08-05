@@ -59,13 +59,17 @@ function connectionPath(line, c) {
 }
 
 // Single point of resolution for a machine's dynamic (per-tick) values.
-// `simSnap` is the live sim's published snapshot (Map<machineId, {fill}>);
-// a machine the sim hasn't reached yet, or that has no dynamic value at
-// all, falls back to the static value authored in the line data so the
-// scene never looks broken mid build.
+// `simSnap` is the live sim's published snapshot (Map<machineId, {...}>,
+// shape varies per sim.kind's own `snapshot`, see behaviors.js); a machine
+// the sim hasn't reached yet, or that has no dynamic value at all, falls
+// back to the static `fill` authored in the line data so the scene never
+// looks broken mid build. Every other live field (e.g. the transport
+// delay's leadingProgress/trailingProgress, issue #21) passes through
+// as-is, undefined where the sim hasn't published one — each symbol reads
+// only the fields it understands.
 function resolveDynamic(machine, simSnap) {
-  const live = simSnap?.get(machine.id);
-  return { fill: live?.fill ?? machine.fill };
+  const live = simSnap?.get(machine.id) ?? {};
+  return { ...live, fill: live.fill ?? machine.fill };
 }
 
 export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelect, simSnap }) {

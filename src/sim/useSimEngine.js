@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createSim, stepSim, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
-  setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay,
+  setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, setElevatorSpeed,
 } from "./engine";
 import { BEHAVIORS } from "./behaviors";
 
@@ -96,6 +96,10 @@ export function useSimEngine(line) {
     setFeederRate(sim, machineId, rateM3PerSec);
   }, [sim]);
 
+  const setElevatorSpeedFraction = useCallback((machineId, fraction) => {
+    setElevatorSpeed(sim, machineId, fraction);
+  }, [sim]);
+
   // Jumps take effect immediately even while paused, so publish right away
   // rather than waiting for the next throttled tick (which may never come
   // if the sim isn't running).
@@ -123,6 +127,6 @@ export function useSimEngine(line) {
 
   return {
     snap, running, start, pause, stepOnce, speed, setSpeed, setRate, setFeedRate, setLevel,
-    setInterlockHigh, setInterlockLow, setInterlockDelay,
+    setInterlockHigh, setInterlockLow, setInterlockDelay, setElevatorSpeed: setElevatorSpeedFraction,
   };
 }

@@ -142,12 +142,15 @@ export const line = {
       // Confirmed 2-20 t/h operating range [CONFIRMED 2026-06-30,
       // REAL_LINE_SPECS.md §5]. Starts at 0 (off): the engineer confirmed
       // the real feeder starts as soon as the bucket elevator is confirmed
-      // running, which this sim can't yet honour (the elevator isn't
-      // sim-enabled — issue #21+). Until then the presenter starts it live
-      // with this slider, the same staging pattern issue #19 used for the
-      // bin's level. The real feeder is also not a direct rate control but
-      // a non-proportional percentage opening — a linear opening -> rate
-      // mapping is assumed across the confirmed range until the engineer's
+      // running. The elevator itself is sim-enabled from issue #21, but the
+      // "elevator confirmed running" interlock that would auto-start this
+      // feeder is still not modelled (it needs a running/settled signal on
+      // the elevator, not just its transport delay). Until then the
+      // presenter starts it live with this slider, the same staging pattern
+      // issue #19 used for the bin's level. The real feeder is also not a
+      // direct rate control but a non-proportional percentage opening — a
+      // linear opening -> rate mapping is assumed across the confirmed range
+      // until the engineer's
       // spreadsheet of estimated values (referenced, never sent) arrives;
       // see docs/OPEN_QUESTIONS.md. The FD (2026-08-05) confirms the
       // mechanism but not the numbers: two actuators A/B drive two
@@ -173,7 +176,25 @@ export const line = {
       anchors: { in: { x: 25, y: 204 }, out: { x: 376, y: 44 } },
       instruments: ["ST"],
       labelAt: { x: 200, y: -14 },
-      params: [{ id: "speed", label: "speed", min: 0, max: 100, value: 100, unit: "%" }],
+      params: [{ id: "speed", label: "speed", min: 0, max: 100, value: 100, unit: "%", bind: "elevatorSpeed" }],
+      // Transit delay derived, not guessed: rise 8.731 m at the drawing's
+      // 10.08 m/min chain speed [MED/LOW, screenshot-sourced, REAL_LINE_SPECS.md
+      // §5/§8] gives ~52 s. The chain speed is exactly the figure §8 flags as
+      // disputed (a factor-of-2 geometry ambiguity against the bucket-pitch
+      // reading); using the drawing's stated value here per the parent issue,
+      // not the alternate. `ceilingM3PerSec` is an equipment-nameplate pick
+      // (20 t/h, matching the sibling packaging elevator and the inlet drum
+      // feeders' upper range), not a resolution of the §8 anomaly — working
+      // the drawing's own geometry gives a capacity well below the line's
+      // sustained ~12 t/h rate. Both are logged as open, not quietly picked;
+      // see docs/OPEN_QUESTIONS.md.
+      sim: {
+        kind: "transportDelay",
+        distanceM: 8.731,
+        speedMPerMin: 10.08,
+        ceilingM3PerSec: tPerHourToM3PerSec(20),
+        provenance: { distanceM: "assumed", speedMPerMin: "assumed", ceilingM3PerSec: "assumed" },
+      },
     },
     {
       id: "treaterPreBin",
