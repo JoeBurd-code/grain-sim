@@ -4,8 +4,16 @@
 // merged for confirmed-certain values only: bin level switches, drum
 // feeder 2-20 t/h ranges, treater 14.4 t/h batch rate, and the now-
 // confirmed lift -> top-conveyor routing. Out-of-scope decisions
-// (chemical stream, waste-water IBC, Concetti metal remover) left as-is
-// pending sign-off; see REAL_LINE_SPECS.md §12.
+// (chemical stream, waste-water IBC) left as-is pending sign-off; see
+// REAL_LINE_SPECS.md §12.
+//
+// PLC & SCADA Functional Description (A2653FSD001, analysed 2026-08-05,
+// see docs/PLC_FUNCTIONAL_DESCRIPTION.md) resolved most TBC-nn tags to
+// real ones and confirmed the Concetti-branch metal remover does not
+// exist (removed below). It did not resolve whether the top distribution
+// conveyor is a separate machine or the upper horizontal run of
+// 52.604.E00 (see PLC_FUNCTIONAL_DESCRIPTION.md §8.3) — left unretagged
+// pending that answer.
 //
 // Coordinates are world units, side elevation, gravity-true: grain falls
 // down the screen, elevators climb, what catches sits below what drops.
@@ -56,7 +64,7 @@ export const line = {
       id: "treatMetalRemover",
       type: "metalRemover",
       name: "METAL REMOVER",
-      tag: "TBC-01",
+      tag: "52.501.F00",
       status: "new",
       zone: "treating",
       x: 140, y: 90, w: 90, h: 50,
@@ -83,7 +91,12 @@ export const line = {
       id: "treaterBufferBin",
       type: "bin",
       name: "TREATER BUFFER BIN",
-      tag: "TBC-02",
+      // FD sequence sections say 52.502.H00; its own alarm tables say
+      // 52.501.H00 (an internal FD inconsistency, not ours to resolve —
+      // see docs/PLC_FUNCTIONAL_DESCRIPTION.md §8.1). 52.502.H00 is the
+      // better-supported reading (52.501.F00 is already the metal
+      // remover, and hammer 52.502.X00 is explicitly this bin's).
+      tag: "52.502.H00",
       status: "relocated",
       zone: "treating",
       x: 140, y: 170, w: 170, h: 190,
@@ -102,7 +115,7 @@ export const line = {
         { id: "level", label: "fill level", min: 0, max: 100, value: 55, unit: "%", bind: "levelJump" },
         { id: "highSetpoint", label: "LSH set point", min: 55, max: 100, value: 85, unit: "%", bind: "interlockHighSetpoint" },
         { id: "lowSetpoint", label: "LSL set point", min: 0, max: 55, value: 35, unit: "%", bind: "interlockLowSetpoint" },
-        { id: "signalDelay", label: "signal delay", min: 0, max: 15, value: 3, unit: "s", bind: "interlockSignalDelay" },
+        { id: "signalDelay", label: "signal delay", min: 0, max: 15, value: 7, unit: "s", bind: "interlockSignalDelay" },
       ],
       // 7.7 m3 / 5.5 t working volume [CONFIRMED 2026-06-30,
       // REAL_LINE_SPECS.md §5]. LSH/LSL set points and the 55% start level
@@ -119,7 +132,7 @@ export const line = {
       id: "treatDrumFeeder",
       type: "drumFeeder",
       name: "INLET DRUM FEEDER",
-      tag: "TBC-03",
+      tag: "52.505.L00",
       status: "new",
       zone: "treating",
       x: 185, y: 390, w: 80, h: 36,
@@ -136,7 +149,10 @@ export const line = {
       // a non-proportional percentage opening — a linear opening -> rate
       // mapping is assumed across the confirmed range until the engineer's
       // spreadsheet of estimated values (referenced, never sent) arrives;
-      // see docs/OPEN_QUESTIONS.md.
+      // see docs/OPEN_QUESTIONS.md. The FD (2026-08-05) confirms the
+      // mechanism but not the numbers: two actuators A/B drive two
+      // discrete opening-degree positions (XV4/XV5) — the real control
+      // may be a two-position selector, not a continuous dial.
       params: [{ id: "rate", label: "feed rate", min: 0, max: 20, value: 0, unit: "t/h", bind: "feederRate" }],
       sim: {
         kind: "meteredFeeder",
@@ -148,7 +164,7 @@ export const line = {
       id: "treatingElevator",
       type: "elevator",
       name: "BUCKET ELEVATOR · TREATING",
-      tag: "TBC-19",
+      tag: "52.506.E00",
       status: "new",
       zone: "treating",
       x: 250, y: 222, w: 420, h: 240,
@@ -163,7 +179,7 @@ export const line = {
       id: "treaterPreBin",
       type: "bin",
       name: "TREATER PRE-BIN",
-      tag: "TBC-04",
+      tag: "52.507.H00",
       status: "new",
       zone: "treating",
       x: 590, y: 290, w: 90, h: 100,
@@ -177,7 +193,7 @@ export const line = {
       id: "batchTreater",
       type: "treater",
       name: "NIKLAS WNS/200 BATCH TREATER",
-      tag: "TBC-05",
+      tag: "52.508.T00",
       status: "new",
       zone: "treating",
       x: 570, y: 420, w: 130, h: 110,
@@ -220,7 +236,7 @@ export const line = {
       id: "treaterAfterBin",
       type: "bin",
       name: "TREATER AFTER-BIN",
-      tag: "TBC-07",
+      tag: "52.601.H00",
       status: "new",
       zone: "treating",
       x: 540, y: 560, w: 80, h: 80,
@@ -247,7 +263,7 @@ export const line = {
       id: "discardBin",
       type: "metalBin",
       name: "DISCARD SCALPINGS BIN",
-      tag: "TBC-08",
+      tag: "52.801.L00",
       status: "new",
       zone: "treating",
       x: 620, y: 790, w: 100, h: 80,
@@ -262,7 +278,7 @@ export const line = {
       id: "proBoxStation",
       type: "proBox",
       name: "PRO BOX UNLOADING STATION",
-      tag: "TBC-09",
+      tag: "52.608.H00",
       status: "new",
       zone: "packaging",
       x: 1140, y: 600, w: 120, h: 80,
@@ -313,7 +329,13 @@ export const line = {
       id: "topConveyor",
       type: "conveyor",
       name: "TOP TRANSPORT CONVEYOR",
-      tag: "52.605.X00",
+      // 52.605.X00 was the drawing-era guess for this machine; the FD
+      // (2026-08-05) reassigns that tag to the Concetti auto sampler
+      // instead (see concettiSampler below) and never names a top
+      // conveyor at all. Left as a placeholder pending the engineer
+      // question in docs/PLC_FUNCTIONAL_DESCRIPTION.md §8.3: is this a
+      // separate machine, or the upper horizontal run of 52.604.E00?
+      tag: "TBC-21",
       status: "new",
       zone: "packaging",
       x: 1440, y: 140, w: 1750, h: 26,
@@ -331,7 +353,12 @@ export const line = {
       id: "outloadBufferBin",
       type: "bin",
       name: "OUTLOAD BUFFER BIN",
-      tag: "52.701.H00",
+      // Corrected 2026-08-05: was tagged 52.701.H00 by the earlier
+      // drawing reading, which the FD reassigns to the Flexicon Pre-Bin
+      // (see flexiconPreBin below). This bin is 52.610.H00 (4.51 m3 /
+      // 3.25 t; the "bin segment" figures from the drawing reading
+      // belong here, not on the Flexicon branch).
+      tag: "52.610.H00",
       status: "new",
       zone: "packaging",
       x: 1650, y: 240, w: 130, h: 145,
@@ -435,7 +462,7 @@ export const line = {
       id: "binSegSampler",
       type: "sampler",
       name: "AUTO SAMPLER",
-      tag: "TBC-10",
+      tag: "52.609.X00",
       status: "new",
       zone: "packaging",
       x: 2530, y: 210, w: 60, h: 36,
@@ -462,7 +489,9 @@ export const line = {
       id: "flexiconPreBin",
       type: "bin",
       name: "FLEXICON PRE-BIN",
-      tag: "TBC-12",
+      // Corrected 2026-08-05 [FD]: this bin is 52.701.H00 (the earlier
+      // drawing reading had wrongly given that tag to outloadBufferBin).
+      tag: "52.701.H00",
       status: "relocated",
       zone: "packaging",
       x: 2515, y: 440, w: 90, h: 90,
@@ -476,7 +505,9 @@ export const line = {
       id: "vibratingConveyor",
       type: "vibratory",
       name: "VIBRATING CONVEYOR",
-      tag: "52.703.L00",
+      // Corrected 2026-08-05 [FD]: this is 52.702.C00; the drawing
+      // reading had swapped this tag with flexiconFillingHead's.
+      tag: "52.702.C00",
       status: "relocated",
       zone: "packaging",
       x: 2520, y: 560, w: 120, h: 30,
@@ -488,7 +519,9 @@ export const line = {
       id: "flexiconFillingHead",
       type: "fillingHead",
       name: "FLEXICON FILLING HEAD",
-      tag: "TBC-13",
+      // Corrected 2026-08-05 [FD]: this is 52.703.L00 (see
+      // vibratingConveyor above for the other half of the swap).
+      tag: "52.703.L00",
       status: "relocated",
       zone: "packaging",
       x: 2585, y: 620, w: 90, h: 70,
@@ -523,7 +556,9 @@ export const line = {
       id: "concettiSampler",
       type: "sampler",
       name: "AUTO SAMPLER",
-      tag: "TBC-14",
+      // Corrected 2026-08-05 [FD]: this is 52.605.X00 (the earlier
+      // drawing reading had wrongly given that tag to topConveyor).
+      tag: "52.605.X00",
       status: "new",
       zone: "packaging",
       x: 3160, y: 200, w: 60, h: 36,
@@ -532,29 +567,12 @@ export const line = {
       smallLabel: true,
       labelAt: { x: 75, y: 22 },
     },
-    {
-      id: "concettiMetalRemover",
-      type: "metalRemover",
-      name: "METAL REMOVER",
-      tag: "TBC-15",
-      status: "new",
-      zone: "packaging",
-      x: 3160, y: 270, w: 60, h: 46,
-      ports: { inputs: ["in"], outputs: ["out", "waste"] },
-      anchors: { in: { x: 30, y: 0 }, out: { x: 30, y: 46 }, waste: { x: 60, y: 23 } },
-      labelAt: { x: -230, y: 30 },
-    },
-    {
-      id: "metalRejectStub2",
-      type: "stub",
-      name: "metal reject · TBC",
-      tag: "STUB.REJECT2",
-      status: "stub",
-      zone: "packaging",
-      x: 3290, y: 289, w: 8, h: 8,
-      ports: { inputs: ["in"], outputs: [] },
-      anchors: { in: { x: 4, y: 4 } },
-    },
+    // concettiMetalRemover removed 2026-08-05: the FD names exactly one
+    // metal remover on the whole line (52.501.F00, treating side) and
+    // the Packaging SCADA mimic shows none on this branch, which backs
+    // the engineer's worksheet answer ("not part of this line") against
+    // the sheet 52-14 cross-reference that had raised the question. See
+    // docs/PLC_FUNCTIONAL_DESCRIPTION.md §8.4.
 
     // ================= BAGGING (sheet 52-14) =================
     {
@@ -660,9 +678,7 @@ export const line = {
     { from: { machine: "rollerScale", port: "out" }, to: { machine: "bigBagStub", port: "in" }, kind: "product" },
     // branch A: Concetti
     { from: { machine: "topConveyor", port: "outConcetti" }, to: { machine: "concettiSampler", port: "in" }, kind: "product", via: [{ x: 3190, y: 180 }] },
-    { from: { machine: "concettiSampler", port: "out" }, to: { machine: "concettiMetalRemover", port: "in" }, kind: "product" },
-    { from: { machine: "concettiMetalRemover", port: "waste" }, to: { machine: "metalRejectStub2", port: "in" }, kind: "waste", tbc: true },
-    { from: { machine: "concettiMetalRemover", port: "out" }, to: { machine: "concettiPreBin", port: "in" }, kind: "product" },
+    { from: { machine: "concettiSampler", port: "out" }, to: { machine: "concettiPreBin", port: "in" }, kind: "product" },
     // bagging
     { from: { machine: "concettiPreBin", port: "out" }, to: { machine: "concettiScale", port: "in" }, kind: "product" },
     { from: { machine: "concettiScale", port: "out" }, to: { machine: "concettiFiller", port: "in" }, kind: "product" },
@@ -680,16 +696,28 @@ export const line = {
       id: "bufferBinHighTrip",
       sensor: { machine: "treaterBufferBin" },
       // Engineer confirmed the interlock itself (buffer bin full -> close
-      // the source valve) but not its set points, delay or ramp time — the
-      // real yellow-bin valve's close time and the PLC scan/signal path are
-      // both in the pending operational spec. See docs/OPEN_QUESTIONS.md.
+      // the source valve). Set points and ramp time remain assumed: the
+      // FD (2026-08-05) shows these are operator-adjustable SCADA
+      // configuration, not fixed plant values, so there is nothing
+      // further to absorb for them. signalDelaySec is now CONFIRMED from
+      // the FD's own cause-and-effect matrix: LSH0 -> 5s -> elevator
+      // 52.414.E00 trips -> 1s -> vibratory feeders trip -> 1s -> bin
+      // outlet valves close (~7s total). See
+      // docs/PLC_FUNCTIONAL_DESCRIPTION.md §5.
+      //
+      // Note this interlock models only the trip (close). The FD shows
+      // there is no automatic reopen in the real plant: a level-high
+      // event is a trip, and a tripped device needs a SCADA reset before
+      // it can restart. The reopen at lowSetpoint below is a modelling
+      // convenience for the demo, not plant behaviour — see
+      // docs/OPEN_QUESTIONS.md.
       highSetpoint: 0.85,
       lowSetpoint: 0.35,
-      signalDelaySec: 3,
+      signalDelaySec: 7,
       action: { machine: "upstreamStub", rampTimeSec: 6 },
       provenance: {
         highSetpoint: "assumed", lowSetpoint: "assumed",
-        signalDelaySec: "assumed", rampTimeSec: "assumed",
+        signalDelaySec: "confirmed", rampTimeSec: "assumed",
       },
     },
   ],
