@@ -44,8 +44,18 @@ rates, bin volumes), which was never this document's job.
 
 ## 2. Tag register (the big win)
 
-Every "TBC-nn" placeholder in `src/line/lineData.js` except three now has a real
-tag. Sourced from the sequence lists (§3.2.3, §3.2.4) and the alarm tables
+Of the 20 `TBC-nn` placeholders that were in `src/line/lineData.js` before this
+document, 13 now have a real, applied tag and one (`concettiMetalRemover`) was
+deleted because the FD shows the machine does not exist. Six remain
+placeholders, correctly: `wasteWaterIbc`, `binSegment`, `concettiScale`,
+`concettiFiller`, `palletising` and `grainBreak` are genuinely absent from the
+FD (out of PLC scope or, for the waste water IBC, out of demo scope). One
+further machine, the top transport conveyor, had a *real-looking but wrong*
+tag (`52.605.X00`, which the FD reassigns to the Concetti auto sampler) and
+has been demoted back to a placeholder (`TBC-21`) rather than left carrying a
+tag now known to be incorrect. See §8.3.
+
+Sourced from the sequence lists (§3.2.3, §3.2.4) and the alarm tables
 (§2.4.6), which corroborate each other.
 
 ### Treating
@@ -114,11 +124,20 @@ break**, the **Concetti bagging scale**, the **filling and sewing head**, or any
 **palletising** equipment: the Concetti line past its pre-bin is not in this
 PLC's scope (it is a vendor package with its own controller).
 
-## 3. Bulk density: resolved at ~0.72 t/m³
+## 3. Bulk density: a third bin corroborates the 0.72 t/m³ already in code
 
-The Treating mimic (§4.5, p.86) labels the Treater Pre-Bin **"1.63 m³ (1.17 T)"**.
-That is a vendor volume-to-mass pair, which is exactly the missing constant.
-Cross-checked against the two other bins with both figures known **[FD-DERIVED]**:
+**Correction, checked against the repo 2026-08-05: this was not an open gap.**
+Issue #18's own ticket text derives 0.72 t/m³ from the buffer bin (7.7 m³ / 5.5 t)
+and the bin segment (4.51 m³ / 3.25 t), both already confirmed on the
+2026-06-30 worksheet, and `src/sim/units.js` has carried
+`BULK_DENSITY_T_PER_M3 = 0.72` unchanged since that issue merged. The code was
+already right. What was stale was `docs/REAL_LINE_SPECS.md` §12 item 13, which
+kept tracking numeric bulk density as **[OPEN]** long after #18 had quietly
+closed it by arithmetic; that register entry should have flipped to resolved
+weeks ago and did not.
+
+What the FD actually adds is a **third, independent** volume/mass pair. The
+Treating mimic (§4.5, p.86) labels the Treater Pre-Bin **"1.63 m³ (1.17 T)"**:
 
 | Bin | Volume | Mass | Implied density |
 |---|---|---|---|
@@ -126,11 +145,10 @@ Cross-checked against the two other bins with both figures known **[FD-DERIVED]*
 | Treater Intermediary Buffer Bin | 7.7 m³ | 5.5 t | 0.714 t/m³ |
 | Bin segment / outload buffer bin | 4.51 m³ | 3.25 t | 0.721 t/m³ |
 
-Three independent bins agree to within 1%. **Use 0.72 t/m³ (0.72 kg/L) for
-maize** as the volume↔mass conversion. This closes the long-standing gap that
-`docs/REAL_LINE_SPECS.md` §12 item 13 was holding open, and it does so without
-needing the engineer, because the vendor already committed to it when they rated
-the bins in tonnes.
+All three bins agree to within 1%, including the one that had no part in the
+original #18 derivation. That is real added confidence, worth recording, but
+it is confirmation of an existing constant, not a new resolution — nothing in
+`src/sim/units.js` needs to change.
 
 Note the pre-bin is **1.63 m³, not 1.62 m³** as read off the low-resolution
 sheet 52-12 screenshot.
@@ -369,14 +387,15 @@ This is inference, and it changes the scene topology, so it is the **one item on
 this list worth actually asking the engineer**: *"is the top distribution run a
 separate conveyor, or the upper horizontal of 52.604.E00?"*
 
-### 8.4 Concetti-branch metal remover: drop it
+### 8.4 Concetti-branch metal remover: does not exist (removed 2026-08-05)
 
 Sheet 52-14 carried an entry reference "FROM METAL REMOVER ... SHEET 52-13",
 which contradicted the engineer's "part of this line? No" on the returned
 worksheet. The FD **names exactly one metal remover on the whole line,
 `52.501.F00`, on the treating side**, and the Packaging mimic shows none on the
 Concetti branch. Two independent sources now agree with the engineer.
-`concettiMetalRemover` in `lineData.js` should be removed.
+`concettiMetalRemover` has been removed from `lineData.js`; `concettiSampler`
+now feeds `concettiPreBin` directly.
 
 ### 8.5 Minor
 

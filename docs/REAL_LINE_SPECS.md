@@ -25,15 +25,22 @@
 > **[FD 2026-08-05]**.
 >
 > **Headline corrections from the Functional Description (read these first):**
-> - **Almost every unknown tag is now known.** All but three `TBC-nn` placeholders
->   in `src/line/lineData.js` resolve; see PLC_FUNCTIONAL_DESCRIPTION §2 for the
->   full register. Highlights: metal remover `52.501.F00`, buffer bin `52.502.H00`,
+> - **Most unknown tags are now known and applied.** 13 of the 20 `TBC-nn`
+>   placeholders in `src/line/lineData.js` resolved to real tags; a 14th
+>   machine (`concettiMetalRemover`) was deleted outright. Six placeholders
+>   remain, correctly, for machines genuinely outside the FD's scope; see
+>   PLC_FUNCTIONAL_DESCRIPTION §2 for the full accounting. Highlights: metal
+>   remover `52.501.F00`, buffer bin `52.502.H00`,
 >   treating drum feeder `52.505.L00`, treating elevator `52.506.E00`, pre-bin
 >   `52.507.H00`, treater `52.508.T00`, after-bin `52.601.H00`, Pro Box station
 >   `52.608.H00`, outload buffer bin `52.610.H00`, discard scalpings bin
 >   `52.801.L00`.
-> - **Bulk density is resolved: ~0.72 t/m³.** Three bins independently rated in both
->   m³ and tonnes agree to within 1%. This closes §12 item 13.
+> - **Bulk density (~0.72 t/m³) was already resolved, in issue #18, not by this
+>   document.** `src/sim/units.js` has carried this exact constant since #18
+>   merged, derived from two bins already confirmed on 2026-06-30. §12 item 13
+>   should have flipped to resolved back then and did not; corrected below. The
+>   FD adds a third independent bin (pre-bin, 1.63 m³ / 1.17 t) that agrees to
+>   within 1%, which is welcome corroboration, not a new finding.
 > - **`52.701.H00` is the Flexicon Pre-Bin, not the outload buffer bin**, and
 >   `52.702.U00` appears nowhere in the FD. The branch-B routing below is wrong; see
 >   PLC_FUNCTIONAL_DESCRIPTION §8.3.
@@ -391,7 +398,7 @@ Derived figures (computed, not on drawing):
 - Full chain circuit: 120 m at 10.08 m/min ≈ **11.9 min**; treating elevator ≈ 10.4 min.
 - Carrying-side transit (roughly half the loop) ≈ **6 min** of pure transport lag.
 - Bucket pitch = 120 m / 196 ≈ 0.61 m; bucket pass rate = 10.08 / 0.61 ≈ 16.5 buckets/min.
-- **Bulk density is now known: ~0.72 t/m³ [FD 2026-08-05]**, from three bins the vendor rated in both m³ and tonnes (pre-bin 1.63 m³ / 1.17 t, buffer bin 7.7 m³ / 5.5 t, outload buffer bin 4.51 m³ / 3.25 t — all within 1% of each other). Use **0.72 kg/L** for maize.
+- **Bulk density has been known since #18: ~0.72 t/m³**, derived from the buffer bin (7.7 m³ / 5.5 t) and outload buffer bin (4.51 m³ / 3.25 t), and coded in `src/sim/units.js`. **[FD 2026-08-05]** adds a third independent bin (pre-bin, 1.63 m³ / 1.17 t) that agrees to within 1%, confirming the existing constant. Use **0.72 kg/L** for maize.
 - **The §8 anomaly is therefore not a density problem, it is a geometry problem.** At 0.72 kg/L, a 70%-full 20.5 L bucket holds 10.33 kg, so the table's 347.29 kg/min needs **33.6 buckets/min** against the 16.5 the drawing geometry gives: a factor of **2.04**. Either the chain speed is really ~20.5 m/min (10.08 misread), or the pitch is really ~0.3 m (196 counting pairs or one strand). **Still open**, but the consequence is bounded: carrying-side transit is either ~3 min or ~6 min. Both are large enough for the delayed-cascade thesis, so nothing is blocked. Worth one line in an engineer email. Note the elevators actually run at **50% fill, not the 70% table row**.
 
 ## 9. End-to-end line summary (one paragraph)
@@ -537,8 +544,13 @@ always the same crop**, with size/shape varying ~10%. **[CONFIRMED 2026-06-30]**
 12. **[OPEN]** Concetti line: bag size, sustained t/h, pre-bin volume. Not in the FD, and
     the FD confirms why: the Concetti line past pre-bin `52.705.H00` is a **vendor package
     outside this PLC's scope** (no tags for its scale, filler or palletiser).
-13. **[RESOLVED, FD]** Crop = maize, ±10% size/shape, **bulk density ≈ 0.72 t/m³**, derived
-    from three bins the vendor rated in both m³ and tonnes. See §8.
+13. **[RESOLVED, but was actually closed by issue #18, not by this document.]**
+    Crop = maize, ±10% size/shape, **bulk density ≈ 0.72 t/m³**. This register
+    entry was left open by mistake for weeks: `src/sim/units.js` has carried
+    `BULK_DENSITY_T_PER_M3 = 0.72` since #18 merged, derived from two bins
+    already confirmed on 2026-06-30. The FD (2026-08-05) adds a third
+    independent bin that agrees to within 1%, corroborating the existing
+    value rather than resolving anything. See §8.
 
 **Control/interlock:**
 
@@ -574,9 +586,11 @@ always the same crop**, with size/shape varying ~10%. **[CONFIRMED 2026-06-30]**
 
 **Newly raised by the answers:**
 
-23. **[RESOLVED, FD]** Concetti-branch metal remover: **does not exist**. Drop
-    `concettiMetalRemover` from `lineData.js`.
-24. **[RESOLVED, FD]** `52.608.H00` is the **Pro Box Unloading Station**.
+23. **[RESOLVED, FD; applied 2026-08-05]** Concetti-branch metal remover: **does
+    not exist**. `concettiMetalRemover` removed from `lineData.js`, its
+    connections rerouted so `concettiSampler` feeds `concettiPreBin` directly.
+24. **[RESOLVED, FD; applied 2026-08-05]** `52.608.H00` is the **Pro Box
+    Unloading Station** — `proBoxStation`'s tag corrected in `lineData.js`.
 25. **[OPEN]** Default value to plot on the shared chart per machine (throughput vs fill
     level), ours to decide.
 
