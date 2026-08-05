@@ -505,10 +505,11 @@ always the same crop**, with size/shape varying ~10%. **[CONFIRMED 2026-06-30]**
 > **[OPEN]**; those the FD closed are tagged **[FD]**. Resolved answers are already
 > merged into §1-§11 above.
 >
-> **Scoreboard: 13 of the 25 items are now closed, up from 8.** Every remaining open
-> item is either equipment *sizing* data (which the FD was never going to carry, and
-> which the `...-3512-01` Process Equipment Schedule probably does) or a demo-scope
-> decision that is ours to make.
+> **Scoreboard: 16 of the 29 items are now closed, up from 8 of the original 25.**
+> (The FD itself raised 4 new items, 26-29, which is why the total grew.) 4 more are
+> partial. Every remaining open item is either equipment *sizing* data (which the FD
+> was never going to carry, and which the `...-3512-01` Process Equipment Schedule
+> probably does) or a demo-scope decision that is ours to make.
 
 **Topology:**
 
