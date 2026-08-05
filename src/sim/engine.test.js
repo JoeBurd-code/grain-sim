@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  createSim, stepSim, getMachineState, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
+  createSim, stepSim, resetSim, getMachineState, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, getInterlockState,
   setElevatorSpeed,
 } from "./engine";
@@ -518,6 +518,55 @@ describe("treating elevator carries grain with a real transport delay (issue #21
     for (let i = 0; i < Math.round(5 / DT); i++) stepSim(sim, DT);
     expect(getMachineState(sim, FEEDER_ID).drawn).toBeCloseTo(drawnAtBlock); // the feeder itself has now stalled too
 
+    expect(() => assertConserved(sim)).not.toThrow();
+  });
+});
+
+describe("resetSim (presenter reset, no page reload needed)", () => {
+  it("puts every live-adjusted control and every machine's state back to the line's authored defaults", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(20));
+    setElevatorSpeed(sim, ELEVATOR_ID, 0.3);
+    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
+    for (let i = 0; i < Math.round(80 / DT); i++) stepSim(sim, DT);
+
+    // confirm the run actually moved things, so the reset assertions below mean something
+    expect(sim.t).toBeGreaterThan(0);
+    expect(getMachineState(sim, ELEVATOR_ID).queue.length + getMachineState(sim, ELEVATOR_ID).backlog).not.toBe(0);
+
+    resetSim(sim);
+
+    expect(sim.t).toBe(0);
+    expect(getMachineState(sim, SOURCE_ID).nominalRate).toBeCloseTo(tPerHourToM3PerSec(12)); // line default, not the 20 t/h set mid-run
+    expect(getMachineState(sim, FEEDER_ID).rate).toBe(0); // line default: starts off
+    expect(getMachineState(sim, FEEDER_ID).drawn).toBe(0);
+    expect(getMachineState(sim, ELEVATOR_ID).speedFraction).toBe(1); // line default, not the 0.3 set mid-run
+    expect(getMachineState(sim, ELEVATOR_ID).queue).toEqual([]);
+    expect(getMachineState(sim, ELEVATOR_ID).backlog).toBe(0);
+    const bin = getMachineState(sim, BUFFER_BIN_ID);
+    expect(bin.stored / bin.capacity).toBeCloseTo(0.55); // line default fill level
+    expect(interlockRule(sim).highSetpoint).toBeCloseTo(0.85); // line default, not the 0.6 set mid-run
+    expect(interlockRule(sim).phase).toBe("open");
+    expect(() => assertConserved(sim)).not.toThrow();
+  });
+
+  it("keeps the same object reference so a caller holding onto `sim` sees the reset without re-fetching it", () => {
+    const sim = createSim(line);
+    stepSim(sim, DT);
+    const result = resetSim(sim);
+    expect(result).toBe(sim);
+  });
+
+  it("the sim is fully usable again after a reset", () => {
+    const sim = createSim(line);
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(12));
+    for (let i = 0; i < Math.round(80 / DT); i++) stepSim(sim, DT);
+    resetSim(sim);
+
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(12));
+    for (let i = 0; i < 100; i++) stepSim(sim, DT);
+    expect(getMachineState(sim, SOURCE_ID).fed).toBeGreaterThan(0);
     expect(() => assertConserved(sim)).not.toThrow();
   });
 });

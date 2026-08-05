@@ -4,7 +4,7 @@
 // consumed per wall-clock second, never the fixed timestep itself.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  createSim, stepSim, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
+  createSim, stepSim, resetSim, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, setElevatorSpeed,
 } from "./engine";
 import { BEHAVIORS } from "./behaviors";
@@ -88,6 +88,18 @@ export function useSimEngine(line) {
     publish();
   }, [sim, publish]);
 
+  // Puts the whole system back to t=0 with every live control (rates,
+  // interlock set points, elevator speed) back at the line's authored
+  // defaults — the same end state as reloading the page, without losing
+  // pan/zoom or the selected machine's popup.
+  const reset = useCallback(() => {
+    pause();
+    resetSim(sim);
+    lastTsRef.current = 0;
+    budgetRef.current = 0;
+    publish();
+  }, [sim, pause, publish]);
+
   const setRate = useCallback((machineId, rateM3PerSec) => {
     setSourceRate(sim, machineId, rateM3PerSec);
   }, [sim]);
@@ -126,7 +138,7 @@ export function useSimEngine(line) {
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
   return {
-    snap, running, start, pause, stepOnce, speed, setSpeed, setRate, setFeedRate, setLevel,
+    snap, running, start, pause, stepOnce, reset, speed, setSpeed, setRate, setFeedRate, setLevel,
     setInterlockHigh, setInterlockLow, setInterlockDelay, setElevatorSpeed: setElevatorSpeedFraction,
   };
 }

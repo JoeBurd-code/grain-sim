@@ -16,7 +16,7 @@ function btnStyle(active, disabled) {
   };
 }
 
-export default function TransportControls({ running, onStart, onPause, onStep, speed, onSpeedChange }) {
+export default function TransportControls({ running, onStart, onPause, onStep, onReset, speed, onSpeedChange }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
       <button style={btnStyle(running)} onClick={running ? onPause : onStart}>
@@ -24,6 +24,9 @@ export default function TransportControls({ running, onStart, onPause, onStep, s
       </button>
       <button style={btnStyle(false, running)} onClick={onStep} disabled={running}>
         ⏭ STEP
+      </button>
+      <button style={btnStyle(false)} onClick={onReset}>
+        ↺ RESET
       </button>
       <div style={{ display: "flex", gap: 2, marginLeft: 4 }}>
         {SPEEDS.map((s) => (

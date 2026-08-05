@@ -62,6 +62,17 @@ export function createSim(line) {
   return { t: 0, line, machines, downstream, order, control };
 }
 
+// Rebuilds `sim` from its own `line` and copies the result over the same
+// object reference (rather than returning a new one), so a caller holding
+// onto `sim` — the UI's useState value, never replaced via its setter — sees
+// the reset without needing to know its identity changed. Every live
+// control set during the run (rates, interlock set points, elevator speed)
+// reverts to the line's authored defaults, same as a page reload.
+export function resetSim(sim) {
+  Object.assign(sim, createSim(sim.line));
+  return sim;
+}
+
 // Whether a sim-enabled machine actually sits downstream of `id` — the one
 // fact both the forward pass and conservationTotals need computed the same
 // way, since a downstream *value* of 0 is ambiguous (genuinely full vs not

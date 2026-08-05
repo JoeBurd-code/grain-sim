@@ -85,6 +85,7 @@ export default function MeetingApp() {
           onStart={engine.start}
           onPause={engine.pause}
           onStep={engine.stepOnce}
+          onReset={engine.reset}
           speed={engine.speed}
           onSpeedChange={engine.setSpeed}
         />
