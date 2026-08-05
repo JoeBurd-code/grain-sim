@@ -58,7 +58,11 @@ export const line = {
         rateM3PerSec: tPerHourToM3PerSec(12),
         provenance: { rateM3PerSec: "confirmed" },
       },
-      params: [{ id: "rate", label: "source rate", min: 2, max: 20, value: 12, unit: "t/h", bind: "sourceRate" }],
+      // Range floors at 0 (not the confirmed 2-20 t/h operating range) so a
+      // presenter can slide the source to zero and watch how the rest of
+      // the line reacts once nothing new is coming in — a deliberately
+      // off-spec testing position, not a claim about real feeder limits.
+      params: [{ id: "rate", label: "source rate", min: 0, max: 20, value: 12, unit: "t/h", bind: "sourceRate" }],
     },
     {
       id: "treatMetalRemover",
