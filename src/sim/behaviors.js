@@ -272,6 +272,113 @@ function isSettledTransportDelay(state) {
   return state.throttleFraction === state.throttleTarget;
 }
 
+// Batch cycle (issue #24): the primitive behind any machine that takes a
+// fixed charge, holds it for a cycle, then discharges the whole charge as a
+// pulse — the batch treater today, and per the parent spec (issue #15) the
+// Concetti bagging scale, the Concetti filler and the Flexicon big-bag
+// filling head later, all sharing this unchanged.
+//
+// `phases` (from the line data) names the sub-steps of the hold: the
+// engineer gave one unsplit cycle time with no fill/treat/discharge
+// breakdown and was explicit he'd have to ask the supplier
+// (docs/OPEN_QUESTIONS.md), so `phases` holds exactly one entry today. This
+// behaviour only ever sums every phase's duration into `cycleSec` — it
+// never reads an individual phase's length — so a future fill/treat/
+// discharge split is a data edit to `phases`, not a restructuring of this
+// function.
+//
+// A charge is drawn gradually into `held` rather than snatched in one
+// forced atomic pull, because a behaviour's capacityAvailable only ever
+// sees its own downstream, never what its upstream can actually supply this
+// tick (see engine.js's reverse pass) — there is no seam through which to
+// demand "the whole charge or nothing" from the pre-bin in a single tick.
+// In the ordinary case the pre-bin holds far more than one charge, so the
+// accumulator behaviour's own uncapped discharge (min(stored, downstreamCap),
+// no rate limit of its own) still hands over the full charge in a single
+// tick — the atomic "draws a fixed charge" the acceptance criteria
+// describe. The gradual path only engages when the pre-bin itself is short,
+// and even then no partial charge is ever treated as complete: the hold
+// timer (and the eventual discharge pulse) only starts once `held` reaches
+// `chargeM3` exactly, so an under-supplied treater simply waits rather than
+// batching short.
+function initBatchCycle(m) {
+  const cycleSec = m.sim.phases.reduce((a, p) => a + p.durationSec, 0);
+  return {
+    kind: "batchCycle",
+    chargeM3: m.sim.chargeM3,
+    cycleSec,
+    phase: "charging", // charging -> holding -> discharging -> charging
+    held: 0,
+    elapsedSec: 0,
+    drawn: 0,
+    delivered: 0,
+  };
+}
+// Reverse pass: only wants more material while actively charging, and only
+// up to what's still missing from the current charge — never more, so a
+// generous upstream can't overshoot the fixed batch size. Holding and
+// discharging both report 0: the treater accepts nothing new until the
+// current charge has fully left, matching "does not start a partial batch".
+function capacityAvailableBatchCycle(state) {
+  if (state.phase !== "charging") return 0;
+  return Math.max(0, state.chargeM3 - state.held);
+}
+function applyBatchCycle(state, dt, inflow, cap, downstreamCap = 0, hasDownstream = false) {
+  const accepted = Math.min(inflow, cap);
+  state.held += accepted;
+  state.drawn += accepted;
+
+  if (state.phase === "charging" && state.held >= state.chargeM3 - EPS) {
+    state.phase = "holding";
+    state.elapsedSec = 0;
+  }
+
+  if (state.phase === "holding") {
+    state.elapsedSec += dt;
+    if (state.elapsedSec >= state.cycleSec) {
+      state.phase = "discharging";
+    }
+  }
+
+  let out = 0;
+  if (state.phase === "discharging") {
+    // No discharge rate is modelled: nothing sim-enabled sits downstream of
+    // the treater yet (the after-bin is issue #25), and the engineer's own
+    // description is a pulse, not a metered outflow — so an unconstrained
+    // downstream drains the whole charge in the single tick discharge
+    // begins, which is the pulse the acceptance criteria describe. A future
+    // sim-enabled downstream still bounds it via downstreamCap exactly like
+    // every other behaviour, so a momentarily full after-bin holds the
+    // charge here — mid-cycle, still accounted for — rather than losing it.
+    const dischargeCap = hasDownstream ? downstreamCap : Infinity;
+    out = Math.min(state.held, dischargeCap);
+    state.held -= out;
+    state.delivered += out;
+    if (state.held <= EPS) {
+      state.held = 0;
+      state.phase = "charging";
+    }
+  }
+
+  return out;
+}
+// Held volume — whether mid-charge or mid-cycle — is neither delivered nor
+// lost: it folds into the same `inTransit` bucket transportDelay's queue/
+// backlog uses, per the acceptance criteria's "accounted for as neither
+// delivered nor lost". `hasDownstream` follows the same convention as
+// meteredFeeder and transportDelay: only report cumulative "delivered" when
+// nothing sim-enabled downstream already accounts for that same volume
+// itself.
+function conserveBatchCycle(state, hasDownstream) {
+  return hasDownstream ? { inTransit: state.held } : { inTransit: state.held, delivered: state.delivered };
+}
+function snapshotBatchCycle(state) {
+  return {
+    fill: state.chargeM3 > 0 ? state.held / state.chargeM3 : 0,
+    phase: state.phase,
+  };
+}
+
 export const BEHAVIORS = {
   source: {
     init: initSource, capacityAvailable: forwardDownstreamCapacity, apply: applySource,
@@ -292,6 +399,10 @@ export const BEHAVIORS = {
     init: initTransportDelay, capacityAvailable: capacityAvailableTransportDelay, apply: applyTransportDelay,
     conserve: conserveTransportDelay, snapshot: snapshotTransportDelay,
     command: commandTransportDelay, isSettled: isSettledTransportDelay,
+  },
+  batchCycle: {
+    init: initBatchCycle, capacityAvailable: capacityAvailableBatchCycle, apply: applyBatchCycle,
+    conserve: conserveBatchCycle, snapshot: snapshotBatchCycle,
   },
 };
 

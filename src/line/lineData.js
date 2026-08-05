@@ -29,7 +29,7 @@
 // operational spec can replace assumed values by find-and-replace when it
 // lands (docs/OPEN_QUESTIONS.md tracks the assumed ones).
 
-import { tPerHourToM3PerSec } from "../sim/units";
+import { tPerHourToM3PerSec, BULK_DENSITY_T_PER_M3 } from "../sim/units";
 
 export const line = {
   zones: [
@@ -255,8 +255,29 @@ export const line = {
         wasteOut: { x: 100, y: 110 },
       },
       labelAt: { x: -160, y: 75 },
-      // Confirmed 2026-06-30: batch = 160 kg every ~40 s ≈ 14.4 t/h; line bottleneck.
-      params: [{ id: "batchRate", label: "treat rate", min: 4, max: 18, value: 14.4, unit: "t/h" }],
+      // Confirmed 2026-06-30: 160 kg every ~40 s, held as a single unsplit
+      // cycle — the engineer was explicit he could not give a fill/treat/
+      // discharge breakdown and would have to ask the supplier (Niklas).
+      // `phases` holds that one entry rather than a bare `cycleSec` so
+      // absorbing the eventual breakdown is a data change, not a
+      // restructuring (issue #24, src/sim/behaviors.js `batchCycle`).
+      // 160 kg / 0.72 t/m3 ≈ 0.222 m3/charge is a straight unit conversion
+      // of a confirmed figure, not itself assumed.
+      //
+      // 160 kg every 40 s is ~14.4 t/h, but the engineer separately named
+      // ~12 t/h as the line's sustained rate with the treater as the
+      // slowest point. That gap is recorded, not resolved — see
+      // docs/OPEN_QUESTIONS.md.
+      params: [
+        { id: "batchSize", label: "batch size", min: 40, max: 300, value: 160, unit: "kg", bind: "batchSize" },
+        { id: "cycleTime", label: "cycle time", min: 10, max: 90, value: 40, unit: "s", bind: "batchCycleTime" },
+      ],
+      sim: {
+        kind: "batchCycle",
+        chargeM3: 0.16 / BULK_DENSITY_T_PER_M3,
+        phases: [{ name: "cycle", durationSec: 40 }],
+        provenance: { chargeM3: "confirmed", "phases[0].durationSec": "confirmed" },
+      },
     },
     {
       id: "chemStub",

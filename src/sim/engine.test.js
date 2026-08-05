@@ -4,6 +4,7 @@ import {
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, getInterlockState,
   setElevatorSpeed,
   setInterlockSlowSetpoint, setInterlockStopSetpoint, setInterlockSlowDelay, setInterlockStopDelay,
+  setBatchSize, setBatchCycleSec,
 } from "./engine";
 import { assertConserved, conservationTotals } from "./conservation";
 import { tPerHourToM3PerSec } from "./units";
@@ -15,6 +16,7 @@ const BUFFER_BIN_ID = "treaterBufferBin";
 const FEEDER_ID = "treatDrumFeeder";
 const ELEVATOR_ID = "treatingElevator";
 const PRE_BIN_ID = "treaterPreBin";
+const TREATER_ID = "batchTreater";
 
 function interlockRule(sim) {
   return getInterlockState(sim, BUFFER_BIN_ID);
@@ -383,12 +385,14 @@ describe("inlet drum feeder meters the buffer bin's discharge (issue #20)", () =
     // pre-bin's stock rather than being counted as "delivered" itself (see
     // behaviors.js `conserveTransportDelay`'s `hasDownstream` branch). What
     // the feeder ever drew must equal what's still mid-lift plus what the
-    // pre-bin has gained (stored or spilled) since t=0 — using
-    // `conservationTotals` directly here would also pull in the buffer
-    // bin's own unrelated stored volume, so this reconciles the
-    // feeder-through-pre-bin subsystem from the machines' own state instead.
+    // pre-bin has ever received (stored, spilled, or — since issue #24 wired
+    // a real batch treater onto the pre-bin's own discharge — already handed
+    // onward) since t=0. Using `conservationTotals` directly here would also
+    // pull in the buffer bin's own unrelated stored volume, so this
+    // reconciles the feeder-through-pre-bin subsystem from the machines' own
+    // state instead.
     const elevatorInTransit = elevator.queue.reduce((a, p) => a + p.vol, 0) + elevator.backlog;
-    const preBinGained = preBin.stored - preBin.initialStored + preBin.spill;
+    const preBinGained = preBin.stored - preBin.initialStored + preBin.spill + preBin.discharged;
     expect(elevatorInTransit + preBinGained).toBeCloseTo(feeder.drawn);
     expect(elevatorInTransit).toBeGreaterThan(0); // continuous flow always has some material mid-transit
   });
@@ -407,6 +411,18 @@ function feedElevator(sim, tPerHour = 12) {
   setSourceRate(sim, SOURCE_ID, 0); // isolate the feeder's draw from the bin's own stock
   setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(tPerHour));
 }
+
+// A real batch treater (issue #24) now sits on the pre-bin's discharge and
+// will draw a charge out of it the instant one exists. Several tests below
+// (both issue #21's own backpressure test and issue #22's whole describe
+// block) drive the pre-bin's level directly and need it to hold exactly
+// where set — a concern the batch treater would otherwise confound — so
+// they share this one variant with its sim block stripped, rather than each
+// re-deriving the same "no batch treater" line.
+const lineWithoutBatchTreater = {
+  ...line,
+  machines: line.machines.map((m) => (m.id === "batchTreater" ? { ...m, sim: undefined } : m)),
+};
 
 describe("treating elevator carries grain with a real transport delay (issue #21)", () => {
   it("derives its transit delay from rise and chain speed rather than a hardcoded constant", () => {
@@ -499,11 +515,15 @@ describe("treating elevator carries grain with a real transport delay (issue #21
     expect(totals.inTransit).toBeGreaterThan(0);
     // Since issue #22, the elevator's discharge lands in the pre-bin's
     // stock rather than being reported as the elevator's own "delivered"
-    // (see behaviors.js `conserveTransportDelay`'s `hasDownstream` branch) —
-    // material genuinely arriving now shows up as the pre-bin's stored
-    // volume growing past its starting level.
+    // (see behaviors.js `conserveTransportDelay`'s `hasDownstream` branch).
+    // Since issue #24 the pre-bin also has a real consumer (the batch
+    // treater), so its own `stored` no longer only rises — it steps down
+    // every time a charge is drawn — but the pre-bin's own lifetime receipts
+    // (net stock change, plus whatever it's already handed onward) still
+    // prove material genuinely arrived from the elevator.
     const preBin = getMachineState(sim, PRE_BIN_ID);
-    expect(preBin.stored).toBeGreaterThan(preBin.initialStored);
+    const preBinReceived = preBin.stored - preBin.initialStored + preBin.spill + preBin.discharged;
+    expect(preBinReceived).toBeGreaterThan(0);
   });
 
   // treaterPreBin has a real sim block since issue #22, but this test still
@@ -514,12 +534,15 @@ describe("treating elevator carries grain with a real transport delay (issue #21
   // two-stage interlock would immediately throttle the elevator on its own,
   // which would confound this test's actual target — issue #21's generic
   // "a full downstream rejects material" backpressure, independent of any
-  // interlock. Same test-only-line-variant pattern as the "unregistered
+  // interlock. The batch treater (issue #24) is stripped too: left in, it
+  // would draw a charge out of the "full" pre-bin the instant one exists,
+  // opening real headroom and defeating the zero-headroom setup this test
+  // needs. Same test-only-line-variant pattern as the "unregistered
   // sim.kind" test above.
   it("real backpressure cascades from a full downstream bin, through the elevator, to the feeder", () => {
     const blockedLine = {
-      ...line,
-      machines: line.machines.map((m) =>
+      ...lineWithoutBatchTreater,
+      machines: lineWithoutBatchTreater.machines.map((m) =>
         m.id === "treaterPreBin"
           ? { ...m, sim: { kind: "accumulator", capacityM3: 1, initialLevelFraction: 1 } } // starts with zero headroom
           : m
@@ -550,14 +573,24 @@ function preBinInterlock(sim) {
   return getInterlockState(sim, PRE_BIN_ID);
 }
 
+// These tests drive the pre-bin's own level directly via setAccumulatorLevel
+// and expect it to hold exactly where set except for what the elevator
+// feeds in — the two-stage interlock's own timing is what's under test,
+// independent of whatever sits on the pre-bin's discharge side. Since issue
+// #24 wired a real batch treater onto that discharge, it would draw the
+// level down the instant a full charge is available and confound these
+// thresholds, so this describe block runs against the `lineWithoutBatchTreater`
+// variant declared above, same as the "real backpressure cascades" test. The
+// full chain, treater included, gets its own conservation coverage in issue
+// #24's own tests.
 describe("treater pre-bin slows the elevator, then stops it (issue #22)", () => {
   it("reuses the accumulator behaviour verbatim: no new material physics for the pre-bin", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutBatchTreater);
     expect(getMachineState(sim, PRE_BIN_ID).kind).toBe("accumulator");
   });
 
   it("a rising level first commands a reduced speed, and only a further rise commands a full stop", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutBatchTreater);
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.65); // above the slow set point (0.6), below stop (0.85)
     for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // past the 3s slow delay + 4s ramp
     const elevator = getMachineState(sim, ELEVATOR_ID);
@@ -571,14 +604,14 @@ describe("treater pre-bin slows the elevator, then stops it (issue #22)", () => 
   });
 
   it("each stage has its own threshold and its own delay", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutBatchTreater);
     const rule = preBinInterlock(sim);
     expect(rule.slowSetpoint).not.toBe(rule.stopSetpoint);
     expect(rule.slowDelaySec).not.toBe(rule.stopDelaySec);
   });
 
   it("the elevator ramps between speeds rather than changing instantaneously", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutBatchTreater);
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.9); // straight to above both set points
     for (let i = 0; i < Math.round(3.5 / DT); i++) stepSim(sim, DT); // just past the 3s slow delay, mid-ramp
     const elevator = getMachineState(sim, ELEVATOR_ID);
@@ -587,7 +620,7 @@ describe("treater pre-bin slows the elevator, then stops it (issue #22)", () => 
   });
 
   it("material already on the elevator chain during the slow-down and the stop still arrives, and conservation holds through the full cycle", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutBatchTreater);
     feedElevator(sim); // 12 t/h into the elevator
     for (let i = 0; i < Math.round(10 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
     const elevator = getMachineState(sim, ELEVATOR_ID);
@@ -614,7 +647,7 @@ describe("treater pre-bin slows the elevator, then stops it (issue #22)", () => 
   });
 
   it("the level recovers and the elevator returns to full speed once the bin drains", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutBatchTreater);
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.9);
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
     expect(preBinInterlock(sim).phase).toBe("stopped");
@@ -626,7 +659,7 @@ describe("treater pre-bin slows the elevator, then stops it (issue #22)", () => 
   });
 
   it("both stage thresholds and delays are live controls that take effect while running", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutBatchTreater);
     setInterlockSlowSetpoint(sim, PRE_BIN_ID, 0.5);
     setInterlockSlowDelay(sim, PRE_BIN_ID, 1);
     setInterlockStopSetpoint(sim, PRE_BIN_ID, 0.55);
@@ -638,7 +671,7 @@ describe("treater pre-bin slows the elevator, then stops it (issue #22)", () => 
   });
 
   it("the pre-bin's event log records the slow-down and the stop as distinct entries, each with its simulated time", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutBatchTreater);
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.9);
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
 
@@ -652,6 +685,108 @@ describe("treater pre-bin slows the elevator, then stops it (issue #22)", () => 
     expect(new Set(messages).size).toBe(messages.length); // no two entries say the same thing
     expect(messages.some((m) => m.includes("slow"))).toBe(true);
     expect(messages.some((m) => m.includes("stop"))).toBe(true);
+  });
+});
+
+describe("batch treater takes a fixed charge every cycle and discharges it as a pulse (issue #24)", () => {
+  it("is declared as a batch cycle, the primitive later reused by the bagging scale, filler and big-bag head", () => {
+    const sim = createSim(line);
+    expect(getMachineState(sim, TREATER_ID).kind).toBe("batchCycle");
+  });
+
+  it("draws a fixed charge from the pre-bin, holds it for the cycle time, then discharges the whole charge as a pulse", () => {
+    const sim = createSim(line);
+    const treater = getMachineState(sim, TREATER_ID);
+    const chargeM3 = treater.chargeM3;
+    const cycleSec = treater.cycleSec;
+
+    stepSim(sim, DT); // the pre-bin already holds more than a charge, so the draw completes in this first tick
+    expect(treater.held).toBeCloseTo(chargeM3);
+    expect(treater.phase).toBe("holding");
+    expect(treater.delivered).toBe(0);
+
+    for (let i = 0; i < Math.round((cycleSec - DT * 2) / DT); i++) stepSim(sim, DT); // just shy of the cycle time
+    expect(treater.phase).toBe("holding");
+    expect(treater.delivered).toBe(0);
+
+    for (let i = 0; i < 10; i++) stepSim(sim, DT); // past the cycle time
+    expect(treater.delivered).toBeCloseTo(chargeM3); // the whole charge left, as a pulse
+    expect(treater.held).toBeGreaterThan(0); // already drawing its next charge — the pre-bin still has stock
+  });
+
+  // "Draws nothing" is true of the batch itself, never of a single tick: a
+  // behaviour's capacityAvailable only ever sees its own downstream (see
+  // engine.js's reverse pass), so batchCycle has no way to peek at the
+  // pre-bin's actual stock and refuse a partial tick's worth up front — see
+  // the design note above initBatchCycle in behaviors.js. What's guaranteed,
+  // and what this test checks, is the acceptance criterion's real substance:
+  // a scarce pre-bin can dribble everything it has into the treater without
+  // that ever being treated as a completed charge — no partial batch is ever
+  // held for a cycle or discharged.
+  it("never starts a partial batch when the pre-bin can't supply a full charge, even though it will accept whatever trickle is offered", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, 0);
+    setFeederRate(sim, FEEDER_ID, 0);
+    const treater = getMachineState(sim, TREATER_ID);
+    const preBin = getMachineState(sim, PRE_BIN_ID);
+    setAccumulatorLevel(sim, PRE_BIN_ID, (0.5 * treater.chargeM3) / preBin.capacity); // half a charge, and no more is coming
+
+    for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT); // far past the cycle time, if it had ever started
+
+    expect(treater.phase).toBe("charging"); // never reached holding
+    expect(treater.held).toBeLessThan(treater.chargeM3);
+    expect(treater.delivered).toBe(0);
+    expect(preBin.stored).toBeCloseTo(0); // it handed over everything it had; the treater just never called it a batch
+  });
+
+  it("the pre-bin drains in a step, not a smooth trickle, when it already holds a full charge", () => {
+    const sim = createSim(line);
+    const preBin = getMachineState(sim, PRE_BIN_ID);
+    const treater = getMachineState(sim, TREATER_ID);
+    const startStored = preBin.stored; // 40% of 1.63 m3, comfortably more than one charge
+
+    stepSim(sim, DT); // a single tick
+    expect(startStored - preBin.stored).toBeCloseTo(treater.chargeM3);
+
+    for (let i = 0; i < Math.round(30 / DT); i++) stepSim(sim, DT); // well under the 40s cycle: no further decline
+    expect(preBin.stored).toBeCloseTo(startStored - treater.chargeM3);
+  });
+
+  it("batch size and cycle time are live controls", () => {
+    const sim = createSim(line);
+    setBatchSize(sim, TREATER_ID, 0.05);
+    setBatchCycleSec(sim, TREATER_ID, 1);
+    const treater = getMachineState(sim, TREATER_ID);
+    expect(treater.chargeM3).toBe(0.05);
+    expect(treater.cycleSec).toBe(1);
+
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    // a 0.05 m3 charge on a 1s cycle, fed from an ample pre-bin, completes
+    // several batches well within 10s
+    expect(treater.delivered).toBeGreaterThan(0.05 * 3);
+  });
+
+  it("setBatchSize / setBatchCycleSec reject a non-batch-cycle machine", () => {
+    const sim = createSim(line);
+    expect(() => setBatchSize(sim, SOURCE_ID, 1)).toThrow(/not a batch-cycle/);
+    expect(() => setBatchCycleSec(sim, SOURCE_ID, 1)).toThrow(/not a batch-cycle/);
+  });
+
+  it("material inside the treater mid-cycle is accounted for as neither delivered nor lost, and conservation holds across many consecutive cycles", () => {
+    const sim = createSim(line);
+    feedElevator(sim, 20); // keep the pre-bin well supplied so cycles keep completing
+    setBatchCycleSec(sim, TREATER_ID, 2); // short cycle so many complete within the test window
+    const treater = getMachineState(sim, TREATER_ID);
+
+    let sawHeldMidCycle = false;
+    for (let i = 0; i < Math.round(120 / DT); i++) {
+      stepSim(sim, DT);
+      assertConserved(sim);
+      if (treater.held > 0) sawHeldMidCycle = true;
+    }
+    expect(() => assertConserved(sim)).not.toThrow();
+    expect(sawHeldMidCycle).toBe(true); // material genuinely sat mid-charge/mid-cycle at some point
+    expect(treater.delivered).toBeGreaterThan(treater.chargeM3); // several cycles genuinely completed, no drift
   });
 });
 

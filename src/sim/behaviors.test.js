@@ -321,6 +321,152 @@ describe("transportDelay (issue #21)", () => {
   });
 });
 
+describe("batchCycle (issue #24)", () => {
+  function initState({ chargeM3 = 1, cycleSec = 40 } = {}) {
+    return BEHAVIORS.batchCycle.init({ sim: { chargeM3, phases: [{ name: "cycle", durationSec: cycleSec }] } });
+  }
+
+  it("sums every phase's duration into cycleSec, so a future multi-phase split needs no restructuring", () => {
+    const state = BEHAVIORS.batchCycle.init({
+      sim: { chargeM3: 1, phases: [{ name: "fill", durationSec: 5 }, { name: "treat", durationSec: 30 }, { name: "discharge", durationSec: 5 }] },
+    });
+    expect(state.cycleSec).toBe(40);
+  });
+
+  it("draws a full charge in a single tick when the upstream can supply it whole (accumulator's own discharge has no rate limit)", () => {
+    const state = initState({ chargeM3: 1 });
+    const cap = BEHAVIORS.batchCycle.capacityAvailable(state);
+    expect(cap).toBe(1);
+    const out = BEHAVIORS.batchCycle.apply(state, 0.05, 1, cap); // upstream hands over the whole charge at once
+    expect(out).toBe(0); // nothing discharges yet — it just started holding
+    expect(state.held).toBe(1);
+    expect(state.phase).toBe("holding");
+  });
+
+  it("requests nothing once a charge is fully held: capacityAvailable drops to 0 through the hold", () => {
+    const state = initState({ chargeM3: 1 });
+    BEHAVIORS.batchCycle.apply(state, 0.05, 1, 1);
+    expect(state.phase).toBe("holding");
+    expect(BEHAVIORS.batchCycle.capacityAvailable(state)).toBe(0);
+  });
+
+  it("holds the charge for the full cycle time before discharging anything", () => {
+    const state = initState({ chargeM3: 1, cycleSec: 2 });
+    BEHAVIORS.batchCycle.apply(state, 0.05, 1, 1); // charge drawn instantly, hold begins
+    let totalOut = 0;
+    for (let i = 0; i < 30; i++) totalOut += BEHAVIORS.batchCycle.apply(state, 0.05, 0, 0); // 1.5s, well under the 2s cycle
+    expect(totalOut).toBe(0);
+    expect(state.held).toBeCloseTo(1); // still fully inside, neither delivered nor lost
+    expect(state.phase).toBe("holding");
+  });
+
+  it("discharges the whole charge as a single pulse once the cycle time elapses, not a trickle", () => {
+    const state = initState({ chargeM3: 1, cycleSec: 2 });
+    BEHAVIORS.batchCycle.apply(state, 0.05, 1, 1);
+    let totalOut = 0;
+    let nonZeroTicks = 0;
+    for (let i = 0; i < 60; i++) { // 3s, comfortably past the 2s cycle
+      const out = BEHAVIORS.batchCycle.apply(state, 0.05, 0, 0);
+      totalOut += out;
+      if (out > 0) nonZeroTicks++;
+    }
+    expect(totalOut).toBeCloseTo(1); // the entire charge left
+    expect(nonZeroTicks).toBe(1); // in exactly one tick — a pulse, not a trickle
+    expect(state.held).toBe(0);
+    expect(state.phase).toBe("charging"); // immediately ready for the next charge
+  });
+
+  it("does not start a partial batch: an under-supplied upstream never begins the hold on less than a full charge", () => {
+    const state = initState({ chargeM3: 1, cycleSec: 2 });
+    // Upstream can only ever offer a fifth of a charge per tick, forever —
+    // never a full charge in one go.
+    for (let i = 0; i < 4; i++) {
+      const cap = BEHAVIORS.batchCycle.capacityAvailable(state);
+      BEHAVIORS.batchCycle.apply(state, 0.05, Math.min(0.2, cap), cap);
+    }
+    expect(state.held).toBeCloseTo(0.8);
+    expect(state.phase).toBe("charging"); // not holding: the charge isn't complete yet
+  });
+
+  it("draws nothing at all once a charge is complete and a cycle is running, even if upstream offers plenty", () => {
+    const state = initState({ chargeM3: 1, cycleSec: 40 });
+    BEHAVIORS.batchCycle.apply(state, 0.05, 1, 1); // charge completes, cycle starts
+    const cap = BEHAVIORS.batchCycle.capacityAvailable(state);
+    expect(cap).toBe(0);
+    const out = BEHAVIORS.batchCycle.apply(state, 0.05, 5, cap); // upstream offers plenty more, but cap correctly admits none
+    expect(out).toBe(0);
+    expect(state.held).toBeCloseTo(1); // not 6 — the extra was never accepted
+  });
+
+  it("with nothing sim-enabled downstream, the discharge pulse is unconstrained and reports as delivered", () => {
+    const state = initState({ chargeM3: 1, cycleSec: 2 });
+    BEHAVIORS.batchCycle.apply(state, 0.05, 1, 1);
+    let out = 0;
+    for (let i = 0; i < 60; i++) out += BEHAVIORS.batchCycle.apply(state, 0.05, 0, 0, 0, false); // 3s, comfortably past the 2s cycle
+    expect(out).toBeCloseTo(1);
+    expect(state.delivered).toBeCloseTo(1);
+  });
+
+  it("with a sim-enabled downstream that's momentarily full, the discharge waits rather than losing the charge", () => {
+    const state = initState({ chargeM3: 1, cycleSec: 2 });
+    BEHAVIORS.batchCycle.apply(state, 0.05, 1, 1);
+    for (let i = 0; i < 30; i++) BEHAVIORS.batchCycle.apply(state, 0.05, 0, 0, 0, true); // 1.5s, still well within the hold
+    expect(state.phase).toBe("holding");
+
+    for (let i = 0; i < 30; i++) BEHAVIORS.batchCycle.apply(state, 0.05, 0, 0, 0, true); // now past the 2s cycle, downstream blocked throughout
+    expect(state.phase).toBe("discharging");
+    expect(state.held).toBeCloseTo(1); // still fully accounted for, just not yet handed over
+
+    const out2 = BEHAVIORS.batchCycle.apply(state, 0.05, 0, 0, 1, true); // downstream opens up
+    expect(out2).toBeCloseTo(1);
+    expect(state.phase).toBe("charging");
+  });
+
+  it("holds mid-charge and mid-cycle volume as inTransit, neither delivered nor lost", () => {
+    const state = initState({ chargeM3: 1, cycleSec: 40 });
+    BEHAVIORS.batchCycle.apply(state, 0.05, 0.4, 0.4); // partway through charging
+    const c = BEHAVIORS.batchCycle.conserve(state, false);
+    expect(c.inTransit).toBeCloseTo(0.4);
+    expect(c.delivered).toBe(0);
+  });
+
+  it("does not double-count delivered volume once a sim-enabled machine is downstream", () => {
+    const state = initState({ chargeM3: 1, cycleSec: 2 });
+    BEHAVIORS.batchCycle.apply(state, 0.05, 1, 1, 1, true);
+    for (let i = 0; i < 39; i++) BEHAVIORS.batchCycle.apply(state, 0.05, 0, 0, 1, true);
+    BEHAVIORS.batchCycle.apply(state, 0.05, 0, 0, 1, true); // discharges into the connected downstream
+    const c = BEHAVIORS.batchCycle.conserve(state, true);
+    expect(c.delivered).toBeUndefined(); // the downstream machine accounts for it instead
+  });
+
+  it("conserves volume across many consecutive cycles with no drift", () => {
+    const state = initState({ chargeM3: 0.222, cycleSec: 1 }); // short cycle to run many of them quickly
+    let fed = 0;
+    for (let i = 0; i < 4000; i++) { // 200s, far more than the 1s cycle
+      const cap = BEHAVIORS.batchCycle.capacityAvailable(state);
+      const inflow = Math.min(0.05, cap); // a generous but rate-limited upstream
+      fed += inflow;
+      BEHAVIORS.batchCycle.apply(state, 0.05, inflow, cap);
+    }
+    const c = BEHAVIORS.batchCycle.conserve(state, false);
+    expect(state.delivered).toBeGreaterThan(0); // many cycles genuinely completed
+    expect(fed).toBeCloseTo(c.delivered + c.inTransit); // nothing gained or lost across the whole run
+  });
+
+  it("reports a fill fraction and phase for the scene/chart to read", () => {
+    const state = initState({ chargeM3: 2, cycleSec: 40 });
+    BEHAVIORS.batchCycle.apply(state, 0.05, 0.5, 0.5);
+    let snap = BEHAVIORS.batchCycle.snapshot(state);
+    expect(snap.fill).toBeCloseTo(0.25);
+    expect(snap.phase).toBe("charging");
+
+    BEHAVIORS.batchCycle.apply(state, 0.05, 1.5, 1.5); // completes the charge
+    snap = BEHAVIORS.batchCycle.snapshot(state);
+    expect(snap.fill).toBeCloseTo(1);
+    expect(snap.phase).toBe("holding");
+  });
+});
+
 describe("REGISTERED_KINDS", () => {
   it("lists exactly the behaviours with an entry in BEHAVIORS", () => {
     expect([...REGISTERED_KINDS].sort()).toEqual(Object.keys(BEHAVIORS).sort());

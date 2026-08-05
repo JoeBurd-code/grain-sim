@@ -12,7 +12,7 @@ import TransportControls from "./TransportControls";
 import ChartDock from "./ChartDock";
 import { useViewport } from "../scene/useViewport";
 import { useSimEngine } from "../sim/useSimEngine";
-import { tPerHourToM3PerSec } from "../sim/units";
+import { tPerHourToM3PerSec, BULK_DENSITY_T_PER_M3 } from "../sim/units";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 
 // Params that opt into live sim control declare `bind`; anything without
@@ -38,6 +38,11 @@ const PARAM_BINDERS = {
   interlockStopSetpoint: (engine, machineId, value) => engine.setInterlockStop(machineId, value / 100),
   interlockSlowDelay: (engine, machineId, value) => engine.setInterlockSlowDelay(machineId, value),
   interlockStopDelay: (engine, machineId, value) => engine.setInterlockStopDelay(machineId, value),
+  // Batch treater (issue #24): the slider is in kg, the engineer's own unit;
+  // converted to m3 at this edge, same pattern as sourceRate/feederRate's
+  // t/h -> m3/s conversion. Cycle time is already in seconds.
+  batchSize: (engine, machineId, value) => engine.setBatchSize(machineId, (value / 1000) / BULK_DENSITY_T_PER_M3),
+  batchCycleTime: (engine, machineId, value) => engine.setBatchCycleTime(machineId, value),
 };
 
 const validation = validateLine(line);

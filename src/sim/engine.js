@@ -226,3 +226,25 @@ export function setInterlockSlowDelay(sim, sensorMachineId, seconds) {
 export function setInterlockStopDelay(sim, sensorMachineId, seconds) {
   findInterlock(sim, sensorMachineId).stopDelaySec = seconds;
 }
+
+// Live controls (issue #24): the batch treater's charge size and cycle time
+// take effect on the very next tick. A size change never retroactively
+// resizes a charge already mid-cycle — capacityAvailableBatchCycle re-reads
+// `chargeM3` itself every tick, and dropping it below what's already `held`
+// simply completes the current charge immediately rather than shrinking it
+// out from under an in-progress hold.
+export function setBatchSize(sim, id, m3) {
+  const state = sim.machines.get(id);
+  if (!state || state.kind !== "batchCycle") {
+    throw new Error(`machine "${id}" is not a batch-cycle machine`);
+  }
+  state.chargeM3 = Math.max(0, m3);
+}
+
+export function setBatchCycleSec(sim, id, seconds) {
+  const state = sim.machines.get(id);
+  if (!state || state.kind !== "batchCycle") {
+    throw new Error(`machine "${id}" is not a batch-cycle machine`);
+  }
+  state.cycleSec = Math.max(0, seconds);
+}
