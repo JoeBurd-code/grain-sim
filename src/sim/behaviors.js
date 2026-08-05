@@ -296,3 +296,10 @@ export const BEHAVIORS = {
 };
 
 export const REGISTERED_KINDS = new Set(Object.keys(BEHAVIORS));
+
+// Shared wording for the one error every unregistered-kind check throws or
+// reports (createSim, validateLine, the behaviour census) — one message
+// shape, not a copy in each caller.
+export function unregisteredKindMessage(id, kind) {
+  return `machine "${id}" declares unregistered sim.kind "${kind}"`;
+}

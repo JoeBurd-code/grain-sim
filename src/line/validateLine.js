@@ -1,14 +1,14 @@
 // Validates a hand-authored line definition (machines, connections, zones).
 // Returns { ok, errors } where errors are human-readable strings, so a bad
 // data edit made in a hurry (e.g. during the engineer meeting) fails loudly.
-import { REGISTERED_KINDS, BEHAVIORS } from "../sim/behaviors";
+import { REGISTERED_KINDS, BEHAVIORS, unregisteredKindMessage } from "../sim/behaviors";
 
 export function validateLine(line) {
   const errors = [];
 
   for (const m of line.machines) {
     if (m.sim && !REGISTERED_KINDS.has(m.sim.kind)) {
-      errors.push(`machine "${m.id}" declares unregistered sim.kind "${m.sim.kind}"`);
+      errors.push(unregisteredKindMessage(m.id, m.sim.kind));
     }
   }
 
