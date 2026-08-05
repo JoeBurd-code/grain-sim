@@ -11,6 +11,7 @@ npm run preview   # serve the production build locally
 npm run lint      # ESLint check
 npm test          # Vitest, single run
 npm run test:watch
+npm run census    # print the behaviour census (issue #23): ENGINED/CONFIRMED counts per behaviour kind
 ```
 
 ## Architecture

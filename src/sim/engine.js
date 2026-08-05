@@ -2,7 +2,7 @@
 // sim from a line definition, step it by a fixed timestep, read a machine's
 // state back. Internals (the two-phase step, how behaviours are wired) are
 // not part of this seam.
-import { BEHAVIORS, REGISTERED_KINDS } from "./behaviors";
+import { BEHAVIORS, REGISTERED_KINDS, unregisteredKindMessage } from "./behaviors";
 import { initControl, stepControl } from "./control";
 
 export const DT = 0.05; // s, fixed sim timestep (matches the proven mock)
@@ -51,7 +51,7 @@ export function createSim(line) {
   for (const m of line.machines) {
     if (!m.sim) continue;
     if (!REGISTERED_KINDS.has(m.sim.kind)) {
-      throw new Error(`machine "${m.id}" declares unregistered sim.kind "${m.sim.kind}"`);
+      throw new Error(unregisteredKindMessage(m.id, m.sim.kind));
     }
     machines.set(m.id, BEHAVIORS[m.sim.kind].init(m));
   }
