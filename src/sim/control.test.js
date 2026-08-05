@@ -266,6 +266,119 @@ describe("stepControl (twoStageThrottle)", () => {
   });
 });
 
+// holdNextBatch (issue #25 — the treater after-bin holds the next batch):
+// same shape of test as the two kinds above, fabricated machine states and a
+// fabricated sim shell, no real line data. The actuator here is a batchCycle
+// machine rather than a source or a transportDelay.
+const HOLD_NEXT_BATCH_CFG = {
+  id: "testHold",
+  kind: "holdNextBatch",
+  sensor: { machine: "bin" },
+  highSetpoint: 0.8,
+  lowSetpoint: 0.3,
+  signalDelaySec: 5,
+  action: { machine: "treater" },
+};
+
+function makeHoldNextBatchSim(fillFraction, { chargeM3 = 1, cycleSec = 40 } = {}) {
+  const capacity = 10;
+  const bin = { kind: "accumulator", capacity, stored: fillFraction * capacity, initialStored: 0, spill: 0 };
+  const treater = BEHAVIORS.batchCycle.init({ sim: { chargeM3, phases: [{ name: "cycle", durationSec: cycleSec }] } });
+  const machines = new Map([["bin", bin], ["treater", treater]]);
+  const control = initControl({ interlocks: [HOLD_NEXT_BATCH_CFG] });
+  return { t: 0, machines, control };
+}
+
+describe("initControl (holdNextBatch)", () => {
+  it("builds a holdNextBatch rule starting in the released phase", () => {
+    const sim = makeHoldNextBatchSim(0.5);
+    expect(sim.control).toHaveLength(1);
+    expect(sim.control[0].kind).toBe("holdNextBatch");
+    expect(sim.control[0].phase).toBe("released");
+    expect(sim.control[0].log).toEqual([]);
+  });
+});
+
+describe("stepControl (holdNextBatch)", () => {
+  it("does nothing while the level stays below the high set point", () => {
+    const sim = makeHoldNextBatchSim(0.5);
+    for (let i = 0; i < 200; i++) { sim.t += 0.05; stepControl(sim); }
+    expect(sim.control[0].phase).toBe("released");
+    expect(sim.machines.get("treater").blocked).toBe(false);
+    expect(sim.control[0].log).toEqual([]);
+  });
+
+  it("arms a delayed hold the instant level reaches the high set point, logging the trip", () => {
+    const sim = makeHoldNextBatchSim(0.8);
+    sim.t += 0.05; stepControl(sim);
+    expect(sim.control[0].phase).toBe("armed");
+    expect(sim.control[0].log).toHaveLength(1);
+    expect(sim.control[0].log[0].t).toBeCloseTo(0.05);
+  });
+
+  it("does not command the treater until the signal delay elapses", () => {
+    const sim = makeHoldNextBatchSim(0.8);
+    sim.t += 0.05; stepControl(sim); // arms at t=0.05, fires at t=5.05
+    for (let i = 0; i < 20; i++) { sim.t += 0.05; stepControl(sim); } // t ~= 1.05
+    expect(sim.machines.get("treater").blocked).toBe(false);
+    expect(sim.control[0].phase).toBe("armed");
+  });
+
+  it("commands the treater to hold once the delay elapses — immediately, no ramp to wait on", () => {
+    const sim = makeHoldNextBatchSim(0.8);
+    sim.t += 0.05; stepControl(sim); // trip at t=0.05
+    for (let i = 0; i < 105; i++) { sim.t += 0.05; stepControl(sim); } // consume the 5s delay (t ~= 5.3)
+    expect(sim.control[0].phase).toBe("held");
+    expect(sim.control[0].log).toHaveLength(2);
+    expect(sim.machines.get("treater").blocked).toBe(true);
+  });
+
+  it("does not re-arm while already armed or held (latches, does not re-trigger)", () => {
+    const sim = makeHoldNextBatchSim(0.8);
+    for (let i = 0; i < 400; i++) { sim.t += 0.05; stepControl(sim); } // well past trip and delay
+    expect(sim.control[0].phase).toBe("held");
+    expect(sim.control[0].log).toHaveLength(2); // trip + hold, no duplicates
+  });
+
+  it("does not interrupt a batch already under way: a charge held mid-cycle when the hold commands keeps its held volume", () => {
+    const sim = makeHoldNextBatchSim(0.5, { chargeM3: 1, cycleSec: 40 });
+    const treater = sim.machines.get("treater");
+    BEHAVIORS.batchCycle.apply(treater, 0.05, 0.4, 0.4); // mid-charge before the trip
+    sim.machines.get("bin").stored = 0.8 * 10;
+    for (let i = 0; i < 200; i++) { sim.t += 0.05; stepControl(sim); } // trips and holds
+    expect(treater.blocked).toBe(true);
+    expect(treater.held).toBeCloseTo(0.4); // untouched — the interlock only gates new capacity, apply() is what moves material
+  });
+
+  it("recovers to released once the level falls to the low set point, immediately (no arm/delay phase)", () => {
+    const sim = makeHoldNextBatchSim(0.8);
+    for (let i = 0; i < 400; i++) { sim.t += 0.05; stepControl(sim); } // reach "held"
+    sim.machines.get("bin").stored = 0.3 * 10; // presenter drags the level down
+    sim.t += 0.05; stepControl(sim);
+
+    expect(sim.control[0].phase).toBe("released"); // commanded the same tick, no arm phase
+    expect(sim.machines.get("treater").blocked).toBe(false);
+    expect(sim.control[0].log).toHaveLength(3);
+  });
+});
+
+describe("live parameter changes (holdNextBatch)", () => {
+  it("a larger signal delay set on the rule takes effect on the next trip", () => {
+    const sim = makeHoldNextBatchSim(0.5);
+    sim.control[0].signalDelaySec = 10;
+    sim.machines.get("bin").stored = 0.8 * 10;
+    sim.t += 0.05; stepControl(sim);
+    expect(sim.control[0].fireAt).toBeCloseTo(0.05 + 10);
+  });
+
+  it("changing the high set point changes when the next trip arms", () => {
+    const sim = makeHoldNextBatchSim(0.5);
+    sim.control[0].highSetpoint = 0.4;
+    sim.t += 0.05; stepControl(sim);
+    expect(sim.control[0].phase).toBe("armed");
+  });
+});
+
 describe("live parameter changes (twoStageThrottle)", () => {
   it("a larger slow delay set on the rule takes effect on the next arm", () => {
     const sim = makeTwoStageSim(0.5);

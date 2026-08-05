@@ -465,6 +465,151 @@ describe("batchCycle (issue #24)", () => {
     expect(snap.fill).toBeCloseTo(1);
     expect(snap.phase).toBe("holding");
   });
+
+  // Hold-next-batch gate (issue #25 — the treater after-bin's response to a
+  // full bin). The interlock (control.js `holdNextBatch`) is what decides
+  // *when* to command the gate; these tests only cover what the gate itself
+  // does to capacityAvailable and the reported phase once commanded.
+  describe("hold-next-batch gate (issue #25)", () => {
+    it("defaults to unblocked, so a batch-cycle machine no interlock commands behaves exactly as issue #24 built it", () => {
+      const state = initState({ chargeM3: 1, cycleSec: 2 });
+      expect(state.blocked).toBe(false);
+      expect(BEHAVIORS.batchCycle.capacityAvailable(state)).toBe(1);
+    });
+
+    it("commandBatchCycle sets the blocked flag", () => {
+      const state = initState({ chargeM3: 1, cycleSec: 2 });
+      BEHAVIORS.batchCycle.command(state, true);
+      expect(state.blocked).toBe(true);
+      BEHAVIORS.batchCycle.command(state, false);
+      expect(state.blocked).toBe(false);
+    });
+
+    it("withholds capacity for a fresh charge once blocked, before anything has been accepted", () => {
+      const state = initState({ chargeM3: 1, cycleSec: 2 });
+      BEHAVIORS.batchCycle.command(state, true);
+      expect(BEHAVIORS.batchCycle.capacityAvailable(state)).toBe(0);
+      const out = BEHAVIORS.batchCycle.apply(state, 0.05, 1, 0); // upstream offers, cap correctly admits none
+      expect(out).toBe(0);
+      expect(state.held).toBe(0);
+    });
+
+    it("does not interrupt a charge already under way: blocking mid-charge lets it keep accepting", () => {
+      const state = initState({ chargeM3: 1, cycleSec: 2 });
+      BEHAVIORS.batchCycle.apply(state, 0.05, 0.4, 0.4); // partway through charging, held > 0
+      BEHAVIORS.batchCycle.command(state, true); // interlock trips mid-charge
+      const cap = BEHAVIORS.batchCycle.capacityAvailable(state);
+      expect(cap).toBeCloseTo(0.6); // still open for the rest of this charge
+      BEHAVIORS.batchCycle.apply(state, 0.05, cap, cap);
+      expect(state.held).toBeCloseTo(1);
+      expect(state.phase).toBe("holding"); // reached the hold normally, not stalled
+    });
+
+    it("does not interrupt holding or discharging: a block commanded during either phase still lets the charge complete and discharge as a pulse", () => {
+      const state = initState({ chargeM3: 1, cycleSec: 2 });
+      BEHAVIORS.batchCycle.apply(state, 0.05, 1, 1); // charge completes, holding begins
+      BEHAVIORS.batchCycle.command(state, true); // interlock trips while holding
+      let totalOut = 0;
+      for (let i = 0; i < 60; i++) totalOut += BEHAVIORS.batchCycle.apply(state, 0.05, 0, 0); // past the 2s cycle
+      expect(totalOut).toBeCloseTo(1); // the whole charge still left, as a pulse
+      expect(state.held).toBe(0);
+    });
+
+    it("blocks the very next charge from starting once the current one has fully discharged", () => {
+      const state = initState({ chargeM3: 1, cycleSec: 2 });
+      BEHAVIORS.batchCycle.apply(state, 0.05, 1, 1);
+      BEHAVIORS.batchCycle.command(state, true);
+      for (let i = 0; i < 60; i++) BEHAVIORS.batchCycle.apply(state, 0.05, 0, 0); // completes and discharges
+      expect(state.phase).toBe("charging");
+      expect(state.held).toBe(0);
+      expect(BEHAVIORS.batchCycle.capacityAvailable(state)).toBe(0); // blocked, held===0: the next charge is withheld
+      const out = BEHAVIORS.batchCycle.apply(state, 0.05, 1, 0); // upstream offers plenty, cap admits none
+      expect(out).toBe(0);
+      expect(state.held).toBe(0);
+    });
+
+    it("resumes accepting once released", () => {
+      const state = initState({ chargeM3: 1, cycleSec: 2 });
+      BEHAVIORS.batchCycle.command(state, true);
+      expect(BEHAVIORS.batchCycle.capacityAvailable(state)).toBe(0);
+      BEHAVIORS.batchCycle.command(state, false);
+      expect(BEHAVIORS.batchCycle.capacityAvailable(state)).toBe(1);
+      const out = BEHAVIORS.batchCycle.apply(state, 0.05, 1, 1);
+      expect(out).toBe(0);
+      expect(state.held).toBe(1);
+    });
+
+    it("reports a distinct 'waiting' phase — not 'charging' and not a stop — while a fresh charge is withheld", () => {
+      const state = initState({ chargeM3: 1, cycleSec: 2 });
+      BEHAVIORS.batchCycle.command(state, true);
+      expect(state.phase).toBe("charging"); // the raw state machine is unchanged
+      expect(BEHAVIORS.batchCycle.snapshot(state).phase).toBe("waiting"); // but the reported phase is distinct
+    });
+
+    it("does not report 'waiting' once material is genuinely held, even while blocked (mid-charge/holding/discharging keep their own phase name)", () => {
+      const state = initState({ chargeM3: 1, cycleSec: 2 });
+      BEHAVIORS.batchCycle.apply(state, 0.05, 0.4, 0.4);
+      BEHAVIORS.batchCycle.command(state, true);
+      expect(BEHAVIORS.batchCycle.snapshot(state).phase).toBe("charging"); // mid-charge, not "waiting"
+    });
+
+    it("never causes a spill: withheld capacity means the accumulator upstream simply keeps what it holds", () => {
+      const state = initState({ chargeM3: 1, cycleSec: 2 });
+      BEHAVIORS.batchCycle.command(state, true);
+      // capacityAvailable(0) is exactly what the engine's reverse pass hands
+      // upstream as this machine's downstreamCap — an upstream accumulator
+      // never even attempts to push more than that, so nothing is lost here.
+      expect(BEHAVIORS.batchCycle.capacityAvailable(state)).toBe(0);
+    });
+  });
+});
+
+// The after-bin's whole reason for existing (issue #25): it reuses the
+// accumulator behaviour unmodified (no new material physics — acceptance
+// criterion #1), fed by a batchCycle's pulsed discharge and drained at a
+// steady downstreamCap standing in for the not-yet-sim-enabled scalping
+// screen (see docs/OPEN_QUESTIONS.md). This drives the two existing
+// behaviours together, fabricated states, no lineData — the same style
+// control.test.js uses to prove a phase machine's shape without a full line.
+describe("treater after-bin smooths the batch pulse (issue #25)", () => {
+  it("traces a sawtooth under pulsed infeed against a steady draw: level rises on each pulse, falls between pulses", () => {
+    const treater = BEHAVIORS.batchCycle.init({
+      sim: { chargeM3: 0.222, phases: [{ name: "cycle", durationSec: 2 }] },
+    });
+    const afterBin = { kind: "accumulator", capacity: 0.67, stored: 0, initialStored: 0, spill: 0 };
+    const steadyDrawM3PerSec = 0.05; // well below the pulse's own rate, well above the line's average, so it visibly drains between pulses
+
+    const levels = [];
+    for (let i = 0; i < 2000; i++) { // 100s, several batch cycles
+      // Mirrors engine.js's own reverse-then-forward pass: the after-bin's
+      // headroom is read before the treater's discharge is computed, and
+      // the same value bounds both sides of the same edge.
+      const treaterCap = BEHAVIORS.batchCycle.capacityAvailable(treater);
+      const dischargeCap = BEHAVIORS.accumulator.capacityAvailable(afterBin);
+      const pulse = BEHAVIORS.batchCycle.apply(treater, 0.05, Math.min(1, treaterCap), treaterCap, dischargeCap, true); // pre-bin never the limiter here
+      BEHAVIORS.accumulator.apply(afterBin, 0.05, pulse, dischargeCap, steadyDrawM3PerSec * 0.05);
+      levels.push(afterBin.stored);
+    }
+
+    const rising = levels.some((l, i) => i > 0 && l > levels[i - 1] + 1e-6);
+    const falling = levels.some((l, i) => i > 0 && l < levels[i - 1] - 1e-6);
+    expect(rising).toBe(true); // pulses land
+    expect(falling).toBe(true); // steady draw drains between them
+    expect(afterBin.spill).toBeCloseTo(0); // never overflows
+  });
+
+  it("discharges smoothly under a constant downstreamCap even though infeed is a pulse: output per tick never exceeds the steady draw rate", () => {
+    const afterBin = { kind: "accumulator", capacity: 0.67, stored: 0.5, initialStored: 0.5, spill: 0 };
+    const steadyDrawM3PerTick = 0.05 * 0.05; // rate * dt
+
+    let sawNonZeroOutput = false;
+    for (let i = 0; i < 20; i++) {
+      const out = BEHAVIORS.accumulator.apply(afterBin, 0.05, 0, 10, steadyDrawM3PerTick); // no new pulse this stretch, just draining
+      expect(out).toBeLessThanOrEqual(steadyDrawM3PerTick + 1e-12); // never a burst, always bounded by the steady rate
+      if (out > 0) sawNonZeroOutput = true;
+    }
+    expect(sawNonZeroOutput).toBe(true);
+  });
 });
 
 describe("REGISTERED_KINDS", () => {

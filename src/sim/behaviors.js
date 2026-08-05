@@ -312,6 +312,13 @@ function initBatchCycle(m) {
     elapsedSec: 0,
     drawn: 0,
     delivered: 0,
+    // Hold-next-batch interlock (issue #25 — the treater after-bin's
+    // response to a full bin): a simple accept/block gate, not a ramp, so
+    // unlike the source valve's openness or the elevator's throttle there is
+    // nothing to slew — the actuator either accepts a fresh charge or it
+    // doesn't. Defaults open so a batch-cycle machine no interlock ever
+    // commands keeps issue #24's behaviour exactly.
+    blocked: false,
   };
 }
 // Reverse pass: only wants more material while actively charging, and only
@@ -319,8 +326,16 @@ function initBatchCycle(m) {
 // generous upstream can't overshoot the fixed batch size. Holding and
 // discharging both report 0: the treater accepts nothing new until the
 // current charge has fully left, matching "does not start a partial batch".
+// `blocked` (issue #25) additionally withholds capacity, but only while
+// `held` is still 0 — a charge already under way (held > 0) is "the current
+// cycle" the engineer said a full after-bin must not interrupt, so once a
+// charge has started accepting material it runs to completion regardless of
+// when the interlock trips; only a charge that hasn't started yet (fresh off
+// the previous discharge, or at boot) is what "does not accept more seed for
+// another batch" actually withholds.
 function capacityAvailableBatchCycle(state) {
   if (state.phase !== "charging") return 0;
+  if (state.held === 0 && state.blocked) return 0;
   return Math.max(0, state.chargeM3 - state.held);
 }
 function applyBatchCycle(state, dt, inflow, cap, downstreamCap = 0, hasDownstream = false) {
@@ -372,11 +387,26 @@ function applyBatchCycle(state, dt, inflow, cap, downstreamCap = 0, hasDownstrea
 function conserveBatchCycle(state, hasDownstream) {
   return hasDownstream ? { inTransit: state.held } : { inTransit: state.held, delivered: state.delivered };
 }
+// `phase` here is the same charging/holding/discharging value apply() drives
+// — except when a fresh charge is being withheld by the hold-next-batch
+// interlock (issue #25), which is reported as "waiting" rather than
+// "charging" so the popup and event log can tell "hasn't started its next
+// batch because it's blocked" apart from "hasn't started because the pre-bin
+// is starving it" or "stopped" outright. Derived here rather than stored as
+// a distinct state.phase value, since capacityAvailableBatchCycle's own
+// check (blocked && held === 0) already gives the exact condition for free.
 function snapshotBatchCycle(state) {
+  const waiting = state.phase === "charging" && state.held === 0 && state.blocked;
   return {
     fill: state.chargeM3 > 0 ? state.held / state.chargeM3 : 0,
-    phase: state.phase,
+    phase: waiting ? "waiting" : state.phase,
   };
+}
+// Commands the hold-next-batch gate (issue #25). The control layer is the
+// only caller; a batch-cycle machine no interlock ever commands never has
+// this invoked and keeps its default `blocked: false`.
+function commandBatchCycle(state, blocked) {
+  state.blocked = blocked;
 }
 
 export const BEHAVIORS = {
@@ -402,7 +432,7 @@ export const BEHAVIORS = {
   },
   batchCycle: {
     init: initBatchCycle, capacityAvailable: capacityAvailableBatchCycle, apply: applyBatchCycle,
-    conserve: conserveBatchCycle, snapshot: snapshotBatchCycle,
+    conserve: conserveBatchCycle, snapshot: snapshotBatchCycle, command: commandBatchCycle,
   },
 };
 
