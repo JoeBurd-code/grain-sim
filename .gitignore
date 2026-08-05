@@ -30,3 +30,7 @@ page-*.yml
 *.sw?
 .vercel
 .env*
+
+# Source PDFs dropped in docs/ for reference during analysis — the durable
+# record is the .md writeup made from them, not the PDF itself.
+docs/*.pdf
