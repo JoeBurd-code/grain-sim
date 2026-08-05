@@ -205,3 +205,24 @@ export function setInterlockLowSetpoint(sim, sensorMachineId, fraction) {
 export function setInterlockSignalDelay(sim, sensorMachineId, seconds) {
   findInterlock(sim, sensorMachineId).signalDelaySec = seconds;
 }
+
+// Live controls (issue #22, the two-stage interlock): the pre-bin's slow and
+// stop set points and delays are each independent, unlike thresholdTrip's
+// single highSetpoint/signalDelaySec pair — `setInterlockLowSetpoint` above
+// is reused as-is for this rule kind's recovery threshold, since both rule
+// kinds happen to name that field `lowSetpoint`.
+export function setInterlockSlowSetpoint(sim, sensorMachineId, fraction) {
+  findInterlock(sim, sensorMachineId).slowSetpoint = fraction;
+}
+
+export function setInterlockStopSetpoint(sim, sensorMachineId, fraction) {
+  findInterlock(sim, sensorMachineId).stopSetpoint = fraction;
+}
+
+export function setInterlockSlowDelay(sim, sensorMachineId, seconds) {
+  findInterlock(sim, sensorMachineId).slowDelaySec = seconds;
+}
+
+export function setInterlockStopDelay(sim, sensorMachineId, seconds) {
+  findInterlock(sim, sensorMachineId).stopDelaySec = seconds;
+}

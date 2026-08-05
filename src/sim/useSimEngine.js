@@ -6,6 +6,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createSim, stepSim, resetSim, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, setElevatorSpeed,
+  setInterlockSlowSetpoint, setInterlockStopSetpoint,
+  setInterlockSlowDelay as engineSetInterlockSlowDelay, setInterlockStopDelay as engineSetInterlockStopDelay,
 } from "./engine";
 import { BEHAVIORS } from "./behaviors";
 
@@ -135,10 +137,32 @@ export function useSimEngine(line) {
     publish();
   }, [sim, publish]);
 
+  // Live controls (issue #22, the pre-bin's two-stage interlock).
+  const setInterlockSlow = useCallback((machineId, fraction) => {
+    setInterlockSlowSetpoint(sim, machineId, fraction);
+    publish();
+  }, [sim, publish]);
+
+  const setInterlockStop = useCallback((machineId, fraction) => {
+    setInterlockStopSetpoint(sim, machineId, fraction);
+    publish();
+  }, [sim, publish]);
+
+  const setInterlockSlowDelay = useCallback((machineId, seconds) => {
+    engineSetInterlockSlowDelay(sim, machineId, seconds);
+    publish();
+  }, [sim, publish]);
+
+  const setInterlockStopDelay = useCallback((machineId, seconds) => {
+    engineSetInterlockStopDelay(sim, machineId, seconds);
+    publish();
+  }, [sim, publish]);
+
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
   return {
     snap, running, start, pause, stepOnce, reset, speed, setSpeed, setRate, setFeedRate, setLevel,
     setInterlockHigh, setInterlockLow, setInterlockDelay, setElevatorSpeed: setElevatorSpeedFraction,
+    setInterlockSlow, setInterlockStop, setInterlockSlowDelay, setInterlockStopDelay,
   };
 }

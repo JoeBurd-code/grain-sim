@@ -267,6 +267,58 @@ describe("transportDelay (issue #21)", () => {
     const c = BEHAVIORS.transportDelay.conserve(state, true);
     expect(c.delivered).toBeUndefined(); // the downstream machine accounts for it instead
   });
+
+  describe("interlock-commanded throttle (issue #22)", () => {
+    it("command(target, rampTimeSec) slews the throttle toward target over the ramp time, not instantly", () => {
+      const state = initState();
+      BEHAVIORS.transportDelay.command(state, 0.5, 2); // 2s ramp from 1 to 0.5 -> 0.5/s slew
+      BEHAVIORS.transportDelay.apply(state, 0.05, 0, 1);
+      expect(state.throttleFraction).toBeCloseTo(1 - 0.5 * 0.05);
+      expect(BEHAVIORS.transportDelay.isSettled(state)).toBe(false);
+
+      for (let i = 0; i < 100; i++) BEHAVIORS.transportDelay.apply(state, 0.05, 0, 1);
+      expect(state.throttleFraction).toBeCloseTo(0.5);
+      expect(BEHAVIORS.transportDelay.isSettled(state)).toBe(true);
+    });
+
+    it("command(0, ...) ramps the chain to a full stop, freezing everything already queued", () => {
+      const state = initState(); // 10s transit at full speed
+      BEHAVIORS.transportDelay.apply(state, 1, 1, 1); // 1 m3 enters at t=0
+      BEHAVIORS.transportDelay.command(state, 0, 1); // 1s ramp to stopped
+      for (let i = 0; i < 20; i++) BEHAVIORS.transportDelay.apply(state, 0.05, 0, 1); // 1s: ramp completes
+      expect(state.throttleFraction).toBe(0);
+
+      const progressAtStop = state.queue[0].progress;
+      for (let i = 0; i < 400; i++) BEHAVIORS.transportDelay.apply(state, 0.05, 0, 1); // 20s more, stopped
+      expect(state.queue[0].progress).toBeCloseTo(progressAtStop); // frozen, not lost
+      expect(state.backlog).toBe(0);
+    });
+
+    it("intake capacity scales with the throttle, independent of the manual speed dial", () => {
+      const state = initState({ ceilingM3PerSec: 2 });
+      BEHAVIORS.transportDelay.command(state, 0.5, 0); // instant (0s ramp -> infinite slew)
+      BEHAVIORS.transportDelay.apply(state, 0.05, 0, Infinity); // let the ramp settle this tick
+      expect(BEHAVIORS.transportDelay.capacityAvailable(state, 0.05)).toBeCloseTo(0.05); // half of 2*0.05
+
+      BEHAVIORS.transportDelay.command(state, 0, 0);
+      BEHAVIORS.transportDelay.apply(state, 0.05, 0, Infinity);
+      expect(BEHAVIORS.transportDelay.capacityAvailable(state, 0.05)).toBe(0); // stopped: accepts nothing new
+    });
+
+    it("a throttled-down chain still delivers everything already queued once it recovers", () => {
+      const state = initState({ distanceM: 1, speedMPerMin: 60, ceilingM3PerSec: 10 }); // 1s transit at full speed
+      const fed = 10;
+      BEHAVIORS.transportDelay.apply(state, 0.05, fed, fed); // one packet in (inflow == cap, so all of it is accepted)
+      BEHAVIORS.transportDelay.command(state, 0, 0); // stop instantly
+      for (let i = 0; i < 200; i++) BEHAVIORS.transportDelay.apply(state, 0.05, 0, 10); // 10s stopped: would have arrived otherwise
+      expect(state.delivered).toBe(0);
+
+      BEHAVIORS.transportDelay.command(state, 1, 0); // recover instantly
+      let delivered = 0;
+      for (let i = 0; i < 200; i++) delivered += BEHAVIORS.transportDelay.apply(state, 0.05, 0, 10);
+      expect(delivered).toBeCloseTo(fed); // nothing lost across the stall
+    });
+  });
 });
 
 describe("REGISTERED_KINDS", () => {

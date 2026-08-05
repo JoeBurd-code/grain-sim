@@ -1,22 +1,18 @@
 // The control layer: sensors reading an accumulator's level, declarative
-// threshold rules that fire a delayed action on a target machine, and the
-// per-rule event log a machine's popup surfaces. One `line.interlocks`
-// entry becomes one runtime rule instance here; engine.js calls
-// `stepControl` once per tick, after the flow pass, so a command issued
-// this tick affects the actuator's behaviour starting next tick — exactly
-// like any other engine state change.
+// rules that fire delayed actions on a target machine, and the per-rule
+// event log a machine's popup surfaces. One `line.interlocks` entry becomes
+// one runtime rule instance here; engine.js calls `stepControl` once per
+// tick, after the flow pass, so a command issued this tick affects the
+// actuator's behaviour starting next tick — exactly like any other engine
+// state change.
 //
-// Phase machine per rule (issue #19 — the buffer bin closes the source
-// valve, late):
-//   open -> [level >= highSetpoint] -> delayedClose -> [delay elapses,
-//   command close] -> closing -> [valve settles at 0] -> closed ->
-//   [level <= lowSetpoint] -> delayedOpen -> [delay elapses, command open]
-//   -> opening -> [valve settles at 1] -> open
-// A trip latches: once armed, a delayed action always fires, even if the
-// level recrosses the set point before the delay elapses (real interlocks
-// don't cancel on a transient — and by design the level only keeps
-// climbing during the closing delay, which is the overshoot this issue
-// exists to demonstrate).
+// A rule declares a `kind`, resolved against `CONTROL_KINDS` below exactly
+// as a machine's `sim.kind` resolves against behaviors.js's `BEHAVIORS` —
+// the parent spec's "material behaviour is shared, control behaviour is
+// not" (issue #15) applies to interlocks too, so a second rule kind is a
+// second entry here, not a branch bolted onto the first one. `kind` defaults
+// to `thresholdTrip` so every interlock authored before this registry
+// existed (issue #19) needs no `lineData.js` change.
 import { BEHAVIORS } from "./behaviors";
 
 function readLevel(machines, machineId) {
@@ -32,8 +28,28 @@ function logEvent(rule, t, message) {
   rule.log.push({ t, message });
 }
 
-export function initControl(line) {
-  return (line.interlocks ?? []).map((cfg) => ({
+function pct(level) {
+  return `${(level * 100).toFixed(0)}%`;
+}
+
+function resolveActuator(rule, sim) {
+  const actuator = sim.machines.get(rule.actuatorId);
+  return { actuator, behavior: BEHAVIORS[actuator.kind] };
+}
+
+// Phase machine (issue #19 — the buffer bin closes the source valve, late):
+//   open -> [level >= highSetpoint] -> delayedClose -> [delay elapses,
+//   command close] -> closing -> [valve settles at 0] -> closed ->
+//   [level <= lowSetpoint] -> delayedOpen -> [delay elapses, command open]
+//   -> opening -> [valve settles at 1] -> open
+// A trip latches: once armed, a delayed action always fires, even if the
+// level recrosses the set point before the delay elapses (real interlocks
+// don't cancel on a transient — and by design the level only keeps
+// climbing during the closing delay, which is the overshoot this issue
+// exists to demonstrate).
+function initThresholdTrip(cfg) {
+  return {
+    kind: "thresholdTrip",
     id: cfg.id,
     sensorId: cfg.sensor.machine,
     actuatorId: cfg.action.machine,
@@ -44,41 +60,127 @@ export function initControl(line) {
     phase: "open",
     fireAt: null,
     log: [],
-  }));
+  };
+}
+function stepThresholdTrip(rule, sim) {
+  const level = readLevel(sim.machines, rule.sensorId);
+  const { actuator, behavior } = resolveActuator(rule, sim);
+
+  if (rule.phase === "open" && level >= rule.highSetpoint) {
+    logEvent(rule, sim.t, `high set point reached at ${pct(level)} — closing signal armed`);
+    rule.phase = "delayedClose";
+    rule.fireAt = sim.t + rule.signalDelaySec;
+  } else if (rule.phase === "closed" && level <= rule.lowSetpoint) {
+    logEvent(rule, sim.t, `low set point reached at ${pct(level)} — opening signal armed`);
+    rule.phase = "delayedOpen";
+    rule.fireAt = sim.t + rule.signalDelaySec;
+  }
+
+  if (rule.phase === "delayedClose" && sim.t >= rule.fireAt) {
+    behavior.command(actuator, "close", rule.rampTimeSec);
+    logEvent(rule, sim.t, `valve commanded closed (ramping over ${rule.rampTimeSec}s)`);
+    rule.phase = "closing";
+    rule.fireAt = null;
+  } else if (rule.phase === "delayedOpen" && sim.t >= rule.fireAt) {
+    behavior.command(actuator, "open", rule.rampTimeSec);
+    logEvent(rule, sim.t, `valve commanded open (ramping over ${rule.rampTimeSec}s)`);
+    rule.phase = "opening";
+    rule.fireAt = null;
+  }
+
+  if (rule.phase === "closing" && behavior.isSettled(actuator)) {
+    rule.phase = "closed";
+  } else if (rule.phase === "opening" && behavior.isSettled(actuator)) {
+    rule.phase = "open";
+  }
+}
+
+// Phase machine (issue #22 — the treater pre-bin slows the elevator, then
+// stops it): two independent rising thresholds, each with its own delay,
+// each commanding the actuator to its own target speed fraction over its
+// own ramp time — the engineer's "first slow, then stop" read literally
+// rather than collapsed into one trip.
+//   full -> [level >= slowSetpoint] -> armSlow -> [delay elapses, command
+//   slow.speedFraction] -> slowing -> [settles] -> slow ->
+//     [level >= stopSetpoint] -> armStop -> [delay elapses, command 0]
+//     -> stopping -> [settles] -> stopped
+//     [level <= lowSetpoint] -> recovering (commanded immediately: no FD or
+//     worksheet number backs a delay on the recovery path, unlike the two
+//     rising stages) -> [settles] -> full
+// Recovery is armed from "slow" or "stopped" only (not mid-ramp), and a
+// rise past stopSetpoint is armed from "slow" only — both mirror
+// thresholdTrip's latch: once armed, a delayed action always fires, and a
+// settled phase is what re-opens the sensor to its next possible crossing.
+function initTwoStageThrottle(cfg) {
+  return {
+    kind: "twoStageThrottle",
+    id: cfg.id,
+    sensorId: cfg.sensor.machine,
+    actuatorId: cfg.action.machine,
+    lowSetpoint: cfg.lowSetpoint,
+    slowSetpoint: cfg.slow.setpoint,
+    slowDelaySec: cfg.slow.delaySec,
+    slowFraction: cfg.slow.speedFraction,
+    slowRampTimeSec: cfg.slow.rampTimeSec,
+    stopSetpoint: cfg.stop.setpoint,
+    stopDelaySec: cfg.stop.delaySec,
+    stopRampTimeSec: cfg.stop.rampTimeSec,
+    recoverRampTimeSec: cfg.recoverRampTimeSec,
+    phase: "full",
+    fireAt: null,
+    log: [],
+  };
+}
+function stepTwoStageThrottle(rule, sim) {
+  const level = readLevel(sim.machines, rule.sensorId);
+  const { actuator, behavior } = resolveActuator(rule, sim);
+
+  if (rule.phase === "full" && level >= rule.slowSetpoint) {
+    logEvent(rule, sim.t, `slow set point reached at ${pct(level)} — slow-down signal armed`);
+    rule.phase = "armSlow";
+    rule.fireAt = sim.t + rule.slowDelaySec;
+  } else if (rule.phase === "slow" && level >= rule.stopSetpoint) {
+    logEvent(rule, sim.t, `stop set point reached at ${pct(level)} — stop signal armed`);
+    rule.phase = "armStop";
+    rule.fireAt = sim.t + rule.stopDelaySec;
+  } else if ((rule.phase === "slow" || rule.phase === "stopped") && level <= rule.lowSetpoint) {
+    behavior.command(actuator, 1, rule.recoverRampTimeSec);
+    logEvent(rule, sim.t, `level recovered to ${pct(level)} — elevator commanded back to full speed (ramping over ${rule.recoverRampTimeSec}s)`);
+    rule.phase = "recovering";
+  }
+
+  if (rule.phase === "armSlow" && sim.t >= rule.fireAt) {
+    behavior.command(actuator, rule.slowFraction, rule.slowRampTimeSec);
+    logEvent(rule, sim.t, `elevator commanded to ${Math.round(rule.slowFraction * 100)}% speed (ramping over ${rule.slowRampTimeSec}s)`);
+    rule.phase = "slowing";
+    rule.fireAt = null;
+  } else if (rule.phase === "armStop" && sim.t >= rule.fireAt) {
+    behavior.command(actuator, 0, rule.stopRampTimeSec);
+    logEvent(rule, sim.t, `elevator commanded to stop (ramping over ${rule.stopRampTimeSec}s)`);
+    rule.phase = "stopping";
+    rule.fireAt = null;
+  }
+
+  if (rule.phase === "slowing" && behavior.isSettled(actuator)) {
+    rule.phase = "slow";
+  } else if (rule.phase === "stopping" && behavior.isSettled(actuator)) {
+    rule.phase = "stopped";
+  } else if (rule.phase === "recovering" && behavior.isSettled(actuator)) {
+    rule.phase = "full";
+  }
+}
+
+const CONTROL_KINDS = {
+  thresholdTrip: { init: initThresholdTrip, step: stepThresholdTrip },
+  twoStageThrottle: { init: initTwoStageThrottle, step: stepTwoStageThrottle },
+};
+
+export function initControl(line) {
+  return (line.interlocks ?? []).map((cfg) => CONTROL_KINDS[cfg.kind ?? "thresholdTrip"].init(cfg));
 }
 
 export function stepControl(sim) {
-  const { machines, control } = sim;
-  for (const rule of control) {
-    const level = readLevel(machines, rule.sensorId);
-    const actuator = machines.get(rule.actuatorId);
-
-    if (rule.phase === "open" && level >= rule.highSetpoint) {
-      logEvent(rule, sim.t, `high set point reached at ${(level * 100).toFixed(0)}% — closing signal armed`);
-      rule.phase = "delayedClose";
-      rule.fireAt = sim.t + rule.signalDelaySec;
-    } else if (rule.phase === "closed" && level <= rule.lowSetpoint) {
-      logEvent(rule, sim.t, `low set point reached at ${(level * 100).toFixed(0)}% — opening signal armed`);
-      rule.phase = "delayedOpen";
-      rule.fireAt = sim.t + rule.signalDelaySec;
-    }
-
-    if (rule.phase === "delayedClose" && sim.t >= rule.fireAt) {
-      BEHAVIORS[actuator.kind].command(actuator, "close", rule.rampTimeSec);
-      logEvent(rule, sim.t, `valve commanded closed (ramping over ${rule.rampTimeSec}s)`);
-      rule.phase = "closing";
-      rule.fireAt = null;
-    } else if (rule.phase === "delayedOpen" && sim.t >= rule.fireAt) {
-      BEHAVIORS[actuator.kind].command(actuator, "open", rule.rampTimeSec);
-      logEvent(rule, sim.t, `valve commanded open (ramping over ${rule.rampTimeSec}s)`);
-      rule.phase = "opening";
-      rule.fireAt = null;
-    }
-
-    if (rule.phase === "closing" && BEHAVIORS[actuator.kind].isSettled(actuator)) {
-      rule.phase = "closed";
-    } else if (rule.phase === "opening" && BEHAVIORS[actuator.kind].isSettled(actuator)) {
-      rule.phase = "open";
-    }
+  for (const rule of sim.control) {
+    CONTROL_KINDS[rule.kind].step(rule, sim);
   }
 }

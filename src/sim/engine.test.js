@@ -3,6 +3,7 @@ import {
   createSim, stepSim, resetSim, getMachineState, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, getInterlockState,
   setElevatorSpeed,
+  setInterlockSlowSetpoint, setInterlockStopSetpoint, setInterlockSlowDelay, setInterlockStopDelay,
 } from "./engine";
 import { assertConserved, conservationTotals } from "./conservation";
 import { tPerHourToM3PerSec } from "./units";
@@ -13,6 +14,7 @@ const METAL_REMOVER_ID = "treatMetalRemover";
 const BUFFER_BIN_ID = "treaterBufferBin";
 const FEEDER_ID = "treatDrumFeeder";
 const ELEVATOR_ID = "treatingElevator";
+const PRE_BIN_ID = "treaterPreBin";
 
 function interlockRule(sim) {
   return getInterlockState(sim, BUFFER_BIN_ID);
@@ -104,7 +106,11 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
 
     const totals = conservationTotals(sim);
     const bin = getMachineState(sim, BUFFER_BIN_ID);
-    expect(totals.stored).toBeCloseTo(bin.stored);
+    // Since issue #22, the pre-bin is also a sim-enabled accumulator and
+    // contributes its own (here, constant — the drum feeder defaults to
+    // off) stored volume to the total.
+    const preBin = getMachineState(sim, PRE_BIN_ID);
+    expect(totals.stored).toBeCloseTo(bin.stored + preBin.stored);
   });
 
   it("throws when a line declares an unregistered sim.kind", () => {
@@ -368,15 +374,23 @@ describe("inlet drum feeder meters the buffer bin's discharge (issue #20)", () =
       assertConserved(sim);
     }
 
-    const totals = conservationTotals(sim);
     const feeder = getMachineState(sim, FEEDER_ID);
-    // Since issue #21, everything the feeder forwards lands in the
-    // treating elevator's transport delay rather than leaving the modelled
-    // boundary at the feeder itself — some of it is always still mid-lift
-    // (totals.inTransit) rather than delivered, so the two together (not
-    // delivered alone) reconcile against the feeder's cumulative draw.
-    expect(totals.inTransit + totals.delivered).toBeCloseTo(feeder.drawn);
-    expect(totals.inTransit).toBeGreaterThan(0); // continuous flow always has some material mid-transit
+    const elevator = getMachineState(sim, ELEVATOR_ID);
+    const preBin = getMachineState(sim, PRE_BIN_ID);
+    // Since issue #21, everything the feeder forwards lands in the treating
+    // elevator's transport delay, not straight out the modelled boundary —
+    // and since issue #22, the elevator's own discharge lands in the
+    // pre-bin's stock rather than being counted as "delivered" itself (see
+    // behaviors.js `conserveTransportDelay`'s `hasDownstream` branch). What
+    // the feeder ever drew must equal what's still mid-lift plus what the
+    // pre-bin has gained (stored or spilled) since t=0 — using
+    // `conservationTotals` directly here would also pull in the buffer
+    // bin's own unrelated stored volume, so this reconciles the
+    // feeder-through-pre-bin subsystem from the machines' own state instead.
+    const elevatorInTransit = elevator.queue.reduce((a, p) => a + p.vol, 0) + elevator.backlog;
+    const preBinGained = preBin.stored - preBin.initialStored + preBin.spill;
+    expect(elevatorInTransit + preBinGained).toBeCloseTo(feeder.drawn);
+    expect(elevatorInTransit).toBeGreaterThan(0); // continuous flow always has some material mid-transit
   });
 
   it("setFeederRate rejects a non-feeder machine", () => {
@@ -483,16 +497,25 @@ describe("treating elevator carries grain with a real transport delay (issue #21
 
     const totals = conservationTotals(sim);
     expect(totals.inTransit).toBeGreaterThan(0);
-    expect(totals.delivered).toBeGreaterThan(0);
+    // Since issue #22, the elevator's discharge lands in the pre-bin's
+    // stock rather than being reported as the elevator's own "delivered"
+    // (see behaviors.js `conserveTransportDelay`'s `hasDownstream` branch) —
+    // material genuinely arriving now shows up as the pre-bin's stored
+    // volume growing past its starting level.
+    const preBin = getMachineState(sim, PRE_BIN_ID);
+    expect(preBin.stored).toBeGreaterThan(preBin.initialStored);
   });
 
-  // treaterPreBin has no `sim` block in the real line yet (that's the next
-  // machine, not this issue's scope), so the behaviour-level tests above
-  // exercise backpressure with a hand-fed `hasDownstream`. This test proves
-  // the same thing through the real engine wiring, using a test-only line
-  // variant (same pattern as the "unregistered sim.kind" test above) so a
-  // future change to the reverse/forward pass can't silently break the
-  // cascade this issue's acceptance criteria describes.
+  // treaterPreBin has a real sim block since issue #22, but this test still
+  // overrides it to start already full (zero headroom) rather than feeding
+  // long enough for its real 1.63 m3 to fill naturally, so the cascade is
+  // forced immediately within a short step budget. The interlock is also
+  // stripped for this test: with the pre-bin starting full, issue #22's own
+  // two-stage interlock would immediately throttle the elevator on its own,
+  // which would confound this test's actual target — issue #21's generic
+  // "a full downstream rejects material" backpressure, independent of any
+  // interlock. Same test-only-line-variant pattern as the "unregistered
+  // sim.kind" test above.
   it("real backpressure cascades from a full downstream bin, through the elevator, to the feeder", () => {
     const blockedLine = {
       ...line,
@@ -501,6 +524,7 @@ describe("treating elevator carries grain with a real transport delay (issue #21
           ? { ...m, sim: { kind: "accumulator", capacityM3: 1, initialLevelFraction: 1 } } // starts with zero headroom
           : m
       ),
+      interlocks: [],
     };
     const sim = createSim(blockedLine);
     feedElevator(sim, 1000); // push hard enough that the elevator's own ceiling isn't the limiting factor
@@ -519,6 +543,115 @@ describe("treating elevator carries grain with a real transport delay (issue #21
     expect(getMachineState(sim, FEEDER_ID).drawn).toBeCloseTo(drawnAtBlock); // the feeder itself has now stalled too
 
     expect(() => assertConserved(sim)).not.toThrow();
+  });
+});
+
+function preBinInterlock(sim) {
+  return getInterlockState(sim, PRE_BIN_ID);
+}
+
+describe("treater pre-bin slows the elevator, then stops it (issue #22)", () => {
+  it("reuses the accumulator behaviour verbatim: no new material physics for the pre-bin", () => {
+    const sim = createSim(line);
+    expect(getMachineState(sim, PRE_BIN_ID).kind).toBe("accumulator");
+  });
+
+  it("a rising level first commands a reduced speed, and only a further rise commands a full stop", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.65); // above the slow set point (0.6), below stop (0.85)
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // past the 3s slow delay + 4s ramp
+    const elevator = getMachineState(sim, ELEVATOR_ID);
+    expect(preBinInterlock(sim).phase).toBe("slow");
+    expect(elevator.throttleFraction).toBeCloseTo(0.5); // slowed, not stopped
+
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.9); // now above the stop set point too
+    for (let i = 0; i < Math.round(15 / DT); i++) stepSim(sim, DT); // past the 5s stop delay + 6s ramp
+    expect(preBinInterlock(sim).phase).toBe("stopped");
+    expect(elevator.throttleFraction).toBe(0);
+  });
+
+  it("each stage has its own threshold and its own delay", () => {
+    const sim = createSim(line);
+    const rule = preBinInterlock(sim);
+    expect(rule.slowSetpoint).not.toBe(rule.stopSetpoint);
+    expect(rule.slowDelaySec).not.toBe(rule.stopDelaySec);
+  });
+
+  it("the elevator ramps between speeds rather than changing instantaneously", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.9); // straight to above both set points
+    for (let i = 0; i < Math.round(3.5 / DT); i++) stepSim(sim, DT); // just past the 3s slow delay, mid-ramp
+    const elevator = getMachineState(sim, ELEVATOR_ID);
+    expect(elevator.throttleFraction).toBeGreaterThan(0); // ramping down, not yet at 0.5
+    expect(elevator.throttleFraction).toBeLessThan(1); // ramping down, not still at full speed
+  });
+
+  it("material already on the elevator chain during the slow-down and the stop still arrives, and conservation holds through the full cycle", () => {
+    const sim = createSim(line);
+    feedElevator(sim); // 12 t/h into the elevator
+    for (let i = 0; i < Math.round(10 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
+    const elevator = getMachineState(sim, ELEVATOR_ID);
+    const inTransitBeforeStop = elevator.queue.reduce((a, p) => a + p.vol, 0) + elevator.backlog;
+    expect(inTransitBeforeStop).toBeGreaterThan(0); // genuinely mid-lift when the stop is forced
+
+    setFeederRate(sim, FEEDER_ID, 0); // isolate: no further material enters from here on
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.9); // force straight through slow to the stop stage
+    for (let i = 0; i < Math.round(25 / DT); i++) { stepSim(sim, DT); assertConserved(sim); } // past the 3+4s slow stage and the 5+6s stop stage
+    expect(preBinInterlock(sim).phase).toBe("stopped");
+    expect(elevator.throttleFraction).toBe(0);
+
+    const preBinBeforeRecover = getMachineState(sim, PRE_BIN_ID).stored;
+    for (let i = 0; i < Math.round(200 / DT); i++) { stepSim(sim, DT); assertConserved(sim); } // stays stopped: a frozen chain moves nothing
+    expect(getMachineState(sim, PRE_BIN_ID).stored).toBeCloseTo(preBinBeforeRecover); // frozen, not lost
+
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.3); // presenter drags the level down below the recovery set point
+    const preBinAtRecoverStart = getMachineState(sim, PRE_BIN_ID).stored;
+    for (let i = 0; i < Math.round(60 / DT); i++) { stepSim(sim, DT); assertConserved(sim); } // past the recovery ramp, long enough for the frozen packet to finish arriving
+    expect(preBinInterlock(sim).phase).toBe("full");
+    expect(elevator.throttleFraction).toBe(1);
+    expect(getMachineState(sim, PRE_BIN_ID).stored).toBeGreaterThan(preBinAtRecoverStart); // the material frozen mid-lift did eventually arrive
+    expect(() => assertConserved(sim)).not.toThrow();
+  });
+
+  it("the level recovers and the elevator returns to full speed once the bin drains", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.9);
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+    expect(preBinInterlock(sim).phase).toBe("stopped");
+
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.2); // presenter drags the level back down
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // past the recovery ramp
+    expect(preBinInterlock(sim).phase).toBe("full");
+    expect(getMachineState(sim, ELEVATOR_ID).throttleFraction).toBe(1);
+  });
+
+  it("both stage thresholds and delays are live controls that take effect while running", () => {
+    const sim = createSim(line);
+    setInterlockSlowSetpoint(sim, PRE_BIN_ID, 0.5);
+    setInterlockSlowDelay(sim, PRE_BIN_ID, 1);
+    setInterlockStopSetpoint(sim, PRE_BIN_ID, 0.55);
+    setInterlockStopDelay(sim, PRE_BIN_ID, 1);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.6); // above both of the newly-lowered set points at once
+
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(preBinInterlock(sim).phase).toBe("stopped"); // reached on the new, tighter set points
+  });
+
+  it("the pre-bin's event log records the slow-down and the stop as distinct entries, each with its simulated time", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.9);
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+
+    const log = preBinInterlock(sim).log;
+    expect(log.length).toBeGreaterThanOrEqual(4); // slow-armed, slow-commanded, stop-armed, stop-commanded
+    for (const entry of log) {
+      expect(typeof entry.t).toBe("number");
+      expect(typeof entry.message).toBe("string");
+    }
+    const messages = log.map((e) => e.message);
+    expect(new Set(messages).size).toBe(messages.length); // no two entries say the same thing
+    expect(messages.some((m) => m.includes("slow"))).toBe(true);
+    expect(messages.some((m) => m.includes("stop"))).toBe(true);
   });
 });
 

@@ -31,6 +31,13 @@ const PARAM_BINDERS = {
   // Elevator VFD (issue #21): re-paces the transport delay live, including
   // material already in transit, not just newly fed material.
   elevatorSpeed: (engine, machineId, value) => engine.setElevatorSpeed(machineId, value / 100),
+  // Pre-bin two-stage interlock (issue #22): the recovery threshold reuses
+  // interlockLowSetpoint above, since both rule kinds name that field the
+  // same; slow/stop each get their own set point and delay.
+  interlockSlowSetpoint: (engine, machineId, value) => engine.setInterlockSlow(machineId, value / 100),
+  interlockStopSetpoint: (engine, machineId, value) => engine.setInterlockStop(machineId, value / 100),
+  interlockSlowDelay: (engine, machineId, value) => engine.setInterlockSlowDelay(machineId, value),
+  interlockStopDelay: (engine, machineId, value) => engine.setInterlockStopDelay(machineId, value),
 };
 
 const validation = validateLine(line);

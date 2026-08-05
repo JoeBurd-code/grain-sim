@@ -211,8 +211,33 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 100 } },
       fill: 0.4,
-      instruments: ["LSH", "LSL"],
+      instruments: ["LT", "LSH", "LSL"],
       labelAt: { x: -10, y: -16 },
+      // Reuses the same accumulator behaviour as the buffer bin (issue #18)
+      // unchanged — issue #22's own reuse claim, material physics written
+      // once and configured seven times per the parent spec. The two-stage
+      // control response below (preBinSlowStopTrip) is what's actually new.
+      params: [
+        { id: "level", label: "fill level", min: 0, max: 100, value: 40, unit: "%", bind: "levelJump" },
+        { id: "lowSetpoint", label: "LSL0 recover", min: 0, max: 55, value: 35, unit: "%", bind: "interlockLowSetpoint" },
+        { id: "slowSetpoint", label: "slow set point", min: 35, max: 90, value: 60, unit: "%", bind: "interlockSlowSetpoint" },
+        { id: "slowDelay", label: "slow delay", min: 0, max: 15, value: 3, unit: "s", bind: "interlockSlowDelay" },
+        { id: "stopSetpoint", label: "LSH0 stop set point", min: 40, max: 100, value: 85, unit: "%", bind: "interlockStopSetpoint" },
+        { id: "stopDelay", label: "stop delay", min: 0, max: 15, value: 5, unit: "s", bind: "interlockStopDelay" },
+      ],
+      // 1.63 m3 / 1.17 t working volume [CONFIRMED, FD 2026-08-05 Treating
+      // mimic label, REAL_LINE_SPECS.md §2/§8.1 — supersedes the earlier
+      // 1.62 m3 screenshot read]. LSH0/LSL0 set points and the 40% start
+      // level are assumed, same low-sensitivity reasoning as the buffer
+      // bin (issue #18/#19): the FD confirms these are operator-adjustable
+      // SCADA configuration, not fixed plant values, so there is nothing
+      // further to absorb for them.
+      sim: {
+        kind: "accumulator",
+        capacityM3: 1.63,
+        initialLevelFraction: 0.4,
+        provenance: { capacityM3: "confirmed", initialLevelFraction: "assumed" },
+      },
     },
     {
       id: "batchTreater",
@@ -743,6 +768,35 @@ export const line = {
       provenance: {
         highSetpoint: "assumed", lowSetpoint: "assumed",
         signalDelaySec: "confirmed", rampTimeSec: "assumed",
+      },
+    },
+    {
+      id: "preBinSlowStopTrip",
+      kind: "twoStageThrottle",
+      sensor: { machine: "treaterPreBin" },
+      // Engineer confirmed the two-stage response itself: "the bucket
+      // elevator must first slow down then stop if the bin becomes too
+      // full" (docs/treater-line2-filled-20260630 (1) (1).md §6). The FD
+      // (2026-08-05) independently confirms the interlock exists and its
+      // trip delay — `52.507.H00.LSH0` -> 5 s -> elevator `52.506.E00` —
+      // but calls the whole thing a single "trip"; REAL_LINE_SPECS.md §5
+      // reconciles this as the same event the engineer described as a VFD
+      // ramp, so the FD's 5 s is used here for the stop stage, which is
+      // the one LSH0 actually gates. The slow stage is the engineer's own
+      // description with no FD or worksheet number behind it: its set
+      // point, delay, target speed and both ramp times, plus the recovery
+      // ramp time, are assumed. See docs/OPEN_QUESTIONS.md.
+      lowSetpoint: 0.35,
+      slow: { setpoint: 0.6, delaySec: 3, speedFraction: 0.5, rampTimeSec: 4 },
+      stop: { setpoint: 0.85, delaySec: 5, rampTimeSec: 6 },
+      recoverRampTimeSec: 5,
+      action: { machine: "treatingElevator" },
+      provenance: {
+        lowSetpoint: "assumed",
+        "slow.setpoint": "assumed", "slow.delaySec": "assumed",
+        "slow.speedFraction": "assumed", "slow.rampTimeSec": "assumed",
+        "stop.setpoint": "assumed", "stop.delaySec": "confirmed", "stop.rampTimeSec": "assumed",
+        recoverRampTimeSec: "assumed",
       },
     },
   ],

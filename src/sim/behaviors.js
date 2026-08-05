@@ -17,6 +17,17 @@ function forwardDownstreamCapacity(state, dt, downstreamCap) {
   return downstreamCap;
 }
 
+// Slews `current` toward `target` at `ratePerSec` over `dt`, clamping onto
+// the target exactly rather than overshooting it — shared by any actuator
+// that ramps rather than snaps: the source valve's openness below, and the
+// elevator's interlock-commanded throttle (issue #22).
+function slewToward(current, target, ratePerSec, dt) {
+  if (current === target) return current;
+  const step = ratePerSec * dt;
+  const diff = target - current;
+  return Math.abs(diff) <= step ? target : current + Math.sign(diff) * step;
+}
+
 // `openness` (0..1, the valve's actual position) slews toward
 // `opennessTarget` at `opennessRampPerSec`, rather than snapping — this is
 // what lets material already released keep arriving after a close command,
@@ -34,11 +45,7 @@ function initSource(m) {
   };
 }
 function applySource(state, dt, inflow, cap) {
-  if (state.openness !== state.opennessTarget) {
-    const step = state.opennessRampPerSec * dt;
-    const diff = state.opennessTarget - state.openness;
-    state.openness = Math.abs(diff) <= step ? state.opennessTarget : state.openness + Math.sign(diff) * step;
-  }
+  state.openness = slewToward(state.openness, state.opennessTarget, state.opennessRampPerSec, dt);
   const out = Math.min(state.nominalRate * state.openness * dt, cap);
   state.fed += out;
   return out;
@@ -159,24 +166,37 @@ function conserveMeteredFeeder(state, hasDownstream) {
 // finished its transit but couldn't leave — the chain backing up at the
 // head, per the acceptance criteria); discharging is bounded by the ceiling
 // and, only when a sim-enabled machine is actually downstream, by that
-// machine's own headroom. With no modelled downstream (the current line:
-// nothing sits sim-enabled past the treating elevator yet) discharge is
-// unconstrained by anything downstream, mirroring meteredFeeder's own
-// "nothing sim-enabled downstream yet" convention — see conserve below.
+// machine's own headroom. A transport delay with nothing sim-enabled
+// downstream of it (e.g. the packaging elevator, still unbuilt) discharges
+// unconstrained by anything downstream instead, mirroring meteredFeeder's
+// own "nothing sim-enabled downstream yet" convention — see conserve below.
+// The treating elevator itself has had a real downstream (the treater
+// pre-bin) since issue #22.
 function initTransportDelay(m) {
   return {
     kind: "transportDelay",
     distanceM: m.sim.distanceM,
     speedMPerMin: m.sim.speedMPerMin,
     ceilingM3PerSec: m.sim.ceilingM3PerSec,
-    speedFraction: 1,
+    speedFraction: 1, // manual VFD dial (issue #21) — presenter-set, takes effect instantly
+    // Interlock-commanded multiplier on top of the manual dial (issue #22):
+    // `throttleFraction` slews toward `throttleTarget` at `throttleRampPerSec`
+    // rather than snapping, exactly like the source valve's openness — this
+    // is what makes "slow down, then stop" a ramp instead of a step, and
+    // what lets a presenter's own speed slider and an automatic interlock
+    // coexist without one silently overwriting the other. Defaults to fully
+    // open with an instant slew rate so nothing changes for a machine no
+    // interlock ever commands.
+    throttleFraction: 1,
+    throttleTarget: 1,
+    throttleRampPerSec: Infinity,
     queue: [],       // [{ progress, vol }] material past the infeed, still travelling
     backlog: 0,      // volume that finished transit but discharge hasn't taken it yet
     delivered: 0,
   };
 }
 function chainSpeedMPerSec(state) {
-  return (state.speedMPerMin * state.speedFraction) / 60;
+  return (state.speedMPerMin * state.speedFraction * state.throttleFraction) / 60;
 }
 function queueVolume(state) {
   return state.queue.reduce((a, p) => a + p.vol, 0);
@@ -187,12 +207,18 @@ function capacityAvailableTransportDelay(state, dt) {
   // length are still unconfirmed (see docs/OPEN_QUESTIONS.md), so this
   // doesn't attempt to track precise in-chain capacity.
   if (state.backlog > EPS) return 0;
-  return state.ceilingM3PerSec * dt;
+  // Intake scales with the interlock's throttle (issue #22): a slowed chain
+  // carries fewer buckets past the infeed per second, and a stopped one
+  // (throttleFraction 0) accepts nothing new — this is the "reduces the
+  // infeed" half of the two-stage response, distinct from the manual VFD
+  // dial (`speedFraction`), which only ever affected transit *timing*.
+  return state.ceilingM3PerSec * state.throttleFraction * dt;
 }
 function applyTransportDelay(state, dt, inflow, cap, downstreamCap = 0, hasDownstream = false) {
   const accepted = Math.min(inflow, cap);
   if (accepted > 0) state.queue.push({ progress: 0, vol: accepted });
 
+  state.throttleFraction = slewToward(state.throttleFraction, state.throttleTarget, state.throttleRampPerSec, dt);
   const v = chainSpeedMPerSec(state);
   const progressStep = state.distanceM > 0 ? (v * dt) / state.distanceM : 0;
   const still = [];
@@ -230,7 +256,20 @@ function snapshotTransportDelay(state) {
     leadingProgress, trailingProgress,
     transitTimeSec: v > 0 ? state.distanceM / v : Infinity,
     speedFraction: state.speedFraction,
+    throttleFraction: state.throttleFraction,
   };
+}
+// Commands the interlock-driven throttle toward an arbitrary target fraction
+// (issue #22 needs "half speed" and "stopped", not just source's binary
+// open/close), ramping over `rampTimeSec` rather than snapping — the two
+// stage interlock (control.js) is the only caller; a transport delay with no
+// interlock on it never has this invoked and keeps its default throttle of 1.
+function commandTransportDelay(state, targetFraction, rampTimeSec) {
+  state.throttleTarget = targetFraction;
+  state.throttleRampPerSec = rampTimeSec > 0 ? 1 / rampTimeSec : Infinity;
+}
+function isSettledTransportDelay(state) {
+  return state.throttleFraction === state.throttleTarget;
 }
 
 export const BEHAVIORS = {
@@ -252,6 +291,7 @@ export const BEHAVIORS = {
   transportDelay: {
     init: initTransportDelay, capacityAvailable: capacityAvailableTransportDelay, apply: applyTransportDelay,
     conserve: conserveTransportDelay, snapshot: snapshotTransportDelay,
+    command: commandTransportDelay, isSettled: isSettledTransportDelay,
   },
 };
 
