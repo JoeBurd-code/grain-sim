@@ -62,6 +62,14 @@ export function createSim(line) {
   return { t: 0, line, machines, downstream, order, control };
 }
 
+// Whether a sim-enabled machine actually sits downstream of `id` — the one
+// fact both the forward pass and conservationTotals need computed the same
+// way, since a downstream *value* of 0 is ambiguous (genuinely full vs not
+// modelled at all, see stepSim below) but this boolean isn't.
+export function hasSimDownstream(sim, id) {
+  return sim.downstream.has(id);
+}
+
 export function stepSim(sim, dt) {
   const { machines, order, downstream } = sim;
 
@@ -84,14 +92,19 @@ export function stepSim(sim, dt) {
   // and discharges (the accumulator) needs it to know how much it may push
   // out this tick, separately from `capAvail.get(id)` (how much it may
   // accept in). Nodes with nothing sim-enabled downstream get 0: nowhere
-  // for them to discharge into.
+  // for them to discharge into. `hasDownstream` (issue #21) is passed
+  // alongside the number itself, because 0 is also the legitimate value of
+  // a genuinely full downstream — a behaviour that self-reports its output
+  // as "delivered" when unconnected (meteredFeeder, transportDelay) needs
+  // to tell those two cases apart, which the number alone can't do.
   const inflowOf = new Map();
   for (const id of order) {
     const state = machines.get(id);
     const inflow = inflowOf.get(id) ?? 0;
     const downstreamId = downstream.get(id);
-    const downstreamCap = downstreamId != null ? capAvail.get(downstreamId) : 0;
-    const outflow = BEHAVIORS[state.kind].apply(state, dt, inflow, capAvail.get(id), downstreamCap);
+    const hasDownstream = hasSimDownstream(sim, id);
+    const downstreamCap = hasDownstream ? capAvail.get(downstreamId) : 0;
+    const outflow = BEHAVIORS[state.kind].apply(state, dt, inflow, capAvail.get(id), downstreamCap, hasDownstream);
     if (downstreamId != null) {
       inflowOf.set(downstreamId, (inflowOf.get(downstreamId) ?? 0) + outflow);
     }
@@ -131,6 +144,17 @@ export function setFeederRate(sim, id, rateM3PerSec) {
     throw new Error(`machine "${id}" is not a metered feeder`);
   }
   state.rate = rateM3PerSec;
+}
+
+// Live control (issue #21, the VFD): takes effect on the very next apply(),
+// re-pacing every packet already in transit, not just newly accepted
+// material — a real chain has one speed for everything riding it.
+export function setElevatorSpeed(sim, id, fraction) {
+  const state = sim.machines.get(id);
+  if (!state || state.kind !== "transportDelay") {
+    throw new Error(`machine "${id}" is not a transport-delay machine`);
+  }
+  state.speedFraction = Math.max(0, Math.min(1, fraction));
 }
 
 // Presenter/demo control: jump an accumulator straight to a given fill

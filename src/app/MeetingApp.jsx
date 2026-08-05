@@ -28,6 +28,9 @@ const PARAM_BINDERS = {
   interlockHighSetpoint: (engine, machineId, value) => engine.setInterlockHigh(machineId, value / 100),
   interlockLowSetpoint: (engine, machineId, value) => engine.setInterlockLow(machineId, value / 100),
   interlockSignalDelay: (engine, machineId, value) => engine.setInterlockDelay(machineId, value),
+  // Elevator VFD (issue #21): re-paces the transport delay live, including
+  // material already in transit, not just newly fed material.
+  elevatorSpeed: (engine, machineId, value) => engine.setElevatorSpeed(machineId, value / 100),
 };
 
 const validation = validateLine(line);

@@ -125,11 +125,112 @@ function applyMeteredFeeder(state, dt, inflow, cap) {
   state.drawn += out;
   return out;
 }
-// Nothing sim-enabled sits downstream of this feeder yet, so whatever it
-// draws leaves the modelled boundary here — the conservation identity's
-// `delivered` bucket, not `stored` (this behaviour holds none).
-function conserveMeteredFeeder(state) {
-  return { delivered: state.drawn };
+
+const EPS = 1e-9;
+
+// `hasDownstream` (issue #21) is the engine's answer to "does a sim-enabled
+// machine actually sit downstream of me", separate from the *value* of
+// downstreamCap (which is legitimately 0 both when genuinely blocked and
+// when nothing is modelled downstream — those two cases need different
+// behaviour and can't be told apart from the number alone). Without it,
+// wiring a real downstream onto a machine that used to report its own
+// throughput as "delivered" (meteredFeeder; transportDelay below) would
+// double-count every unit of volume against whatever the new downstream
+// now separately accounts for in its own stored/inTransit.
+function conserveMeteredFeeder(state, hasDownstream) {
+  return hasDownstream ? {} : { delivered: state.drawn };
+}
+
+// Transport delay (issue #21): a FIFO pipe that holds material for a
+// derived transit time before it can discharge — the primitive behind any
+// device where infeed and discharge are genuinely decoupled in time (a
+// bucket elevator's carrying run, and per the acceptance criteria, later a
+// packaging elevator or a long conveyor). `distanceM` / `speedMPerMin` are
+// named generically (not "riseHeightM" / "chainSpeedMPerMin") so the same
+// behaviour serves a horizontal conveyor as well as an elevator's lift.
+//
+// Each queued packet tracks `progress` (0..1 of the transit) rather than a
+// fixed arrival time, so a live speed change (the VFD) instantly re-paces
+// every packet already in transit, not just newly accepted material — a
+// real chain has one speed for everything riding it.
+//
+// Accept and discharge are bounded independently: accepting new material is
+// gated only by the throughput ceiling and by `backlog` (material that has
+// finished its transit but couldn't leave — the chain backing up at the
+// head, per the acceptance criteria); discharging is bounded by the ceiling
+// and, only when a sim-enabled machine is actually downstream, by that
+// machine's own headroom. With no modelled downstream (the current line:
+// nothing sits sim-enabled past the treating elevator yet) discharge is
+// unconstrained by anything downstream, mirroring meteredFeeder's own
+// "nothing sim-enabled downstream yet" convention — see conserve below.
+function initTransportDelay(m) {
+  return {
+    kind: "transportDelay",
+    distanceM: m.sim.distanceM,
+    speedMPerMin: m.sim.speedMPerMin,
+    ceilingM3PerSec: m.sim.ceilingM3PerSec,
+    speedFraction: 1,
+    queue: [],       // [{ progress, vol }] material past the infeed, still travelling
+    backlog: 0,      // volume that finished transit but discharge hasn't taken it yet
+    delivered: 0,
+  };
+}
+function chainSpeedMPerSec(state) {
+  return (state.speedMPerMin * state.speedFraction) / 60;
+}
+function queueVolume(state) {
+  return state.queue.reduce((a, p) => a + p.vol, 0);
+}
+function capacityAvailableTransportDelay(state, dt) {
+  // A backed-up discharge blocks new infeed too, a simplified stand-in for
+  // the chain physically filling up — exact bucket count/volume/chain
+  // length are still unconfirmed (see docs/OPEN_QUESTIONS.md), so this
+  // doesn't attempt to track precise in-chain capacity.
+  if (state.backlog > EPS) return 0;
+  return state.ceilingM3PerSec * dt;
+}
+function applyTransportDelay(state, dt, inflow, cap, downstreamCap = 0, hasDownstream = false) {
+  const accepted = Math.min(inflow, cap);
+  if (accepted > 0) state.queue.push({ progress: 0, vol: accepted });
+
+  const v = chainSpeedMPerSec(state);
+  const progressStep = state.distanceM > 0 ? (v * dt) / state.distanceM : 0;
+  const still = [];
+  for (const pkt of state.queue) {
+    const progress = pkt.progress + progressStep;
+    if (progress >= 1) state.backlog += pkt.vol;
+    else still.push({ progress, vol: pkt.vol });
+  }
+  state.queue = still;
+
+  const dischargeCeiling = state.ceilingM3PerSec * dt;
+  const dischargeCap = hasDownstream ? Math.min(dischargeCeiling, downstreamCap) : dischargeCeiling;
+  const out = Math.min(state.backlog, dischargeCap);
+  state.backlog -= out;
+  state.delivered += out;
+  return out;
+}
+function conserveTransportDelay(state, hasDownstream) {
+  const inTransit = queueVolume(state) + state.backlog;
+  return hasDownstream ? { inTransit } : { inTransit, delivered: state.delivered };
+}
+function snapshotTransportDelay(state) {
+  const inTransitVol = queueVolume(state);
+  const hasMaterial = state.queue.length > 0 || state.backlog > 0;
+  // Leading/trailing progress bound the span of the chain currently
+  // carrying material, so the scene can render the sweep from boot to
+  // discharge on startup and the drain back to empty once feed stops.
+  const leadingProgress = hasMaterial
+    ? Math.max(state.backlog > 0 ? 1 : 0, 0, ...state.queue.map((p) => p.progress))
+    : 0;
+  const trailingProgress = state.queue.length > 0 ? Math.min(...state.queue.map((p) => p.progress)) : leadingProgress;
+  const v = chainSpeedMPerSec(state);
+  return {
+    inTransitVol, backlogVol: state.backlog,
+    leadingProgress, trailingProgress,
+    transitTimeSec: v > 0 ? state.distanceM / v : Infinity,
+    speedFraction: state.speedFraction,
+  };
 }
 
 export const BEHAVIORS = {
@@ -147,6 +248,10 @@ export const BEHAVIORS = {
   meteredFeeder: {
     init: initMeteredFeeder, capacityAvailable: capacityAvailableMeteredFeeder, apply: applyMeteredFeeder,
     conserve: conserveMeteredFeeder,
+  },
+  transportDelay: {
+    init: initTransportDelay, capacityAvailable: capacityAvailableTransportDelay, apply: applyTransportDelay,
+    conserve: conserveTransportDelay, snapshot: snapshotTransportDelay,
   },
 };
 

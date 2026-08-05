@@ -5,14 +5,20 @@
 // invisible to the eye. Each behaviour declares its own contribution (see
 // behaviors.js `conserve`), so a new kind needs no edit here.
 import { BEHAVIORS } from "./behaviors";
+import { hasSimDownstream } from "./engine";
 
 const EPS = 1e-9;
 const FIELDS = ["fed", "initialStored", "stored", "inTransit", "delivered", "spilled"];
 
 export function conservationTotals(sim) {
   const totals = Object.fromEntries(FIELDS.map((f) => [f, 0]));
-  for (const state of sim.machines.values()) {
-    const contribution = BEHAVIORS[state.kind]?.conserve?.(state) ?? {};
+  for (const [id, state] of sim.machines) {
+    // Whether this machine has a sim-enabled downstream changes what its
+    // own contribution means (issue #21): a machine that holds no
+    // inventory of its own reports its cumulative throughput as
+    // "delivered" only when nothing downstream already accounts for that
+    // same volume in its own stored/inTransit.
+    const contribution = BEHAVIORS[state.kind]?.conserve?.(state, hasSimDownstream(sim, id)) ?? {};
     for (const field of FIELDS) totals[field] += contribution[field] ?? 0;
   }
   return totals;

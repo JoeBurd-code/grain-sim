@@ -106,9 +106,20 @@ export function MetalBinSymbol({ machine: m, dynamic }) {
   );
 }
 
+// A bucket right at the sweep's edge would otherwise flicker between loaded
+// and empty as floating-point progress crosses the boundary each tick.
+const PROGRESS_BAND_SLACK = 0.02;
+
 // Simatek pendulum bucket elevator: lower horizontal run, climb, upper run.
 // Geometry from machine data: w, h, geom.colX (column left edge), geom.duct.
-export function ElevatorSymbol({ machine: m }) {
+// `dynamic.leadingProgress`/`trailingProgress` (issue #21, transportDelay's
+// snapshot) bound the span of the chain currently carrying material, 0 at
+// the boot to 1 at the discharge gap — a bucket between them is drawn
+// loaded, showing the transit delay as a sweep of grain climbing the chain
+// on startup and draining back to empty once feed stops. A machine with no
+// live transit data (not sim-enabled yet, e.g. the packaging elevator)
+// falls back to the original static half-loaded decoration.
+export function ElevatorSymbol({ machine: m, dynamic }) {
   const { w, h } = m;
   const { colX, duct } = m.geom;
   const gapX = w - 60;
@@ -118,20 +129,30 @@ export function ElevatorSymbol({ machine: m }) {
     [colX + 18, 18],
     [w - 20, 18],
   ];
+  const totalLen = chain.slice(1).reduce((a, [x1, y1], i) => a + Math.hypot(x1 - chain[i][0], y1 - chain[i][1]), 0);
+
+  const live = dynamic?.leadingProgress != null;
+  const leading = dynamic?.leadingProgress ?? 0;
+  const trailing = dynamic?.trailingProgress ?? 0;
 
   const buckets = [];
   const spacing = 26, size = 7;
-  let carry = 0;
+  let carry = 0, covered = 0;
   for (let i = 0; i < chain.length - 1; i++) {
     const [x0, y0] = chain[i], [x1, y1] = chain[i + 1];
     const len = Math.hypot(x1 - x0, y1 - y0);
     for (let d = carry; d <= len; d += spacing) {
       const t = d / len;
       const x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
-      buckets.push({ x, y, empty: y <= 19 && x > gapX });
+      const pathFrac = totalLen > 0 ? (covered + d) / totalLen : 0;
+      const empty = live
+        ? pathFrac < trailing - PROGRESS_BAND_SLACK || pathFrac > leading + PROGRESS_BAND_SLACK
+        : y <= 19 && x > gapX; // static decorative fallback, unchanged from before issue #21
+      buckets.push({ x, y, empty });
     }
     carry = spacing - ((len - carry) % spacing);
     if (carry === spacing) carry = 0;
+    covered += len;
   }
 
   return (
@@ -154,8 +175,8 @@ export function ElevatorSymbol({ machine: m }) {
           stroke={C.line}
         />
       ))}
-      {/* discharge gap in the duct floor */}
-      <rect x={gapX} y={duct - 4} width="32" height="9" fill={C.bg} />
+      {/* discharge gap in the duct floor; pulses while actively discharging */}
+      <rect x={gapX} y={duct - 4} width="32" height="9" fill={dynamic?.backlogVol > 0 ? C.wheat : C.bg} opacity={dynamic?.backlogVol > 0 ? 0.5 : 1} />
       {/* head motor */}
       <rect x={w + 2} y="6" width="30" height="26" fill={C.panel2} stroke={C.line} />
       <path d={`M${w + 6},10 L${w + 28},28 M${w + 6},28 L${w + 28},10`} stroke={C.line} strokeWidth="1" />

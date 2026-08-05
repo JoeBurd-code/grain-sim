@@ -63,8 +63,15 @@ resulting chain of stops).
 
 **Transport lag**:
 The delay caused by grain already in transit — on a belt, in an elevator, mid
-free-fall — continuing to move after a stop is commanded. Falls out automatically
-from conservation; it is not a separate timer.
+free-fall — continuing to move after a stop is commanded. It is not a
+signal-latency-style fixed countdown independent of the machine's own state:
+whatever primitive implements it (cell-by-cell capacity propagation for the
+belt; a fixed-delay queue for free-fall and, since issue #21, the `transportDelay`
+behaviour for an elevator's chain) always derives the delay from a real
+physical rate (belt/chain speed) and distance, re-paces live material when
+that rate changes, and keeps discharging whatever's already in transit after
+a stop — the lag falls out of that physical model, not a bolted-on timer with
+its own independent clock.
 _Avoid_: signal latency (a distinct delay source, see below), ramp-down.
 
 **Signal latency**:
