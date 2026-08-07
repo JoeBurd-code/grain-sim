@@ -7,37 +7,50 @@ import { initControl, stepControl } from "./control";
 
 export const DT = 0.05; // s, fixed sim timestep (matches the proven mock)
 
-// Builds the id -> id map of "the one sim-enabled machine this machine's
-// product stream feeds", restricted to machines that both declare a `sim`
-// block. Non-product edges (e.g. metal remover -> waste stub) and edges
-// into not-yet-built machines are not part of the sim graph yet. Each node
-// has at most one sim-enabled downstream edge until a splitter/merge
-// behaviour exists (see issue #26) to make that meaningful.
-function buildDownstreamMap(line, simEnabledIds) {
+// Builds the id -> (port -> id) map of "the sim-enabled machines this
+// machine's product/waste streams feed", restricted to machines that both
+// declare a `sim` block. Edges into not-yet-built machines are not part of
+// the sim graph yet. A single-output kind (almost everything) only ever
+// keeps its "product" edge here, exactly as before issue #26 — the waste/
+// chemical ports a machine like the metal remover or batch treater declares
+// are real on the drawing but deliberately not modelled as a split (see
+// their own `sim` comments). Only a kind that opts into `multiOutput` (see
+// behaviors.js — splitter is the first) has more than one port wired here,
+// which is what makes a genuine fan-out meaningful in the passes below.
+function buildDownstreamMap(line, simEnabledIds, machinesById) {
   const downstream = new Map();
   for (const c of line.connections) {
-    if (c.kind !== "product") continue;
     if (!simEnabledIds.has(c.from.machine) || !simEnabledIds.has(c.to.machine)) continue;
-    downstream.set(c.from.machine, c.to.machine);
+    const fromKind = machinesById.get(c.from.machine).sim.kind;
+    const multi = BEHAVIORS[fromKind].multiOutput === true;
+    if (multi ? c.kind !== "product" && c.kind !== "waste" : c.kind !== "product") continue;
+    if (!downstream.has(c.from.machine)) downstream.set(c.from.machine, new Map());
+    downstream.get(c.from.machine).set(c.from.port, c.to.machine);
   }
   return downstream;
 }
 
 // Kahn's algorithm over the sim-enabled subgraph. Throws on a cycle, which
 // would mean a mis-wired line definition (recirculation is not part of this
-// line, per REAL_LINE_SPECS.md §10 "Recirculation: NONE seen").
+// line, per REAL_LINE_SPECS.md §10 "Recirculation: NONE seen"). Works
+// unchanged for a multi-output node: it just has more than one edge to fan
+// out over below.
 function topoOrder(simEnabledIds, downstream) {
   const indegree = new Map([...simEnabledIds].map((id) => [id, 0]));
-  for (const to of downstream.values()) indegree.set(to, indegree.get(to) + 1);
+  for (const portMap of downstream.values()) {
+    for (const to of portMap.values()) indegree.set(to, indegree.get(to) + 1);
+  }
   const queue = [...simEnabledIds].filter((id) => indegree.get(id) === 0);
   const order = [];
   while (queue.length) {
     const id = queue.shift();
     order.push(id);
-    const next = downstream.get(id);
-    if (next != null) {
-      indegree.set(next, indegree.get(next) - 1);
-      if (indegree.get(next) === 0) queue.push(next);
+    const portMap = downstream.get(id);
+    if (portMap) {
+      for (const to of portMap.values()) {
+        indegree.set(to, indegree.get(to) - 1);
+        if (indegree.get(to) === 0) queue.push(to);
+      }
     }
   }
   if (order.length !== simEnabledIds.size) {
@@ -48,6 +61,7 @@ function topoOrder(simEnabledIds, downstream) {
 
 export function createSim(line) {
   const machines = new Map();
+  const machinesById = new Map(line.machines.map((m) => [m.id, m]));
   for (const m of line.machines) {
     if (!m.sim) continue;
     if (!REGISTERED_KINDS.has(m.sim.kind)) {
@@ -56,10 +70,20 @@ export function createSim(line) {
     machines.set(m.id, BEHAVIORS[m.sim.kind].init(m));
   }
   const simEnabledIds = new Set(machines.keys());
-  const downstream = buildDownstreamMap(line, simEnabledIds);
+  const downstream = buildDownstreamMap(line, simEnabledIds, machinesById);
   const order = topoOrder(simEnabledIds, downstream);
   const control = initControl(line);
-  return { t: 0, line, machines, downstream, order, control };
+  // The declared output ports of every multi-output (splitter, and later
+  // router) machine, so the passes below know the full port set to build
+  // downstreamCap/hasDownstream objects over — including a port with
+  // nothing sim-enabled wired to it (see stepSim), which the `downstream`
+  // map above simply omits.
+  const multiOutputPorts = new Map();
+  for (const id of simEnabledIds) {
+    const m = machinesById.get(id);
+    if (BEHAVIORS[m.sim.kind].multiOutput) multiOutputPorts.set(id, m.ports.outputs);
+  }
+  return { t: 0, line, machines, downstream, multiOutputPorts, order, control };
 }
 
 // Rebuilds `sim` from its own `line` and copies the result over the same
@@ -81,8 +105,23 @@ export function hasSimDownstream(sim, id) {
   return sim.downstream.has(id);
 }
 
+// Builds this node's downstream shape for one pass. A single-output node
+// (every kind except a `multiOutput` one, see behaviors.js) gets back the
+// plain single-id shape every behaviour before issue #26 already expects:
+// `single` is that one downstream id, or undefined. A multiOutput node gets
+// back its full declared port list instead, so the caller can build a
+// per-port object even over a port with nothing sim-enabled wired to it.
+function outputShape(sim, id) {
+  const ports = sim.multiOutputPorts.get(id);
+  if (!ports) {
+    const portMap = sim.downstream.get(id);
+    return { single: portMap ? [...portMap.values()][0] : undefined };
+  }
+  return { ports, portMap: sim.downstream.get(id) };
+}
+
 export function stepSim(sim, dt) {
-  const { machines, order, downstream } = sim;
+  const { machines, order } = sim;
 
   // Reverse pass: how much can flow INTO each node this tick, given what
   // its own downstream can accept. Must run before the forward pass so
@@ -92,8 +131,13 @@ export function stepSim(sim, dt) {
   for (let i = order.length - 1; i >= 0; i--) {
     const id = order[i];
     const state = machines.get(id);
-    const downstreamId = downstream.get(id);
-    const downstreamCap = downstreamId != null ? capAvail.get(downstreamId) : Infinity;
+    const shape = outputShape(sim, id);
+    const downstreamCap = shape.ports
+      ? Object.fromEntries(shape.ports.map((p) => {
+          const toId = shape.portMap?.get(p);
+          return [p, toId != null ? capAvail.get(toId) : Infinity];
+        }))
+      : shape.single != null ? capAvail.get(shape.single) : Infinity;
     capAvail.set(id, BEHAVIORS[state.kind].capacityAvailable(state, dt, downstreamCap));
   }
 
@@ -102,22 +146,39 @@ export function stepSim(sim, dt) {
   // node's own downstream bound (see issue #20) — a node that both holds
   // and discharges (the accumulator) needs it to know how much it may push
   // out this tick, separately from `capAvail.get(id)` (how much it may
-  // accept in). Nodes with nothing sim-enabled downstream get 0: nowhere
-  // for them to discharge into. `hasDownstream` (issue #21) is passed
+  // accept in). A port with nothing sim-enabled downstream gets 0: nowhere
+  // for it to discharge into. `hasDownstream` (issue #21) is passed
   // alongside the number itself, because 0 is also the legitimate value of
   // a genuinely full downstream — a behaviour that self-reports its output
-  // as "delivered" when unconnected (meteredFeeder, transportDelay) needs
-  // to tell those two cases apart, which the number alone can't do.
+  // as "delivered" when unconnected (meteredFeeder, transportDelay,
+  // splitter) needs to tell those two cases apart, which the number alone
+  // can't do. A multiOutput node (issue #26) gets both as objects keyed by
+  // port instead of a single value/boolean, and `apply` returns an object
+  // of per-port flow instead of one number — every single-output kind is
+  // untouched by this branch.
   const inflowOf = new Map();
+  const addInflow = (id, amt) => inflowOf.set(id, (inflowOf.get(id) ?? 0) + amt);
   for (const id of order) {
     const state = machines.get(id);
     const inflow = inflowOf.get(id) ?? 0;
-    const downstreamId = downstream.get(id);
-    const hasDownstream = hasSimDownstream(sim, id);
-    const downstreamCap = hasDownstream ? capAvail.get(downstreamId) : 0;
-    const outflow = BEHAVIORS[state.kind].apply(state, dt, inflow, capAvail.get(id), downstreamCap, hasDownstream);
-    if (downstreamId != null) {
-      inflowOf.set(downstreamId, (inflowOf.get(downstreamId) ?? 0) + outflow);
+    const shape = outputShape(sim, id);
+
+    if (shape.ports) {
+      const hasDownstream = Object.fromEntries(shape.ports.map((p) => [p, shape.portMap?.get(p) != null]));
+      const downstreamCap = Object.fromEntries(shape.ports.map((p) => {
+        const toId = shape.portMap?.get(p);
+        return [p, toId != null ? capAvail.get(toId) : 0];
+      }));
+      const outflow = BEHAVIORS[state.kind].apply(state, dt, inflow, capAvail.get(id), downstreamCap, hasDownstream);
+      for (const p of shape.ports) {
+        const toId = shape.portMap?.get(p);
+        if (toId != null) addInflow(toId, outflow[p] ?? 0);
+      }
+    } else {
+      const hasDownstream = shape.single != null;
+      const downstreamCap = hasDownstream ? capAvail.get(shape.single) : 0;
+      const outflow = BEHAVIORS[state.kind].apply(state, dt, inflow, capAvail.get(id), downstreamCap, hasDownstream);
+      if (shape.single != null) addInflow(shape.single, outflow);
     }
   }
 
@@ -247,4 +308,14 @@ export function setBatchCycleSec(sim, id, seconds) {
     throw new Error(`machine "${id}" is not a batch-cycle machine`);
   }
   state.cycleSec = Math.max(0, seconds);
+}
+
+// Live control (issue #26): the scalping screen's oversize split, dragged as
+// a percentage in the UI and clamped here to a valid fraction.
+export function setSplitterWasteFraction(sim, id, fraction) {
+  const state = sim.machines.get(id);
+  if (!state || state.kind !== "splitter") {
+    throw new Error(`machine "${id}" is not a splitter`);
+  }
+  state.wasteFraction = Math.max(0, Math.min(1, fraction));
 }

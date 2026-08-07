@@ -4,7 +4,7 @@ import {
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, getInterlockState,
   setElevatorSpeed,
   setInterlockSlowSetpoint, setInterlockStopSetpoint, setInterlockSlowDelay, setInterlockStopDelay,
-  setBatchSize, setBatchCycleSec,
+  setBatchSize, setBatchCycleSec, setSplitterWasteFraction,
 } from "./engine";
 import { assertConserved, conservationTotals } from "./conservation";
 import { tPerHourToM3PerSec } from "./units";
@@ -19,6 +19,8 @@ const ELEVATOR_ID = "treatingElevator";
 const PRE_BIN_ID = "treaterPreBin";
 const TREATER_ID = "batchTreater";
 const AFTER_BIN_ID = "treaterAfterBin";
+const SCREEN_ID = "scalpingScreen";
+const DISCARD_BIN_ID = "discardBin";
 
 function interlockRule(sim) {
   return getInterlockState(sim, BUFFER_BIN_ID);
@@ -802,6 +804,22 @@ function afterBinInterlock(sim) {
   return getInterlockState(sim, AFTER_BIN_ID);
 }
 
+// Since issue #26, the scalping screen is a real (if oversized) downstream
+// of the after-bin, so a level forced via setAccumulatorLevel no longer
+// holds exactly where set — it drains, same as any other accumulator with a
+// live consumer. The tests below are specifically about the interlock's own
+// hold/release timing in isolation, exactly the concern the pre-bin's
+// two-stage-interlock tests already isolate from the batch treater via
+// lineWithoutBatchTreater above, so this describe block uses the same
+// pattern: strip the screen's sim block, leaving the after-bin with no
+// downstream, matching the physics these tests were written against. The
+// screen's own behaviour — including its interaction with a live after-bin —
+// gets its own coverage in the "scalping screen" describe block below.
+const lineWithoutScalpingScreen = {
+  ...line,
+  machines: line.machines.map((m) => (m.id === "scalpingScreen" ? { ...m, sim: undefined } : m)),
+};
+
 describe("treater after-bin holds the next batch (issue #25)", () => {
   it("reuses the accumulator behaviour verbatim: no new material physics for the after-bin", () => {
     const sim = createSim(line);
@@ -817,7 +835,7 @@ describe("treater after-bin holds the next batch (issue #25)", () => {
   });
 
   it("when the high level switch trips, the treater completes its current cycle and then does not start another", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutScalpingScreen); // isolates the interlock's own timing from the screen's own draining (issue #26)
     feedElevator(sim, 20); // keep the pre-bin supplied so the treater can always draw a fresh charge
     const treater = getMachineState(sim, TREATER_ID); // real 40s cycle: the 5s signal delay can only ever catch one cycle already under way
 
@@ -844,7 +862,7 @@ describe("treater after-bin holds the next batch (issue #25)", () => {
   });
 
   it("the treater's waiting state is distinguishable from it being stopped, in both the event log and the machine's reported state", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutScalpingScreen); // isolates from the screen's own draining (issue #26)
     feedElevator(sim, 20);
     stepSim(sim, DT); // draws its first charge, starts holding
     setAccumulatorLevel(sim, AFTER_BIN_ID, 0.62); // above the high set point, with headroom for the in-flight charge
@@ -887,7 +905,7 @@ describe("treater after-bin holds the next batch (issue #25)", () => {
   });
 
   it("a full after-bin never causes a spill, however hard the treater hammers it — conservation holds throughout", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutScalpingScreen); // isolates from the screen's own draining (issue #26); the live-screen case gets its own overwhelm test below
     feedElevator(sim, 20);
     setBatchCycleSec(sim, TREATER_ID, 2); // short cycle: many more batches than the 0.67 m3 bin could ever hold, deliberately overwhelming it
     const treater = getMachineState(sim, TREATER_ID);
@@ -906,7 +924,7 @@ describe("treater after-bin holds the next batch (issue #25)", () => {
   });
 
   it("resumes batching after a full block-and-recover cycle, still without ever spilling", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutScalpingScreen); // isolates from the screen's own draining (issue #26)
     feedElevator(sim, 20);
     setAccumulatorLevel(sim, AFTER_BIN_ID, 0.62); // trips, with headroom for the in-flight charge (as above)
     const afterBin = getMachineState(sim, AFTER_BIN_ID);
@@ -923,6 +941,146 @@ describe("treater after-bin holds the next batch (issue #25)", () => {
     expect(treater.blocked).toBe(false);
     expect(treater.delivered).toBeGreaterThan(treater.chargeM3); // a second cycle genuinely completed after recovery
     expect(afterBin.spill).toBeCloseTo(0);
+  });
+});
+
+describe("scalping screen splits product from oversize, completing the treating zone (issue #26)", () => {
+  it("is declared as a splitter, and the discard bin as a terminal sink", () => {
+    const sim = createSim(line);
+    expect(getMachineState(sim, SCREEN_ID).kind).toBe("splitter");
+    expect(getMachineState(sim, DISCARD_BIN_ID).kind).toBe("terminalSink");
+  });
+
+  it("divides its infeed between a product output and a waste output by the configured fraction", () => {
+    const sim = createSim(line);
+    feedElevator(sim, 20);
+    setBatchCycleSec(sim, TREATER_ID, 2); // completes several batches quickly
+    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
+
+    const screen = getMachineState(sim, SCREEN_ID);
+    expect(screen.outTotal).toBeGreaterThan(0);
+    expect(screen.wasteTotal).toBeGreaterThan(0);
+    const wasteShare = screen.wasteTotal / (screen.outTotal + screen.wasteTotal);
+    expect(wasteShare).toBeCloseTo(0.03, 4); // the line default (3%)
+  });
+
+  it("the oversize fraction is a live control", () => {
+    const sim = createSim(line);
+    feedElevator(sim, 20);
+    setBatchCycleSec(sim, TREATER_ID, 2);
+    setSplitterWasteFraction(sim, SCREEN_ID, 0.5);
+    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
+
+    const screen = getMachineState(sim, SCREEN_ID);
+    const wasteShare = screen.wasteTotal / (screen.outTotal + screen.wasteTotal);
+    expect(wasteShare).toBeCloseTo(0.5, 4);
+  });
+
+  it("setSplitterWasteFraction rejects a non-splitter machine", () => {
+    const sim = createSim(line);
+    expect(() => setSplitterWasteFraction(sim, SOURCE_ID, 0.1)).toThrow(/not a splitter/);
+  });
+
+  it("the discard bin accumulates waste and reports a running total that matches the screen's own waste total exactly", () => {
+    const sim = createSim(line);
+    feedElevator(sim, 20);
+    setBatchCycleSec(sim, TREATER_ID, 2);
+    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
+
+    const screen = getMachineState(sim, SCREEN_ID);
+    const discardBin = getMachineState(sim, DISCARD_BIN_ID);
+    expect(discardBin.total).toBeGreaterThan(0);
+    expect(discardBin.total).toBeCloseTo(screen.wasteTotal);
+  });
+
+  it("product and waste totals sum exactly to what the screen received from the after-bin", () => {
+    const sim = createSim(line);
+    feedElevator(sim, 20);
+    setBatchCycleSec(sim, TREATER_ID, 2);
+    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
+
+    const afterBin = getMachineState(sim, AFTER_BIN_ID);
+    const screen = getMachineState(sim, SCREEN_ID);
+    expect(screen.outTotal + screen.wasteTotal).toBeCloseTo(afterBin.discharged);
+  });
+
+  it("holds negligible material and does not become the line's bottleneck at its confirmed oversized capacity, under ordinary feeding", () => {
+    const sim = createSim(line);
+    feedElevator(sim, 20); // default 40s batch cycle (~14.4 t/h average): well under the screen's 64.4 t/h rating
+    for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT);
+
+    // The screen keeps up with the after-bin's real discharge rate, so the
+    // after-bin never even approaches its own high set point — exactly the
+    // acceptance criterion's "does not become a bottleneck".
+    expect(afterBinInterlock(sim).phase).toBe("released");
+  });
+
+  // Nothing upstream of the screen can ever organically overwhelm its 64.4
+  // t/h ceiling — the treating elevator's own ceiling tops out at 20 t/h
+  // (docs/OPEN_QUESTIONS.md), so "well oversized" holds for real under any
+  // combination of the line's own confirmed rates. This stages the after-bin
+  // directly (same technique its own tests use) to isolate and prove the
+  // ceiling itself is real, rather than an unmodelled infinity.
+  it("a near-full after-bin drains at the screen's own bounded ceiling rather than in a single tick", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, AFTER_BIN_ID, 0.95);
+    const afterBin = getMachineState(sim, AFTER_BIN_ID);
+    const startStored = afterBin.stored;
+
+    stepSim(sim, DT);
+
+    const ceilingPerTick = tPerHourToM3PerSec(64.4) * DT;
+    expect(startStored - afterBin.stored).toBeCloseTo(ceilingPerTick); // bounded by the screen's rated ceiling
+    expect(afterBin.stored).toBeGreaterThan(0); // did not drain to empty in one tick
+  });
+
+  it("conservation holds across the entire treating zone, from the source valve to both terminal destinations", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(20));
+    setBatchCycleSec(sim, TREATER_ID, 5);
+    for (let i = 0; i < Math.round(400 / DT); i++) {
+      stepSim(sim, DT);
+      assertConserved(sim);
+    }
+    expect(() => assertConserved(sim)).not.toThrow();
+    expect(getMachineState(sim, DISCARD_BIN_ID).total).toBeGreaterThan(0); // the waste terminal genuinely received material this run
+  });
+
+  it("a single run demonstrates the full chain end to end: fill, trip, delayed valve closure, metered draw, transport lag, two-stage slow-then-stop, batch pulsing, smoothing and splitting", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20)); // fast enough to fill and trip the buffer bin
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(2)); // slow draw, well below the source: nets a genuine fill toward the trip
+
+    for (let i = 0; i < Math.round(600 / DT); i++) {
+      stepSim(sim, DT);
+      assertConserved(sim);
+    }
+
+    expect(getMachineState(sim, SOURCE_ID).openness).toBeLessThan(1); // buffer bin filled, tripped, and (after the delay) closed the valve, late
+    expect(getMachineState(sim, ELEVATOR_ID).delivered).toBeGreaterThan(0); // transport lag: material genuinely arrived at the pre-bin
+    expect(getMachineState(sim, TREATER_ID).delivered).toBeGreaterThan(0); // batch pulsing occurred
+    expect(getMachineState(sim, AFTER_BIN_ID).discharged).toBeGreaterThan(0); // the after-bin smoothed the pulse and passed it on
+    expect(getMachineState(sim, SCREEN_ID).outTotal).toBeGreaterThan(0); // splitting occurred
+    expect(getMachineState(sim, SCREEN_ID).wasteTotal).toBeGreaterThan(0);
+    expect(getMachineState(sim, DISCARD_BIN_ID).total).toBeGreaterThan(0);
+
+    // The pre-bin's own two-stage slow-then-stop is demonstrated directly,
+    // same technique issue #22's own tests use: the line's confirmed rates
+    // make the treater, not the pre-bin, the real bottleneck
+    // (REAL_LINE_SPECS.md §9-10), so nothing in ordinary feeding organically
+    // overwhelms it.
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.65);
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(getInterlockState(sim, PRE_BIN_ID).phase).toBe("slow");
+    expect(getMachineState(sim, ELEVATOR_ID).throttleFraction).toBeLessThan(1);
+
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.9);
+    for (let i = 0; i < Math.round(15 / DT); i++) stepSim(sim, DT);
+    expect(getInterlockState(sim, PRE_BIN_ID).phase).toBe("stopped");
+    expect(getMachineState(sim, ELEVATOR_ID).throttleFraction).toBe(0);
+
+    expect(() => assertConserved(sim)).not.toThrow();
   });
 });
 

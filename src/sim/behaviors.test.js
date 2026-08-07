@@ -153,6 +153,87 @@ describe("passThrough", () => {
   });
 });
 
+describe("splitter (issue #26)", () => {
+  function initState({ wasteFraction = 0.03, ceilingM3PerSec = Infinity } = {}) {
+    return BEHAVIORS.splitter.init({ sim: { wasteFraction, ceilingM3PerSec } });
+  }
+
+  it("holds no material of its own", () => {
+    const state = initState();
+    expect(state.outTotal).toBe(0);
+    expect(state.wasteTotal).toBe(0);
+  });
+
+  it("divides accepted inflow between its two ports by the configured fraction", () => {
+    const state = initState({ wasteFraction: 0.1 });
+    const hasDownstream = { out: false, waste: false };
+    const out = BEHAVIORS.splitter.apply(state, 0.05, 1, 1, { out: Infinity, waste: Infinity }, hasDownstream);
+    expect(out.waste).toBeCloseTo(0.1);
+    expect(out.out).toBeCloseTo(0.9);
+    expect(out.out + out.waste).toBeCloseTo(1); // nothing lost in the split itself
+  });
+
+  it("capacityAvailable is bounded by whichever branch is tightest, scaled back up to the whole inflow", () => {
+    const state = initState({ wasteFraction: 0.1, ceilingM3PerSec: Infinity });
+    // waste branch can only take 0.01 this tick -> at most 0.1 total can be
+    // accepted (0.01 / 0.1), tighter than the product branch's own bound.
+    const cap = BEHAVIORS.splitter.capacityAvailable(state, 0.05, { out: Infinity, waste: 0.01 });
+    expect(cap).toBeCloseTo(0.1);
+  });
+
+  it("never exceeds its own throughput ceiling even with both downstream branches wide open", () => {
+    const state = initState({ wasteFraction: 0.03, ceilingM3PerSec: 10 });
+    const cap = BEHAVIORS.splitter.capacityAvailable(state, 0.05, { out: Infinity, waste: Infinity });
+    expect(cap).toBeCloseTo(10 * 0.05);
+  });
+
+  it("clamps each branch's own flow to that branch's downstream capacity when supplied more than expected", () => {
+    const state = initState({ wasteFraction: 0.1 });
+    const hasDownstream = { out: true, waste: true };
+    // Accepted (cap=1) implies a 0.1 want on waste, but its own downstream
+    // only has 0.02 of headroom this tick.
+    const out = BEHAVIORS.splitter.apply(state, 0.05, 1, 1, { out: Infinity, waste: 0.02 }, hasDownstream);
+    expect(out.waste).toBeCloseTo(0.02);
+    expect(out.out).toBeCloseTo(0.9); // the product branch is unaffected by the waste branch's own limit
+  });
+
+  it("reports a port with nothing sim-enabled downstream as delivered, per-port independently", () => {
+    const state = initState({ wasteFraction: 0.1 });
+    // waste is wired to a real sink; out isn't sim-enabled yet.
+    BEHAVIORS.splitter.apply(state, 0.05, 1, 1, { out: Infinity, waste: Infinity }, { out: false, waste: true });
+    expect(BEHAVIORS.splitter.conserve(state)).toEqual({ delivered: 0.9 }); // only the unwired "out" port counts as delivered here
+  });
+
+  it("live control: wasteFraction can be changed between ticks", () => {
+    const state = initState({ wasteFraction: 0.1 });
+    state.wasteFraction = 0.5;
+    const out = BEHAVIORS.splitter.apply(state, 0.05, 1, 1, { out: Infinity, waste: Infinity }, { out: false, waste: false });
+    expect(out.waste).toBeCloseTo(0.5);
+  });
+});
+
+describe("terminalSink (issue #26)", () => {
+  it("never backpressures", () => {
+    const state = BEHAVIORS.terminalSink.init();
+    expect(BEHAVIORS.terminalSink.capacityAvailable(state)).toBe(Infinity);
+  });
+
+  it("accumulates everything it receives into a running total, with nothing further to discharge", () => {
+    const state = BEHAVIORS.terminalSink.init();
+    const out1 = BEHAVIORS.terminalSink.apply(state, 0.05, 1, Infinity);
+    const out2 = BEHAVIORS.terminalSink.apply(state, 0.05, 2, Infinity);
+    expect(out1).toBe(0);
+    expect(out2).toBe(0);
+    expect(state.total).toBeCloseTo(3);
+  });
+
+  it("reports its running total as delivered for conservation", () => {
+    const state = BEHAVIORS.terminalSink.init();
+    BEHAVIORS.terminalSink.apply(state, 0.05, 4.5, Infinity);
+    expect(BEHAVIORS.terminalSink.conserve(state)).toEqual({ delivered: 4.5 });
+  });
+});
+
 describe("transportDelay (issue #21)", () => {
   // Default fixture: distance 10m at 60 m/min = 1 m/s -> 10s transit at full speed.
   function initState({ distanceM = 10, speedMPerMin = 60, ceilingM3PerSec = 1 } = {}) {

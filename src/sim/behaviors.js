@@ -409,6 +409,96 @@ function commandBatchCycle(state, blocked) {
   state.blocked = blocked;
 }
 
+// Splitter (issue #26): divides a single infeed across two named output
+// ports by a fixed fraction — the treatment scalping screen's real job (16mm
+// aperture: oversize to waste, the rest to product), and per the parent spec
+// (issue #15) the primitive later meant for the metal removers and auto
+// samplers too, each the same "divert a small fraction to a second named
+// port" shape. Holds no material of its own — negligible holdup, per the
+// engineer's own description of the screen (REAL_LINE_SPECS.md §5) — so
+// unlike accumulator/batchCycle there is no stored/held field: whatever is
+// accepted this tick is fully routed this same tick, like passThrough.
+//
+// `ceilingM3PerSec` is the screen's confirmed 64.4 t/h rating
+// (REAL_LINE_SPECS.md §5/§12) — "well oversized" against the line's ~12-14.4
+// t/h, so it is never the limiter in ordinary running (the acceptance
+// criterion's "does not become a bottleneck"). It is still a real ceiling,
+// the same convention transportDelay uses, so a deliberately overwhelming
+// feed still backs up rather than passing through at any rate.
+//
+// This is the line's first behaviour with more than one product output, so
+// the engine (engine.js, see `multiOutput`) generalises downstreamCap/
+// hasDownstream from a single value to an object keyed by port name whenever
+// a kind opts in — every other, single-output kind is unaffected.
+function initSplitter(m) {
+  return {
+    kind: "splitter",
+    wasteFraction: m.sim.wasteFraction,
+    ceilingM3PerSec: m.sim.ceilingM3PerSec,
+    outTotal: 0,
+    wasteTotal: 0,
+    // Only accrue "delivered" on a port with nothing sim-enabled downstream
+    // (see conserve below) — same per-port convention as everything else
+    // that reports a cumulative "delivered", except a splitter can have one
+    // wired branch and one not (the screen's waste port feeds a real sink,
+    // its product port still feeds an un-engined drum feeder).
+    outDelivered: 0,
+    wasteDelivered: 0,
+  };
+}
+// Reverse pass: how much this splitter can accept is bounded by whichever
+// branch is tightest for its own share of the split, scaled back up to the
+// whole inflow — a full waste bin or a starved product route each throttle
+// intake in proportion to the fraction that actually flows there, not the
+// raw downstream number.
+function capacityAvailableSplitter(state, dt, downstreamCap) {
+  const f = state.wasteFraction;
+  const ceiling = state.ceilingM3PerSec * dt;
+  const fromOut = f < 1 ? downstreamCap.out / (1 - f) : Infinity;
+  const fromWaste = f > 0 ? downstreamCap.waste / f : Infinity;
+  return Math.min(ceiling, fromOut, fromWaste);
+}
+function applySplitter(state, dt, inflow, cap, downstreamCap, hasDownstream) {
+  const accepted = Math.min(inflow, cap);
+  const wasteWant = accepted * state.wasteFraction;
+  const outWant = accepted - wasteWant;
+  const outFlow = Math.min(outWant, hasDownstream.out ? downstreamCap.out : Infinity);
+  const wasteFlow = Math.min(wasteWant, hasDownstream.waste ? downstreamCap.waste : Infinity);
+  state.outTotal += outFlow;
+  state.wasteTotal += wasteFlow;
+  if (!hasDownstream.out) state.outDelivered += outFlow;
+  if (!hasDownstream.waste) state.wasteDelivered += wasteFlow;
+  return { out: outFlow, waste: wasteFlow };
+}
+// Holds nothing of its own, so its only conservation contribution is
+// whatever it has routed onward that nothing sim-enabled downstream already
+// accounts for — tracked per-port at apply-time above, so this ignores the
+// whole-machine `hasDownstream` boolean conservation.js passes every other
+// kind's conserve (it can't distinguish "wired on one port, not the other").
+function conserveSplitter(state) {
+  return { delivered: state.outDelivered + state.wasteDelivered };
+}
+
+// Terminal sink (issue #26): the end of a modelled flow, holding an
+// unbounded running total of everything it has ever received — the discard
+// scalpings bin's whole job, and per the parent spec (issue #15) the shape
+// every other terminal destination on the line will eventually share. Never
+// backpressures and never spills, so whatever feeds it can always treat this
+// branch as unconstrained.
+function initTerminalSink() {
+  return { kind: "terminalSink", total: 0 };
+}
+function capacityAvailableTerminalSink() {
+  return Infinity;
+}
+function applyTerminalSink(state, dt, inflow, cap) {
+  state.total += Math.min(inflow, cap);
+  return 0;
+}
+function conserveTerminalSink(state) {
+  return { delivered: state.total };
+}
+
 export const BEHAVIORS = {
   source: {
     init: initSource, capacityAvailable: forwardDownstreamCapacity, apply: applySource,
@@ -433,6 +523,14 @@ export const BEHAVIORS = {
   batchCycle: {
     init: initBatchCycle, capacityAvailable: capacityAvailableBatchCycle, apply: applyBatchCycle,
     conserve: conserveBatchCycle, snapshot: snapshotBatchCycle, command: commandBatchCycle,
+  },
+  splitter: {
+    init: initSplitter, capacityAvailable: capacityAvailableSplitter, apply: applySplitter,
+    conserve: conserveSplitter, multiOutput: true,
+  },
+  terminalSink: {
+    init: initTerminalSink, capacityAvailable: capacityAvailableTerminalSink, apply: applyTerminalSink,
+    conserve: conserveTerminalSink,
   },
 };
 

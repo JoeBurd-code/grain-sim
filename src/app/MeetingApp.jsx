@@ -43,6 +43,8 @@ const PARAM_BINDERS = {
   // t/h -> m3/s conversion. Cycle time is already in seconds.
   batchSize: (engine, machineId, value) => engine.setBatchSize(machineId, (value / 1000) / BULK_DENSITY_T_PER_M3),
   batchCycleTime: (engine, machineId, value) => engine.setBatchCycleTime(machineId, value),
+  // Scalping screen (issue #26): the slider is a percentage, the engine wants a fraction.
+  wasteFraction: (engine, machineId, value) => engine.setWasteFraction(machineId, value / 100),
 };
 
 const validation = validateLine(line);
