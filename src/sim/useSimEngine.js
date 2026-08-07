@@ -17,9 +17,14 @@ const PUBLISH_INTERVAL_MS = 100;
 
 function publishSnap(sim) {
   const machines = new Map();
+  // Issue #28: every sim-enabled machine publishes its live flow rate
+  // (engine.js sets this generically every tick), merged with whatever
+  // kind-specific snapshot fields a behaviour also declares — a kind with no
+  // `snapshot` (source, meteredFeeder, passThrough) now still publishes this
+  // one figure instead of nothing at all.
   for (const [id, state] of sim.machines) {
-    const snap = BEHAVIORS[state.kind]?.snapshot?.(state);
-    if (snap) machines.set(id, snap);
+    const kindSnap = BEHAVIORS[state.kind]?.snapshot?.(state);
+    machines.set(id, { flowRateM3PerSec: state.flowRateM3PerSec ?? 0, ...kindSnap });
   }
   // A rule's event log is published on its sensor machine's snapshot, since
   // that's the machine whose popup surfaces it (see MachinePopup.jsx).

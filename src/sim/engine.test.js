@@ -1111,6 +1111,92 @@ describe("scalping screen splits product from oversize, completing the treating 
   });
 });
 
+describe("engine publishes each machine's live outflow rate generically (issue #28)", () => {
+  it("reports rate = actual volume moved this tick / dt, for a plain single-output machine", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(12));
+    const fedBefore = getMachineState(sim, SOURCE_ID).fed;
+    stepSim(sim, DT);
+    const source = getMachineState(sim, SOURCE_ID);
+    const movedThisTick = source.fed - fedBefore;
+    expect(source.flowRateM3PerSec).toBeCloseTo(movedThisTick / DT);
+    expect(source.flowRateM3PerSec).toBeCloseTo(tPerHourToM3PerSec(12));
+  });
+
+  it("tracks actual movement tick by tick through a transport delay, not just a cumulative average", () => {
+    const sim = createSim(line);
+    feedElevator(sim, 20);
+    let deliveredBefore = getMachineState(sim, ELEVATOR_ID).delivered;
+    for (let i = 0; i < Math.round((EXPECTED_TRANSIT_SEC + 5) / DT); i++) {
+      stepSim(sim, DT);
+      const elevator = getMachineState(sim, ELEVATOR_ID);
+      const movedThisTick = elevator.delivered - deliveredBefore;
+      expect(elevator.flowRateM3PerSec).toBeCloseTo(movedThisTick / DT);
+      deliveredBefore = elevator.delivered;
+    }
+  });
+
+  it("sums across every port for a multi-output machine (the splitter), matching its combined outflow this tick", () => {
+    const sim = createSim(line);
+    feedElevator(sim, 20);
+    setBatchCycleSec(sim, TREATER_ID, 2);
+    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
+
+    const before = getMachineState(sim, SCREEN_ID);
+    const outBefore = before.outTotal;
+    const wasteBefore = before.wasteTotal;
+    stepSim(sim, DT);
+    const screen = getMachineState(sim, SCREEN_ID);
+    const movedThisTick = (screen.outTotal - outBefore) + (screen.wasteTotal - wasteBefore);
+    expect(screen.flowRateM3PerSec).toBeCloseTo(movedThisTick / DT);
+    expect(screen.flowRateM3PerSec).toBeGreaterThan(0); // material was genuinely flowing this tick
+  });
+
+  it("reports zero, not undefined or stale, once a starved machine has nothing left to draw", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, 0);
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(12));
+    setAccumulatorLevel(sim, BUFFER_BIN_ID, 0); // nothing for the feeder to draw
+    stepSim(sim, DT);
+
+    const feeder = getMachineState(sim, FEEDER_ID);
+    expect(feeder.drawn).toBe(0);
+    expect(feeder.flowRateM3PerSec).toBe(0);
+    expect(feeder.flowRateM3PerSec).not.toBeUndefined();
+  });
+
+  it("reports zero once a full downstream blocks a machine entirely, even though it was flowing moments before", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 2); // isolate raw backpressure from the issue #19 interlock
+    stepSim(sim, DT);
+    expect(getMachineState(sim, SOURCE_ID).flowRateM3PerSec).toBeGreaterThan(0); // genuinely flowing first
+
+    for (let i = 0; i < 20000; i++) stepSim(sim, DT); // fills the bin to capacity (mirrors the "fills and rejects" test above)
+    stepSim(sim, DT);
+    expect(getMachineState(sim, SOURCE_ID).flowRateM3PerSec).toBe(0); // rejected by the now-full bin, not a stale prior value
+  });
+
+  // The generic figure is genuinely *outflow* (what apply() hands to whatever
+  // sits downstream), not throughput — a terminal sink and a downstream-less
+  // accumulator both always report zero here even while actively receiving
+  // material, the same way a buffer bin with nothing sim-enabled downstream
+  // of it would. That's consistent with the rest of this behaviour's
+  // "delivered"/"inTransit" conventions (see conserveMeteredFeeder,
+  // conserveTransportDelay), not a gap specific to this issue: a machine
+  // with no downstream simply has nothing to report an outflow rate onto.
+  it("a terminal sink (nothing sim-enabled ever sits downstream of it) reports zero outflow even while actively filling", () => {
+    const sim = createSim(line);
+    feedElevator(sim, 20);
+    setBatchCycleSec(sim, TREATER_ID, 2);
+    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
+
+    const discardBin = getMachineState(sim, DISCARD_BIN_ID);
+    expect(discardBin.total).toBeGreaterThan(0); // genuinely received material this run
+    expect(discardBin.flowRateM3PerSec).toBe(0); // but it is the line's terminus: nothing ever flows further out of it
+  });
+});
+
 describe("resetSim (presenter reset, no page reload needed)", () => {
   it("puts every live-adjusted control and every machine's state back to the line's authored defaults", () => {
     const sim = createSim(line);

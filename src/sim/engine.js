@@ -156,6 +156,13 @@ export function stepSim(sim, dt) {
   // port instead of a single value/boolean, and `apply` returns an object
   // of per-port flow instead of one number — every single-output kind is
   // untouched by this branch.
+  // Issue #28: every machine's actual outflow this tick, divided by dt, is
+  // recorded generically here — right off the same `outflow` apply() already
+  // returns for the forward pass itself, summed across ports for a
+  // multiOutput node — rather than each behaviour kind computing its own
+  // notion of "rate". Assigned unconditionally every tick (never left stale
+  // from a prior tick) so a starved/blocked/downstream-full machine that
+  // moved nothing this tick reads as a real 0, not undefined or leftover.
   const inflowOf = new Map();
   const addInflow = (id, amt) => inflowOf.set(id, (inflowOf.get(id) ?? 0) + amt);
   for (const id of order) {
@@ -170,15 +177,19 @@ export function stepSim(sim, dt) {
         return [p, toId != null ? capAvail.get(toId) : 0];
       }));
       const outflow = BEHAVIORS[state.kind].apply(state, dt, inflow, capAvail.get(id), downstreamCap, hasDownstream);
+      let totalOut = 0;
       for (const p of shape.ports) {
         const toId = shape.portMap?.get(p);
+        totalOut += outflow[p] ?? 0;
         if (toId != null) addInflow(toId, outflow[p] ?? 0);
       }
+      state.flowRateM3PerSec = totalOut / dt;
     } else {
       const hasDownstream = shape.single != null;
       const downstreamCap = hasDownstream ? capAvail.get(shape.single) : 0;
       const outflow = BEHAVIORS[state.kind].apply(state, dt, inflow, capAvail.get(id), downstreamCap, hasDownstream);
       if (shape.single != null) addInflow(shape.single, outflow);
+      state.flowRateM3PerSec = outflow / dt;
     }
   }
 
