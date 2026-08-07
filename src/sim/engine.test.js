@@ -993,6 +993,33 @@ describe("scalping screen splits product from oversize, completing the treating 
     expect(discardBin.total).toBeCloseTo(screen.wasteTotal);
   });
 
+  it("the discard bin's published fill visibly rises over a run, rather than sitting frozen at its static decoration", () => {
+    const sim = createSim(line);
+    const initialFill = BEHAVIORS.terminalSink.snapshot(getMachineState(sim, DISCARD_BIN_ID)).fill;
+    expect(initialFill).toBe(0);
+
+    feedElevator(sim, 20);
+    setBatchCycleSec(sim, TREATER_ID, 2);
+    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
+
+    const fill = BEHAVIORS.terminalSink.snapshot(getMachineState(sim, DISCARD_BIN_ID)).fill;
+    expect(fill).toBeGreaterThan(initialFill);
+  });
+
+  it("the screen's snapshot reports 'flowing' while material is actively passing through, so the scene can show it isn't idle", () => {
+    const sim = createSim(line);
+    expect(BEHAVIORS.splitter.snapshot(getMachineState(sim, SCREEN_ID)).flowing).toBe(false); // nothing has reached it yet
+
+    feedElevator(sim, 20);
+    setBatchCycleSec(sim, TREATER_ID, 2);
+    let sawFlowing = false;
+    for (let i = 0; i < Math.round(60 / DT); i++) {
+      stepSim(sim, DT);
+      if (BEHAVIORS.splitter.snapshot(getMachineState(sim, SCREEN_ID)).flowing) sawFlowing = true;
+    }
+    expect(sawFlowing).toBe(true);
+  });
+
   it("product and waste totals sum exactly to what the screen received from the after-bin", () => {
     const sim = createSim(line);
     feedElevator(sim, 20);
