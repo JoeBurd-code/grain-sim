@@ -227,6 +227,23 @@ const CONTROL_KINDS = {
   holdNextBatch: { init: initHoldNextBatch, step: stepHoldNextBatch },
 };
 
+// Issue #29: one flat, chronological event list spanning every rule's log,
+// each entry tagged with the id and display name of the sensor machine it
+// came from. Pure derivation over the exact same rule.log arrays that
+// already back each machine's own per-sensor log (see engine.js's
+// getInterlockState and useSimEngine.js's publishSnap), so there is one
+// source of truth for event history, not two that can drift apart.
+export function combineEventLogs(control, machineNames) {
+  const events = [];
+  for (const rule of control) {
+    for (const entry of rule.log) {
+      events.push({ ...entry, machineId: rule.sensorId, machineName: machineNames.get(rule.sensorId) });
+    }
+  }
+  events.sort((a, b) => a.t - b.t);
+  return events;
+}
+
 export function initControl(line) {
   return (line.interlocks ?? []).map((cfg) => CONTROL_KINDS[cfg.kind ?? "thresholdTrip"].init(cfg));
 }

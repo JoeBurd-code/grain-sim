@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   createSim, stepSim, resetSim, getMachineState, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, getInterlockState,
-  setElevatorSpeed,
+  getCombinedEvents, setElevatorSpeed,
   setInterlockSlowSetpoint, setInterlockStopSetpoint, setInterlockSlowDelay, setInterlockStopDelay,
   setBatchSize, setBatchCycleSec, setSplitterWasteFraction,
 } from "./engine";
@@ -270,6 +270,24 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
       expect(typeof entry.message).toBe("string");
     }
     expect(log[0].t).toBeLessThan(log[log.length - 1].t); // strictly ordered in sim time
+  });
+
+  it("publishes the same trip through getCombinedEvents, tagged with the buffer bin's real id and display name (issue #29)", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
+    setInterlockLowSetpoint(sim, BUFFER_BIN_ID, 0.3);
+    setInterlockSignalDelay(sim, BUFFER_BIN_ID, 1);
+    for (let i = 0; i < 2000; i++) stepSim(sim, DT);
+
+    const log = interlockRule(sim).log;
+    const combined = getCombinedEvents(sim);
+    const fromBufferBin = combined.filter((e) => e.machineId === BUFFER_BIN_ID);
+    expect(fromBufferBin).toHaveLength(log.length);
+    expect(fromBufferBin[0].machineName).toBe(line.machines.find((m) => m.id === BUFFER_BIN_ID).name);
+    for (let i = 1; i < combined.length; i++) {
+      expect(combined[i].t).toBeGreaterThanOrEqual(combined[i - 1].t); // chronological line-wide
+    }
   });
 
   it("high set point, low set point and signal delay are live controls that take effect while the sim is running", () => {

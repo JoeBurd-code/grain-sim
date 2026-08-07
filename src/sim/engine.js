@@ -3,7 +3,7 @@
 // state back. Internals (the two-phase step, how behaviours are wired) are
 // not part of this seam.
 import { BEHAVIORS, REGISTERED_KINDS, unregisteredKindMessage } from "./behaviors";
-import { initControl, stepControl } from "./control";
+import { initControl, stepControl, combineEventLogs } from "./control";
 
 export const DT = 0.05; // s, fixed sim timestep (matches the proven mock)
 
@@ -208,6 +208,16 @@ export function getMachineState(sim, id) {
 // needs to reach into `sim.control` directly.
 export function getInterlockState(sim, sensorMachineId) {
   return sim.control.find((r) => r.sensorId === sensorMachineId);
+}
+
+// Issue #29: the combined, machine-tagged event list published alongside
+// each sensor's own per-machine log above, from the same rule.log arrays,
+// merged and sorted by control.js's combineEventLogs, tagged with names
+// read from the line definition (the only place a machine's display name
+// lives).
+export function getCombinedEvents(sim) {
+  const machineNames = new Map(sim.line.machines.map((m) => [m.id, m.name]));
+  return combineEventLogs(sim.control, machineNames);
 }
 
 export function setSourceRate(sim, id, rateM3PerSec) {

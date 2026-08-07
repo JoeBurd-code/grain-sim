@@ -8,7 +8,7 @@ import {
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, setElevatorSpeed,
   setInterlockSlowSetpoint, setInterlockStopSetpoint,
   setInterlockSlowDelay as engineSetInterlockSlowDelay, setInterlockStopDelay as engineSetInterlockStopDelay,
-  setBatchSize, setBatchCycleSec, setSplitterWasteFraction,
+  setBatchSize, setBatchCycleSec, setSplitterWasteFraction, getCombinedEvents,
 } from "./engine";
 import { BEHAVIORS } from "./behaviors";
 
@@ -31,7 +31,11 @@ function publishSnap(sim) {
   for (const rule of sim.control) {
     machines.set(rule.sensorId, { ...machines.get(rule.sensorId), events: rule.log });
   }
-  return { t: sim.t, machines };
+  // Issue #29: the same rule logs, flattened line-wide and tagged with
+  // their source machine, for the combined event panel and (later) the
+  // graph's event markers, from the single source of truth in engine.js's
+  // getCombinedEvents / control.js's combineEventLogs.
+  return { t: sim.t, machines, events: getCombinedEvents(sim) };
 }
 
 export function useSimEngine(line) {
