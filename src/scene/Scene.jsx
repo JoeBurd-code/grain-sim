@@ -79,7 +79,13 @@ export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelec
       width="100%"
       height="100%"
       preserveAspectRatio="xMidYMid meet"
-      style={{ touchAction: "none", cursor: "grab", display: "block" }}
+      style={{
+        touchAction: "none",
+        cursor: "grab",
+        display: "block",
+        userSelect: "none",
+        WebkitUserSelect: "none",
+      }}
       {...handlers}
       onClick={() => { if (!wasDrag()) onSelect(null); }}
     >
