@@ -10,6 +10,7 @@ import Scene from "../scene/Scene";
 import MachinePopup from "./MachinePopup";
 import TransportControls from "./TransportControls";
 import ChartDock from "./ChartDock";
+import EventLogPanel from "./EventLogPanel";
 import { useViewport } from "../scene/useViewport";
 import { useSimEngine } from "../sim/useSimEngine";
 import { tPerHourToM3PerSec, BULK_DENSITY_T_PER_M3 } from "../sim/units";
@@ -49,6 +50,13 @@ const PARAM_BINDERS = {
 
 const validation = validateLine(line);
 
+// Every machine with an interlock rule, in declaration order — the fixed
+// roster for the combined event panel's per-machine toggles (issue #33).
+// Derived from line data, not from events seen so far, so a toggle exists
+// for a machine even before its first trip.
+const interlockedMachineIds = new Set((line.interlocks ?? []).map((i) => i.sensor.machine));
+const interlockedMachines = line.machines.filter((m) => interlockedMachineIds.has(m.id));
+
 const zoneBtnStyle = {
   background: "transparent", color: C.muted, border: `1px solid ${C.line}`,
   borderRadius: 4, padding: "4px 10px", fontFamily: FONT_MONO, fontSize: 10,
@@ -58,6 +66,7 @@ const zoneBtnStyle = {
 export default function MeetingApp() {
   const [selectedId, setSelectedId] = useState(null);
   const [plotted, setPlotted] = useState(() => new Set());
+  const [eventPanelOpen, setEventPanelOpen] = useState(false);
   const selected = line.machines.find((m) => m.id === selectedId);
 
   const home = useMemo(() => lineBounds(line), []);
@@ -117,6 +126,15 @@ export default function MeetingApp() {
           <button className="zonebtn" style={{ ...zoneBtnStyle, color: C.wheat }} onClick={() => fitTo(home)}>
             FIT ALL
           </button>
+          <button
+            className="zonebtn"
+            style={eventPanelOpen
+              ? { ...zoneBtnStyle, background: C.wheat, color: "#1a1a14", border: `1px solid ${C.wheat}` }
+              : zoneBtnStyle}
+            onClick={() => setEventPanelOpen((v) => !v)}
+          >
+            EVENT LOG
+          </button>
         </div>
         <div style={{ fontSize: 9, color: selected ? C.wheat : C.muted, textAlign: "right", minWidth: 170 }}>
           {selected ? selected.name : "click a machine · drag to pan · wheel to zoom"}
@@ -145,6 +163,13 @@ export default function MeetingApp() {
               onClose={closePopup}
               onParamChange={onParamChange}
               events={engine.snap.machines.get(selected.id)?.events}
+            />
+          )}
+          {eventPanelOpen && (
+            <EventLogPanel
+              machines={interlockedMachines}
+              events={engine.snap.events}
+              onClose={() => setEventPanelOpen(false)}
             />
           )}
         </main>
