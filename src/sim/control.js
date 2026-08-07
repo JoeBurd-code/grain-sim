@@ -37,6 +37,72 @@ function resolveActuator(rule, sim) {
   return { actuator, behavior: BEHAVIORS[actuator.kind] };
 }
 
+// Issue #30: which of a rule's live setpoint fields backs each ISA
+// instrument code it exposes. Direction (does the switch trip on a high
+// level or a low one) is read off the code itself below, not off the rule
+// kind, so this table only needs to say which field holds which code's
+// setpoint. twoStageThrottle's `slowSetpoint` has no entry: the FD's own
+// cause-and-effect matrix names LSH0 as the stop stage's switch (see
+// preBinSlowStopTrip's own comment in lineData.js) — the slow stage is an
+// engineer-described addition with no physical instrument tag of its own.
+const INSTRUMENT_FIELDS = {
+  thresholdTrip: { LSH: "highSetpoint", LSL: "lowSetpoint" },
+  twoStageThrottle: { LSH: "stopSetpoint", LSL: "lowSetpoint" },
+  holdNextBatch: { LSH: "highSetpoint", LSL: "lowSetpoint" },
+};
+
+// Pure: which of a rule's instruments are tripped right now, given the
+// sensor's current level. No memory of past state — a live setpoint or
+// level change (e.g. a presenter's levelJump drag) is reflected the instant
+// it's read, independent of `phase`/`fireAt`, which govern only the
+// downstream actuator's delayed response.
+export function instrumentReadings(rule, level) {
+  const fields = INSTRUMENT_FIELDS[rule.kind] ?? {};
+  const readings = {};
+  for (const [code, field] of Object.entries(fields)) {
+    const setpoint = rule[field];
+    const tripped = code === "LSH" ? level >= setpoint : level <= setpoint;
+    readings[code] = { setpoint, tripped };
+  }
+  return readings;
+}
+
+// Stateful: folds instrumentReadings into the rule's own `instruments`,
+// stamping a `pulseGen` counter that increments on every false->true edge —
+// the one-time trip-pulse animation's cue, kept here rather than recomputed
+// by the render layer, since only this layer knows the *previous* tick's
+// tripped state. Tolerates `rule.instruments` not existing yet (a rule's
+// very first call, whether from initial priming or a fabricated test that
+// never primes) by treating every code as previously untripped.
+function stepRuleInstruments(rule, level) {
+  const prevAll = rule.instruments ?? {};
+  const next = {};
+  for (const [code, reading] of Object.entries(instrumentReadings(rule, level))) {
+    const prev = prevAll[code];
+    const pulseGen = reading.tripped && !prev?.tripped ? (prev?.pulseGen ?? 0) + 1 : (prev?.pulseGen ?? 0);
+    next[code] = { code, ...reading, pulseGen };
+  }
+  rule.instruments = next;
+}
+
+// Seeds every rule's instrument state right after createSim builds `control`,
+// so the very first published snapshot (before the sim has ever ticked)
+// already shows correct setpoint/tripped values instead of nothing — the
+// same reasoning as this file's own phase machines starting in a real,
+// non-empty phase rather than an "uninitialized" one. Unlike stepRuleInstruments,
+// this never stamps a pulse: starting the demo already past a set point is
+// the initial condition, not a live trip the audience should see animate.
+export function primeInstruments(control, machines) {
+  for (const rule of control) {
+    if (!INSTRUMENT_FIELDS[rule.kind]) continue;
+    const level = readLevel(machines, rule.sensorId);
+    const readings = instrumentReadings(rule, level);
+    rule.instruments = Object.fromEntries(
+      Object.entries(readings).map(([code, reading]) => [code, { code, ...reading, pulseGen: 0 }])
+    );
+  }
+}
+
 // Phase machine (issue #19 — the buffer bin closes the source valve, late):
 //   open -> [level >= highSetpoint] -> delayedClose -> [delay elapses,
 //   command close] -> closing -> [valve settles at 0] -> closed ->
@@ -64,6 +130,7 @@ function initThresholdTrip(cfg) {
 }
 function stepThresholdTrip(rule, sim) {
   const level = readLevel(sim.machines, rule.sensorId);
+  stepRuleInstruments(rule, level);
   const { actuator, behavior } = resolveActuator(rule, sim);
 
   if (rule.phase === "open" && level >= rule.highSetpoint) {
@@ -133,6 +200,7 @@ function initTwoStageThrottle(cfg) {
 }
 function stepTwoStageThrottle(rule, sim) {
   const level = readLevel(sim.machines, rule.sensorId);
+  stepRuleInstruments(rule, level);
   const { actuator, behavior } = resolveActuator(rule, sim);
 
   if (rule.phase === "full" && level >= rule.slowSetpoint) {
@@ -201,6 +269,7 @@ function initHoldNextBatch(cfg) {
 }
 function stepHoldNextBatch(rule, sim) {
   const level = readLevel(sim.machines, rule.sensorId);
+  stepRuleInstruments(rule, level);
   const { actuator, behavior } = resolveActuator(rule, sim);
 
   if (rule.phase === "released" && level >= rule.highSetpoint) {

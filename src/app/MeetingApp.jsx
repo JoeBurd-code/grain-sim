@@ -88,6 +88,11 @@ export default function MeetingApp() {
         .machine .mname { transition: fill .15s ease; }
         .machine:hover .mname { fill: #ffffff; }
         .zonebtn:hover { color: #d4dad0; border-color: #6e7a71; }
+        @keyframes instrumentPulse {
+          0% { r: 9; opacity: 0.9; }
+          100% { r: 20; opacity: 0; }
+        }
+        .instrument-pulse { animation: instrumentPulse 0.6s ease-out forwards; }
       `}</style>
 
       <header style={{

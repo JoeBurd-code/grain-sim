@@ -26,10 +26,12 @@ function publishSnap(sim) {
     const kindSnap = BEHAVIORS[state.kind]?.snapshot?.(state);
     machines.set(id, { flowRateM3PerSec: state.flowRateM3PerSec ?? 0, ...kindSnap });
   }
-  // A rule's event log is published on its sensor machine's snapshot, since
-  // that's the machine whose popup surfaces it (see MachinePopup.jsx).
+  // A rule's event log and per-instrument state (issue #30: setpoint,
+  // tripped, pulseGen — LT/LSH/LSL dots on the scene) are published on its
+  // sensor machine's snapshot, since that's the machine whose popup and
+  // scene symbol both read them.
   for (const rule of sim.control) {
-    machines.set(rule.sensorId, { ...machines.get(rule.sensorId), events: rule.log });
+    machines.set(rule.sensorId, { ...machines.get(rule.sensorId), events: rule.log, instruments: rule.instruments });
   }
   // Issue #29: the same rule logs, flattened line-wide and tagged with
   // their source machine, for the combined event panel and (later) the

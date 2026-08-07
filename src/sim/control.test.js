@@ -2,7 +2,7 @@
 // behaviors.test.js exercises a behaviour: fabricated machine states and a
 // fabricated sim shell, no real line data, no engine.js involved.
 import { describe, it, expect } from "vitest";
-import { initControl, stepControl, combineEventLogs } from "./control";
+import { initControl, stepControl, combineEventLogs, instrumentReadings, primeInstruments } from "./control";
 import { BEHAVIORS } from "./behaviors";
 
 const RULE_CFG = {
@@ -450,5 +450,116 @@ describe("combineEventLogs", () => {
     const [combined] = combineEventLogs(rules, new Map([["afterBin", "TREATER AFTER-BIN"]]));
     expect(combined.t).toBe(3);
     expect(combined.message).toBe("level cleared");
+  });
+});
+
+// Issue #30: per-instrument (LT/LSH/LSL) live state — setpoint, tripped,
+// and the pulse-animation edge counter — derived from a rule's own fields
+// and its sensor's current level. Same fabricated-rule-state pattern as the
+// phase-machine tests above: no engine.js, no real line data, no rendering.
+describe("instrumentReadings", () => {
+  it("is a pure function of rule state and level: LSH trips at-or-above its high set point", () => {
+    const rule = { kind: "thresholdTrip", highSetpoint: 0.85, lowSetpoint: 0.35 };
+    expect(instrumentReadings(rule, 0.5).LSH).toEqual({ setpoint: 0.85, tripped: false });
+    expect(instrumentReadings(rule, 0.85).LSH).toEqual({ setpoint: 0.85, tripped: true });
+    expect(instrumentReadings(rule, 0.9).LSH).toEqual({ setpoint: 0.85, tripped: true });
+  });
+
+  it("LSL trips at-or-below its low set point", () => {
+    const rule = { kind: "thresholdTrip", highSetpoint: 0.85, lowSetpoint: 0.35 };
+    expect(instrumentReadings(rule, 0.5).LSL).toEqual({ setpoint: 0.35, tripped: false });
+    expect(instrumentReadings(rule, 0.35).LSL).toEqual({ setpoint: 0.35, tripped: true });
+    expect(instrumentReadings(rule, 0.1).LSL).toEqual({ setpoint: 0.35, tripped: true });
+  });
+
+  it("ignores phase/fireAt entirely: a rule mid-delay still reads tripped straight off the current level", () => {
+    const rule = { kind: "thresholdTrip", highSetpoint: 0.85, lowSetpoint: 0.35, phase: "delayedClose", fireAt: 999 };
+    expect(instrumentReadings(rule, 0.9).LSH.tripped).toBe(true);
+  });
+
+  it("twoStageThrottle's LSH reads the stop set point, not the slow set point — the FD names LSH0 as the stop stage's switch", () => {
+    const rule = { kind: "twoStageThrottle", lowSetpoint: 0.35, slowSetpoint: 0.6, stopSetpoint: 0.85 };
+    expect(instrumentReadings(rule, 0.7)).toEqual({
+      LSH: { setpoint: 0.85, tripped: false },
+      LSL: { setpoint: 0.35, tripped: false },
+    });
+    expect(instrumentReadings(rule, 0.85).LSH.tripped).toBe(true); // stop set point crossed
+  });
+
+  it("holdNextBatch reads highSetpoint/lowSetpoint directly, same as thresholdTrip", () => {
+    const rule = { kind: "holdNextBatch", highSetpoint: 0.6, lowSetpoint: 0.2 };
+    expect(instrumentReadings(rule, 0.65).LSH.tripped).toBe(true);
+    expect(instrumentReadings(rule, 0.15).LSL.tripped).toBe(true);
+  });
+
+  it("returns no entries for a rule kind with no declared instrument fields", () => {
+    expect(instrumentReadings({ kind: "unknownKind" }, 0.5)).toEqual({});
+  });
+});
+
+describe("stepControl publishes rule.instruments with a one-time pulse edge", () => {
+  it("primes tripped=false and pulseGen=0 on a rule that starts below both set points", () => {
+    const sim = makeSim(0.5);
+    step(sim, 0.05);
+    expect(sim.control[0].instruments.LSH).toEqual({ code: "LSH", setpoint: 0.8, tripped: false, pulseGen: 0 });
+    expect(sim.control[0].instruments.LSL).toEqual({ code: "LSL", setpoint: 0.3, tripped: false, pulseGen: 0 });
+  });
+
+  it("increments pulseGen exactly once on the tick the level crosses the high set point, independent of the signal delay", () => {
+    const sim = makeSim(0.5);
+    step(sim, 0.05, 10); // still below the set point
+    expect(sim.control[0].instruments.LSH.pulseGen).toBe(0);
+
+    sim.machines.get("bin").stored = 0.8 * 10; // presenter drags the level straight to the trip point
+    step(sim, 0.05); // LSH trips this tick; the actuator's own close is still 3s away
+    expect(sim.control[0].instruments.LSH.tripped).toBe(true);
+    expect(sim.control[0].instruments.LSH.pulseGen).toBe(1);
+    expect(sim.control[0].phase).toBe("delayedClose"); // the slow actuator path, unaffected
+
+    step(sim, 0.05, 10); // stays tripped — no second pulse while it holds
+    expect(sim.control[0].instruments.LSH.pulseGen).toBe(1);
+  });
+
+  it("un-trips (and is ready to pulse again) the instant the level recrosses back, with no memory of the delayed actuator phase", () => {
+    const sim = makeSim(0.8);
+    step(sim, 0.05); // trips
+    expect(sim.control[0].instruments.LSH.tripped).toBe(true);
+
+    sim.machines.get("bin").stored = 0.5 * 10; // recrosses before the 3s signal delay even elapses
+    step(sim, 0.05);
+    expect(sim.control[0].instruments.LSH.tripped).toBe(false);
+    expect(sim.control[0].phase).toBe("delayedClose"); // the latched actuator command still fires later
+
+    sim.machines.get("bin").stored = 0.8 * 10; // trips again
+    step(sim, 0.05);
+    expect(sim.control[0].instruments.LSH.tripped).toBe(true);
+    expect(sim.control[0].instruments.LSH.pulseGen).toBe(2); // second distinct trip, second pulse
+  });
+});
+
+describe("primeInstruments", () => {
+  it("seeds every rule's instrument state from the sensor's initial level before any tick, with no pulse even if it starts already tripped", () => {
+    const capacity = 10;
+    const bin = { kind: "accumulator", capacity, stored: 0.9 * capacity, initialStored: 0, spill: 0 };
+    const machines = new Map([["bin", bin], ["valve", BEHAVIORS.source.init({ sim: { rateM3PerSec: 5 } })]]);
+    const control = initControl({ interlocks: [RULE_CFG] });
+
+    primeInstruments(control, machines);
+
+    expect(control[0].instruments.LSH).toEqual({ code: "LSH", setpoint: 0.8, tripped: true, pulseGen: 0 });
+  });
+
+  it("a subsequent real step does not re-pulse a rule primed already-tripped, since nothing changed", () => {
+    const capacity = 10;
+    const bin = { kind: "accumulator", capacity, stored: 0.9 * capacity, initialStored: 0, spill: 0 };
+    const valve = BEHAVIORS.source.init({ sim: { rateM3PerSec: 5 } });
+    const machines = new Map([["bin", bin], ["valve", valve]]);
+    const control = initControl({ interlocks: [RULE_CFG] });
+    primeInstruments(control, machines);
+
+    const sim = { t: 0, machines, control };
+    step(sim, 0.05);
+
+    expect(sim.control[0].instruments.LSH).toEqual({ code: "LSH", setpoint: 0.8, tripped: true, pulseGen: 0 });
   });
 });
