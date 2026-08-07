@@ -3,7 +3,7 @@
 // state back. Internals (the two-phase step, how behaviours are wired) are
 // not part of this seam.
 import { BEHAVIORS, REGISTERED_KINDS, unregisteredKindMessage } from "./behaviors";
-import { initControl, stepControl, combineEventLogs } from "./control";
+import { initControl, stepControl, combineEventLogs, primeInstruments } from "./control";
 
 export const DT = 0.05; // s, fixed sim timestep (matches the proven mock)
 
@@ -73,6 +73,10 @@ export function createSim(line) {
   const downstream = buildDownstreamMap(line, simEnabledIds, machinesById);
   const order = topoOrder(simEnabledIds, downstream);
   const control = initControl(line);
+  // Issue #30: seed every rule's instrument state (setpoint, tripped) from
+  // the sensor's initial level right away, so the very first published
+  // snapshot — before the sim has ever ticked — already shows real values.
+  primeInstruments(control, machines);
   // The declared output ports of every multi-output (splitter, and later
   // router) machine, so the passes below know the full port set to build
   // downstreamCap/hasDownstream objects over — including a port with

@@ -23,19 +23,47 @@ export function MachineLabel({ machine: m }) {
   );
 }
 
-export function InstrumentDot({ x, y, code, leaderFrom }) {
+// `value` is the digits shown under the code (LT: live measured level; LSH/
+// LSL: their configured trip set point — a real limit switch is labelled by
+// where it trips, not by a live reading). `tripped` fills the dot solid red
+// and never applies to LT (issue #30 acceptance: the LT dot never shows a
+// lit state). `pulseGen` is the rule's own edge counter (control.js's
+// stepRuleInstruments) — keying the pulse ring on it makes the one-time
+// animation replay exactly once per fresh trip, not on every re-render
+// while a trip merely holds.
+export function InstrumentDot({ x, y, code, leaderFrom, value = "–", tripped = false, pulseGen = 0 }) {
   return (
     <g>
       {leaderFrom && <line x1={leaderFrom.x} y1={leaderFrom.y} x2={x - 9} y2={y} stroke={C.muted} strokeWidth="1" />}
-      <circle cx={x} cy={y} r="9" fill={C.bg} stroke={C.muted} />
-      <text x={x} y={y - 1} fontFamily={FONT_MONO} fontSize="6.5" fill={C.muted} textAnchor="middle">{code}</text>
-      <text x={x} y={y + 6} fontFamily={FONT_MONO} fontSize="6" fill={C.muted} textAnchor="middle">0</text>
+      {tripped && pulseGen > 0 && (
+        <circle key={pulseGen} className="instrument-pulse" cx={x} cy={y} r="9" fill="none" stroke={C.red} strokeWidth="1.5" />
+      )}
+      <circle cx={x} cy={y} r="9" fill={tripped ? C.red : C.bg} stroke={tripped ? C.red : C.muted} />
+      <text x={x} y={y - 1} fontFamily={FONT_MONO} fontSize="6.5" fill={tripped ? C.bg : C.muted} textAnchor="middle">{code}</text>
+      <text x={x} y={y + 6} fontFamily={FONT_MONO} fontSize="6" fill={tripped ? C.bg : C.muted} textAnchor="middle">{value}</text>
     </g>
   );
 }
 
+// Reads one instrument code's live display value + trip state off a
+// machine's resolved `dynamic` snapshot. LT reads the sensor's own live
+// fill (already published by every level-bearing behaviour's snapshot());
+// LSH/LSL read their rule's per-instrument state (control.js's
+// stepRuleInstruments, published on the sensor's snapshot keyed by code —
+// see useSimEngine.js's publishSnap). A code with no live data yet (the
+// sim hasn't primed, or this machine has no interlock at all) falls back to
+// the muted placeholder rather than fabricating a value.
+function readInstrument(code, dynamic) {
+  if (code === "LT") {
+    return dynamic?.fill != null ? { value: Math.round(dynamic.fill * 100), tripped: false, pulseGen: 0 } : {};
+  }
+  const inst = dynamic?.instruments?.[code];
+  if (!inst) return {};
+  return { value: Math.round(inst.setpoint * 100), tripped: inst.tripped, pulseGen: inst.pulseGen };
+}
+
 // Stacked ISA dots beside a machine for whatever instruments its data declares.
-function Instruments({ machine: m, x, y }) {
+function Instruments({ machine: m, x, y, dynamic }) {
   const list = m.instruments ?? [];
   return (
     <g>
@@ -46,6 +74,7 @@ function Instruments({ machine: m, x, y }) {
           y={y + i * 24}
           code={code}
           leaderFrom={i === 0 ? { x: m.w, y: y } : null}
+          {...readInstrument(code, dynamic)}
         />
       ))}
     </g>
@@ -81,7 +110,7 @@ export function BinSymbol({ machine: m, dynamic }) {
     <g>
       <path className="body" d={outer} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
       <FillLevel clipId={`fill-${m.id}`} innerPath={inner} x={0} w={w} top={4} bottom={h - 4} ratio={dynamic.fill} />
-      <Instruments machine={m} x={w + 25} y={20} />
+      <Instruments machine={m} x={w + 25} y={20} dynamic={dynamic} />
     </g>
   );
 }
@@ -101,7 +130,7 @@ export function MetalBinSymbol({ machine: m, dynamic }) {
       <line x1={w - 8} y1={bodyH} x2={w - 8} y2={h} stroke={C.line} strokeWidth="4" />
       <path className="body" d={outer} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
       <FillLevel clipId={`fill-${m.id}`} innerPath={inner} x={0} w={w} top={4} bottom={bodyH + taper - 4} ratio={dynamic.fill} />
-      <Instruments machine={m} x={w + 25} y={20} />
+      <Instruments machine={m} x={w + 25} y={20} dynamic={dynamic} />
     </g>
   );
 }
@@ -199,7 +228,7 @@ export function DiverterSymbol() {
 }
 
 // Belt / transport conveyor: band with end rollers and segment ticks.
-export function ConveyorSymbol({ machine: m }) {
+export function ConveyorSymbol({ machine: m, dynamic }) {
   const { w, h } = m;
   const r = h / 2;
   const ticks = [];
@@ -212,7 +241,7 @@ export function ConveyorSymbol({ machine: m }) {
       ))}
       <circle cx="0" cy={r} r={r + 2} fill={C.panel2} stroke={C.muted} strokeWidth="1" />
       <circle cx={w} cy={r} r={r + 2} fill={C.panel2} stroke={C.muted} strokeWidth="1" />
-      <Instruments machine={m} x={w + 24} y={14} />
+      <Instruments machine={m} x={w + 24} y={14} dynamic={dynamic} />
     </g>
   );
 }
