@@ -319,12 +319,11 @@ export const line = {
       // Reuses the same accumulator behaviour as the buffer bin (issue #18)
       // and the pre-bin (issue #22) unchanged — the third reuse the parent
       // spec names explicitly. What's new is afterBinHoldTreater below: the
-      // third distinct response to a full bin on this line. The scalping
-      // screen downstream (52.602.F00) isn't sim-enabled yet, so this bin
-      // has no live discharge for now and simply accumulates toward
-      // highSetpoint, same as the buffer bin before the drum feeder (#20)
-      // existed — the engine's reverse-pass capacity check already
-      // guarantees this can never spill regardless (see docs/OPEN_QUESTIONS.md).
+      // third distinct response to a full bin on this line. Since issue #26
+      // the scalping screen downstream (52.602.F00) is a real, live discharge
+      // — the reverse-pass capacity check (issue #18) already guaranteed no
+      // spill regardless, before or after that landed (see
+      // docs/OPEN_QUESTIONS.md).
       params: [
         { id: "level", label: "fill level", min: 0, max: 100, value: 30, unit: "%", bind: "levelJump" },
         { id: "highSetpoint", label: "LSH0 set point", min: 30, max: 100, value: 60, unit: "%", bind: "interlockHighSetpoint" },
@@ -354,7 +353,24 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out", "waste"] },
       anchors: { in: { x: 30, y: 0 }, out: { x: 140, y: 35 }, waste: { x: 70, y: 70 } },
       labelAt: { x: -210, y: 40 },
-      params: [{ id: "wasteFrac", label: "scalpings split", min: 0, max: 20, value: 3, unit: "%" }],
+      params: [{ id: "wasteFrac", label: "scalpings split", min: 0, max: 20, value: 3, unit: "%", bind: "wasteFraction" }],
+      // First splitter on the line (issue #26): a fixed fraction of infeed
+      // diverts to waste, the rest to product, with negligible holdup
+      // ("well oversized" [CONFIRMED 2026-06-30, REAL_LINE_SPECS.md §5]).
+      // The 16mm-aperture oversize fraction itself is not a plant figure
+      // anyone quoted — the engineer confirmed the aperture and that waste
+      // is "tiny," not a percentage — so 3% is a demo-only assumed value,
+      // live-adjustable, per docs/OPEN_QUESTIONS.md. ceilingM3PerSec is the
+      // screen's own confirmed 64.4 t/h rating: never the limiter at the
+      // line's real rate, but a genuine ceiling rather than an unmodelled
+      // infinity, so an artificially overwhelming feed still backs up here
+      // instead of passing through unconstrained.
+      sim: {
+        kind: "splitter",
+        wasteFraction: 0.03,
+        ceilingM3PerSec: tPerHourToM3PerSec(64.4),
+        provenance: { wasteFraction: "assumed", ceilingM3PerSec: "confirmed" },
+      },
     },
     {
       id: "discardBin",
@@ -368,6 +384,11 @@ export const line = {
       anchors: { in: { x: 50, y: 0 } },
       fill: 0.2,
       labelAt: { x: 0, y: 106 },
+      // Terminal sink (issue #26): the treating zone's waste destination,
+      // holding an unbounded running total rather than a working volume —
+      // emptied "when full" is an operator/truck event out of scope, not a
+      // capacity the sim needs to model (REAL_LINE_SPECS.md §5).
+      sim: { kind: "terminalSink" },
     },
 
     // ============ PACKAGING & OUTLOAD (sheet 52-13) ============

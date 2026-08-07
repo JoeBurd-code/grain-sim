@@ -8,7 +8,7 @@ import {
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, setElevatorSpeed,
   setInterlockSlowSetpoint, setInterlockStopSetpoint,
   setInterlockSlowDelay as engineSetInterlockSlowDelay, setInterlockStopDelay as engineSetInterlockStopDelay,
-  setBatchSize, setBatchCycleSec,
+  setBatchSize, setBatchCycleSec, setSplitterWasteFraction,
 } from "./engine";
 import { BEHAVIORS } from "./behaviors";
 
@@ -170,12 +170,18 @@ export function useSimEngine(line) {
     publish();
   }, [sim, publish]);
 
+  // Live control (issue #26): the scalping screen's oversize split.
+  const setWasteFraction = useCallback((machineId, fraction) => {
+    setSplitterWasteFraction(sim, machineId, fraction);
+    publish();
+  }, [sim, publish]);
+
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
   return {
     snap, running, start, pause, stepOnce, reset, speed, setSpeed, setRate, setFeedRate, setLevel,
     setInterlockHigh, setInterlockLow, setInterlockDelay, setElevatorSpeed: setElevatorSpeedFraction,
     setInterlockSlow, setInterlockStop, setInterlockSlowDelay, setInterlockStopDelay,
-    setBatchSize: setBatchSizeM3, setBatchCycleTime,
+    setBatchSize: setBatchSizeM3, setBatchCycleTime, setWasteFraction,
   };
 }
