@@ -139,15 +139,25 @@ export function MetalBinSymbol({ machine: m, dynamic }) {
 // and empty as floating-point progress crosses the boundary each tick.
 const PROGRESS_BAND_SLACK = 0.02;
 
+// A near-zero fillRatio still renders as the true "empty" outline (fill
+// none) rather than a barely-visible smear of amber. Loaded buckets get an
+// opacity floor so even a thin band reads as "carrying something" against
+// the panel background, scaling up to the same 0.9 a fully loaded bucket
+// used before density existed.
+const BUCKET_EMPTY_THRESHOLD = 0.03;
+const BUCKET_FILL_OPACITY_MIN = 0.3;
+const BUCKET_FILL_OPACITY_RANGE = 0.6;
+
 // Simatek pendulum bucket elevator: lower horizontal run, climb, upper run.
 // Geometry from machine data: w, h, geom.colX (column left edge), geom.duct.
-// `dynamic.leadingProgress`/`trailingProgress` (issue #21, transportDelay's
-// snapshot) bound the span of the chain currently carrying material, 0 at
-// the boot to 1 at the discharge gap — a bucket between them is drawn
-// loaded, showing the transit delay as a sweep of grain climbing the chain
-// on startup and draining back to empty once feed stops. A machine with no
-// live transit data (not sim-enabled yet, e.g. the packaging elevator)
-// falls back to the original static half-loaded decoration.
+// `dynamic.densityProfile` (issue #31, transportDelay's snapshot) gives each
+// decorative bucket's fill a real local-density value instead of a binary
+// full/empty split, so a mismatch between feed rate and chain speed shows up
+// as buckets visibly thinning or filling, not just as a full/empty sweep.
+// Falls back to `leadingProgress`/`trailingProgress` (issue #21) for a
+// binary sweep when no density profile is published yet, and to the
+// original static half-loaded decoration when the machine has no live
+// transit data at all (not sim-enabled yet, e.g. the packaging elevator).
 export function ElevatorSymbol({ machine: m, dynamic }) {
   const { w, h } = m;
   const { colX, duct } = m.geom;
@@ -163,6 +173,8 @@ export function ElevatorSymbol({ machine: m, dynamic }) {
   const live = dynamic?.leadingProgress != null;
   const leading = dynamic?.leadingProgress ?? 0;
   const trailing = dynamic?.trailingProgress ?? 0;
+  const density = dynamic?.densityProfile;
+  const bandCount = density?.length ?? 0;
 
   const buckets = [];
   const spacing = 26, size = 7;
@@ -174,10 +186,16 @@ export function ElevatorSymbol({ machine: m, dynamic }) {
       const t = d / len;
       const x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
       const pathFrac = totalLen > 0 ? (covered + d) / totalLen : 0;
-      const empty = live
-        ? pathFrac < trailing - PROGRESS_BAND_SLACK || pathFrac > leading + PROGRESS_BAND_SLACK
-        : y <= 19 && x > gapX; // static decorative fallback, unchanged from before issue #21
-      buckets.push({ x, y, empty });
+      let fillRatio;
+      if (bandCount > 0) {
+        const idx = Math.min(bandCount - 1, Math.floor(pathFrac * bandCount));
+        fillRatio = density[idx];
+      } else if (live) {
+        fillRatio = pathFrac < trailing - PROGRESS_BAND_SLACK || pathFrac > leading + PROGRESS_BAND_SLACK ? 0 : 1;
+      } else {
+        fillRatio = y <= 19 && x > gapX ? 0 : 1; // static decorative fallback, unchanged from before issue #21
+      }
+      buckets.push({ x, y, fillRatio });
     }
     carry = spacing - ((len - carry) % spacing);
     if (carry === spacing) carry = 0;
@@ -200,7 +218,8 @@ export function ElevatorSymbol({ machine: m, dynamic }) {
           key={i}
           x={(b.x - size / 2).toFixed(1)} y={(b.y - size / 2).toFixed(1)}
           width={size} height={size}
-          fill={b.empty ? "none" : C.wheat} opacity={b.empty ? 1 : 0.9}
+          fill={b.fillRatio > BUCKET_EMPTY_THRESHOLD ? C.wheat : "none"}
+          opacity={b.fillRatio > BUCKET_EMPTY_THRESHOLD ? BUCKET_FILL_OPACITY_MIN + b.fillRatio * BUCKET_FILL_OPACITY_RANGE : 1}
           stroke={C.line}
         />
       ))}
@@ -210,6 +229,10 @@ export function ElevatorSymbol({ machine: m, dynamic }) {
       <rect x={w + 2} y="6" width="30" height="26" fill={C.panel2} stroke={C.line} />
       <path d={`M${w + 6},10 L${w + 28},28 M${w + 6},28 L${w + 28},10`} stroke={C.line} strokeWidth="1" />
       <text x={w + 17} y="46" fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="middle">5,0 kW</text>
+      {/* live chain speed readout (issue #31), already folding in the manual VFD dial and any interlock throttle */}
+      <text x={w + 17} y="58" fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="middle">
+        {dynamic?.chainSpeedMPerMin != null ? `${dynamic.chainSpeedMPerMin.toFixed(1)} m/min` : "– m/min"}
+      </text>
       {(m.instruments ?? []).includes("ST") && (
         <InstrumentDot x={w + 17} y={-22} code="ST" leaderFrom={{ x: w + 17, y: 4 }} />
       )}

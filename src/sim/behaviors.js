@@ -240,6 +240,50 @@ function conserveTransportDelay(state, hasDownstream) {
   const inTransit = queueVolume(state) + state.backlog;
   return hasDownstream ? { inTransit } : { inTransit, delivered: state.delivered };
 }
+
+// Issue #31: bands the packet queue into `bandCount` equal-width slices of
+// progress (0 = infeed, 1 = discharge) and sums each band's volume. Every
+// packet is a single point of progress carrying a volume — there's no
+// notion of how far it "spans" — so summing per band is the natural proxy
+// for local density, and comparable band-to-band since every band is the
+// same width. A pure function of the queue alone (no dt, no machine
+// constants) so it's testable against a fabricated queue without stepping a
+// live sim.
+export function packetDensityProfile(queue, bandCount) {
+  const bands = new Array(bandCount).fill(0);
+  for (const pkt of queue) {
+    if (pkt.progress < 0) continue;
+    // Clamped rather than skipped at the top end (progress in the queue
+    // never actually reaches 1 — applyTransportDelay moves a packet to
+    // backlog the moment it does) so this matches the same clamped
+    // fraction-to-band-index mapping the renderer uses for its own
+    // pathFrac, rather than two formulas quietly drifting apart.
+    bands[Math.min(bandCount - 1, Math.floor(pkt.progress * bandCount))] += pkt.vol;
+  }
+  return bands;
+}
+
+// Rendering wants each band's density expressed relative to a *fixed*
+// reference, not the chain's live speed — dividing by a reference that
+// itself scales with live speed would cancel out exactly the effect issue
+// #31 wants visible (speeding up the chain with feed unchanged spreads the
+// same volume over more chain length, thinning the real per-band volume;
+// normalizing by a reference tied to that same live speed would shrink in
+// lockstep and hide it). So the reference is "how much volume would occupy
+// one band if the chain ran continuously at its nameplate ceiling and
+// design speed" — fixed for a given machine, independent of the live VFD
+// dial or interlock throttle.
+// Arbitrary render-resolution pick, unrelated to the decorative bucket
+// spacing in symbols.jsx (that's a pixel-space constant; this is a
+// progress-space one) — coarse enough that each band aggregates several
+// ticks' worth of packets into one smooth-reading value.
+const DENSITY_BANDS = 24;
+function nominalBandVolume(state, bandCount) {
+  const nominalV = state.speedMPerMin / 60;
+  if (!(nominalV > 0) || !(state.distanceM > 0)) return 0;
+  const nominalTransitSec = state.distanceM / nominalV;
+  return (state.ceilingM3PerSec * nominalTransitSec) / bandCount;
+}
 function snapshotTransportDelay(state) {
   const inTransitVol = queueVolume(state);
   const hasMaterial = state.queue.length > 0 || state.backlog > 0;
@@ -251,12 +295,19 @@ function snapshotTransportDelay(state) {
     : 0;
   const trailingProgress = state.queue.length > 0 ? Math.min(...state.queue.map((p) => p.progress)) : leadingProgress;
   const v = chainSpeedMPerSec(state);
+  const refBandVol = nominalBandVolume(state, DENSITY_BANDS);
+  const rawBands = packetDensityProfile(state.queue, DENSITY_BANDS);
+  const densityProfile = refBandVol > 0 ? rawBands.map((vol) => Math.min(1, vol / refBandVol)) : rawBands.map(() => 0);
   return {
     inTransitVol, backlogVol: state.backlog,
     leadingProgress, trailingProgress,
     transitTimeSec: v > 0 ? state.distanceM / v : Infinity,
     speedFraction: state.speedFraction,
     throttleFraction: state.throttleFraction,
+    // Actual live chain speed (issue #31), already folding in both the
+    // manual VFD dial and any active interlock throttle via chainSpeedMPerSec.
+    chainSpeedMPerMin: v * 60,
+    densityProfile,
   };
 }
 // Commands the interlock-driven throttle toward an arbitrary target fraction

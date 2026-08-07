@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { BEHAVIORS, REGISTERED_KINDS } from "./behaviors";
+import { BEHAVIORS, REGISTERED_KINDS, packetDensityProfile } from "./behaviors";
 
 describe("source", () => {
   it("emits at its full nominal rate when fully open (openness defaults to 1)", () => {
@@ -420,6 +420,73 @@ describe("transportDelay (issue #21)", () => {
       let delivered = 0;
       for (let i = 0; i < 200; i++) delivered += BEHAVIORS.transportDelay.apply(state, 0.05, 0, 10);
       expect(delivered).toBeCloseTo(fed); // nothing lost across the stall
+    });
+  });
+
+  describe("bucket density (issue #31)", () => {
+    it("packetDensityProfile bands the queue by progress and sums each band's volume", () => {
+      const queue = [
+        { progress: 0.12, vol: 2 },
+        { progress: 0.18, vol: 3 }, // same band as above (0.1-0.2 with 10 bands)
+        { progress: 0.55, vol: 1 },
+        { progress: 0.91, vol: 4 },
+      ];
+      const profile = packetDensityProfile(queue, 10);
+      expect(profile).toHaveLength(10);
+      expect(profile[1]).toBe(5); // 0.12 + 0.18 band
+      expect(profile[5]).toBe(1); // 0.55 band
+      expect(profile[9]).toBe(4); // 0.91 band
+      expect(profile[0]).toBe(0);
+      expect(profile[3]).toBe(0);
+    });
+
+    it("packetDensityProfile reports higher relative density for a band carrying more volume", () => {
+      const sparse = packetDensityProfile([{ progress: 0.5, vol: 1 }], 4);
+      const dense = packetDensityProfile([{ progress: 0.5, vol: 1 }, { progress: 0.51, vol: 1 }, { progress: 0.52, vol: 1 }], 4);
+      expect(dense[2]).toBeGreaterThan(sparse[2]);
+    });
+
+    it("packetDensityProfile ignores a negative progress but clamps progress 1 into the last band (the boundary applyTransportDelay never actually leaves in queue)", () => {
+      const profile = packetDensityProfile([{ progress: 1, vol: 5 }, { progress: -0.1, vol: 5 }], 4);
+      expect(profile).toEqual([0, 0, 0, 5]);
+    });
+
+    // Independent runs (not a live mid-flight speed change) so a comparison
+    // isn't confounded by already-queued packets simply having travelled
+    // further: each state is fed at a constant per-tick volume until well
+    // past its own transit time (steady state, chain full end to end), then
+    // the two profiles' average band density is compared directly.
+    function runToSteadyState({ speedFraction = 1, feedPerTick, ticks }) {
+      const state = initState({ ceilingM3PerSec: 2 });
+      state.speedFraction = speedFraction;
+      for (let i = 0; i < ticks; i++) BEHAVIORS.transportDelay.apply(state, 0.05, feedPerTick, feedPerTick);
+      return BEHAVIORS.transportDelay.snapshot(state).densityProfile;
+    }
+    const avg = (profile) => profile.reduce((a, v) => a + v, 0) / profile.length;
+
+    it("densityProfile thins (lower average density) when the chain speeds up but feed stays the same", () => {
+      const slow = runToSteadyState({ speedFraction: 1, feedPerTick: 0.02, ticks: 600 }); // 10s transit, 3x margin
+      const fast = runToSteadyState({ speedFraction: 2, feedPerTick: 0.02, ticks: 300 }); // 5s transit, 3x margin
+      expect(avg(fast)).toBeGreaterThan(0);
+      expect(avg(fast)).toBeLessThan(avg(slow));
+    });
+
+    it("densityProfile fills more (higher average density) when feed increases but chain speed stays the same", () => {
+      const light = runToSteadyState({ speedFraction: 1, feedPerTick: 0.01, ticks: 600 });
+      const heavy = runToSteadyState({ speedFraction: 1, feedPerTick: 0.05, ticks: 600 });
+      expect(avg(heavy)).toBeGreaterThan(avg(light));
+    });
+
+    it("snapshot's chainSpeedMPerMin folds in both the manual VFD dial and the interlock throttle", () => {
+      const state = BEHAVIORS.transportDelay.init({ sim: { distanceM: 10, speedMPerMin: 60, ceilingM3PerSec: 1 } });
+      expect(BEHAVIORS.transportDelay.snapshot(state).chainSpeedMPerMin).toBeCloseTo(60);
+
+      state.speedFraction = 0.5; // manual dial halved
+      expect(BEHAVIORS.transportDelay.snapshot(state).chainSpeedMPerMin).toBeCloseTo(30);
+
+      BEHAVIORS.transportDelay.command(state, 0.5, 0); // interlock throttle halves it again, instantly
+      BEHAVIORS.transportDelay.apply(state, 0.05, 0, 1);
+      expect(BEHAVIORS.transportDelay.snapshot(state).chainSpeedMPerMin).toBeCloseTo(15);
     });
   });
 });
