@@ -2,7 +2,7 @@
 // behaviors.test.js exercises a behaviour: fabricated machine states and a
 // fabricated sim shell, no real line data, no engine.js involved.
 import { describe, it, expect } from "vitest";
-import { initControl, stepControl } from "./control";
+import { initControl, stepControl, combineEventLogs } from "./control";
 import { BEHAVIORS } from "./behaviors";
 
 const RULE_CFG = {
@@ -404,5 +404,51 @@ describe("live parameter changes (twoStageThrottle)", () => {
     sim.control[0].stopSetpoint = 0.6; // below the current 0.65 level
     stepThrottle(sim, 0.05);
     expect(sim.control[0].phase).toBe("armStop");
+  });
+});
+
+// Issue #29: the combined, machine-tagged event list is a pure derivation
+// over fabricated rule logs, same shape of test as the rest of this file,
+// no engine.js, no real line data, no sim stepping needed.
+describe("combineEventLogs", () => {
+  it("merges every rule's log into one chronological list, each entry tagged with its source machine", () => {
+    const rules = [
+      {
+        sensorId: "bufferBin",
+        log: [
+          { t: 5, message: "high set point reached at 60%, closing signal armed" },
+          { t: 12, message: "valve commanded closed (ramping over 2s)" },
+        ],
+      },
+      {
+        sensorId: "preBin",
+        log: [{ t: 8, message: "slow set point reached at 65%, slow-down signal armed" }],
+      },
+    ];
+    const machineNames = new Map([["bufferBin", "TREATER BUFFER BIN"], ["preBin", "TREATER PRE-BIN"]]);
+
+    const combined = combineEventLogs(rules, machineNames);
+
+    expect(combined.map((e) => e.t)).toEqual([5, 8, 12]);
+    expect(combined[0]).toMatchObject({
+      machineId: "bufferBin",
+      machineName: "TREATER BUFFER BIN",
+      message: "high set point reached at 60%, closing signal armed",
+    });
+    expect(combined[1]).toMatchObject({ machineId: "preBin", machineName: "TREATER PRE-BIN" });
+    expect(combined[2]).toMatchObject({ machineId: "bufferBin", machineName: "TREATER BUFFER BIN" });
+  });
+
+  it("returns an empty list when no rule has logged anything", () => {
+    const rules = [{ sensorId: "bufferBin", log: [] }, { sensorId: "preBin", log: [] }];
+    expect(combineEventLogs(rules, new Map())).toEqual([]);
+  });
+
+  it("preserves each rule log's own entries untouched, only adding machine tags", () => {
+    const entry = { t: 3, message: "level cleared" };
+    const rules = [{ sensorId: "afterBin", log: [entry] }];
+    const [combined] = combineEventLogs(rules, new Map([["afterBin", "TREATER AFTER-BIN"]]));
+    expect(combined.t).toBe(3);
+    expect(combined.message).toBe("level cleared");
   });
 });
