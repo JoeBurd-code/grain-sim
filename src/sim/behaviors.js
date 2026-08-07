@@ -444,6 +444,7 @@ function initSplitter(m) {
     // its product port still feeds an un-engined drum feeder).
     outDelivered: 0,
     wasteDelivered: 0,
+    flowing: false,
   };
 }
 // Reverse pass: how much this splitter can accept is bounded by whichever
@@ -468,6 +469,11 @@ function applySplitter(state, dt, inflow, cap, downstreamCap, hasDownstream) {
   state.wasteTotal += wasteFlow;
   if (!hasDownstream.out) state.outDelivered += outFlow;
   if (!hasDownstream.waste) state.wasteDelivered += wasteFlow;
+  // Recomputed fresh every tick, not accumulated: a snapshot-only signal
+  // for whether material is passing through *right now*, since the
+  // behaviour otherwise holds nothing a fill bar could show (see
+  // snapshotSplitter below).
+  state.flowing = outFlow + wasteFlow > EPS;
   return { out: outFlow, waste: wasteFlow };
 }
 // Holds nothing of its own, so its only conservation contribution is
@@ -478,6 +484,13 @@ function applySplitter(state, dt, inflow, cap, downstreamCap, hasDownstream) {
 function conserveSplitter(state) {
   return { delivered: state.outDelivered + state.wasteDelivered };
 }
+// A splitter holds no material, so it has no fill level to show — `flowing`
+// is the presenter-facing stand-in (ScreenSymbol pulses its mesh while
+// true), the same role `backlogVol > 0` plays for the elevator's discharge
+// gap.
+function snapshotSplitter(state) {
+  return { flowing: state.flowing, wasteFraction: state.wasteFraction };
+}
 
 // Terminal sink (issue #26): the end of a modelled flow, holding an
 // unbounded running total of everything it has ever received — the discard
@@ -485,8 +498,8 @@ function conserveSplitter(state) {
 // every other terminal destination on the line will eventually share. Never
 // backpressures and never spills, so whatever feeds it can always treat this
 // branch as unconstrained.
-function initTerminalSink() {
-  return { kind: "terminalSink", total: 0 };
+function initTerminalSink(m) {
+  return { kind: "terminalSink", total: 0, displayCapacityM3: m.sim.displayCapacityM3 };
 }
 function capacityAvailableTerminalSink() {
   return Infinity;
@@ -497,6 +510,20 @@ function applyTerminalSink(state, dt, inflow, cap) {
 }
 function conserveTerminalSink(state) {
   return { delivered: state.total };
+}
+// `displayCapacityM3` is a presenter-facing scale, not a physical limit —
+// the real bin's working volume was never confirmed (REAL_LINE_SPECS.md
+// §12), and unlike an accumulator's `capacity` this number gates nothing:
+// capacityAvailableTerminalSink above stays Infinity regardless, so nothing
+// here can ever cause backpressure or a spill. Without it the bin's fill bar
+// would have nothing to show at all (a running total has no natural 0..1
+// ratio); this just picks one so the bar visibly rises as waste arrives,
+// same demo-pacing spirit as an assumed starting fill level elsewhere on the
+// line. Saturates at 1 rather than wrapping, since there's no confirmed
+// empty-when-full behaviour to animate.
+function snapshotTerminalSink(state) {
+  const cap = state.displayCapacityM3;
+  return { fill: cap > 0 ? Math.min(1, state.total / cap) : 0 };
 }
 
 export const BEHAVIORS = {
@@ -526,11 +553,11 @@ export const BEHAVIORS = {
   },
   splitter: {
     init: initSplitter, capacityAvailable: capacityAvailableSplitter, apply: applySplitter,
-    conserve: conserveSplitter, multiOutput: true,
+    conserve: conserveSplitter, snapshot: snapshotSplitter, multiOutput: true,
   },
   terminalSink: {
     init: initTerminalSink, capacityAvailable: capacityAvailableTerminalSink, apply: applyTerminalSink,
-    conserve: conserveTerminalSink,
+    conserve: conserveTerminalSink, snapshot: snapshotTerminalSink,
   },
 };
 

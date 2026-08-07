@@ -210,16 +210,27 @@ describe("splitter (issue #26)", () => {
     const out = BEHAVIORS.splitter.apply(state, 0.05, 1, 1, { out: Infinity, waste: Infinity }, { out: false, waste: false });
     expect(out.waste).toBeCloseTo(0.5);
   });
+
+  it("reports 'flowing' true only on a tick where material actually passed through", () => {
+    const state = initState({ wasteFraction: 0.1 });
+    expect(BEHAVIORS.splitter.snapshot(state).flowing).toBe(false); // nothing has flowed yet
+
+    BEHAVIORS.splitter.apply(state, 0.05, 1, 1, { out: Infinity, waste: Infinity }, { out: false, waste: false });
+    expect(BEHAVIORS.splitter.snapshot(state).flowing).toBe(true);
+
+    BEHAVIORS.splitter.apply(state, 0.05, 0, 0, { out: Infinity, waste: Infinity }, { out: false, waste: false }); // nothing offered this tick
+    expect(BEHAVIORS.splitter.snapshot(state).flowing).toBe(false);
+  });
 });
 
 describe("terminalSink (issue #26)", () => {
   it("never backpressures", () => {
-    const state = BEHAVIORS.terminalSink.init();
+    const state = BEHAVIORS.terminalSink.init({ sim: { displayCapacityM3: 0.3 } });
     expect(BEHAVIORS.terminalSink.capacityAvailable(state)).toBe(Infinity);
   });
 
   it("accumulates everything it receives into a running total, with nothing further to discharge", () => {
-    const state = BEHAVIORS.terminalSink.init();
+    const state = BEHAVIORS.terminalSink.init({ sim: { displayCapacityM3: 0.3 } });
     const out1 = BEHAVIORS.terminalSink.apply(state, 0.05, 1, Infinity);
     const out2 = BEHAVIORS.terminalSink.apply(state, 0.05, 2, Infinity);
     expect(out1).toBe(0);
@@ -228,9 +239,20 @@ describe("terminalSink (issue #26)", () => {
   });
 
   it("reports its running total as delivered for conservation", () => {
-    const state = BEHAVIORS.terminalSink.init();
+    const state = BEHAVIORS.terminalSink.init({ sim: { displayCapacityM3: 0.3 } });
     BEHAVIORS.terminalSink.apply(state, 0.05, 4.5, Infinity);
     expect(BEHAVIORS.terminalSink.conserve(state)).toEqual({ delivered: 4.5 });
+  });
+
+  it("reports a fill ratio scaled to its presenter-facing display capacity, saturating at 1", () => {
+    const state = BEHAVIORS.terminalSink.init({ sim: { displayCapacityM3: 0.3 } });
+    expect(BEHAVIORS.terminalSink.snapshot(state).fill).toBe(0);
+
+    BEHAVIORS.terminalSink.apply(state, 0.05, 0.15, Infinity);
+    expect(BEHAVIORS.terminalSink.snapshot(state).fill).toBeCloseTo(0.5);
+
+    BEHAVIORS.terminalSink.apply(state, 0.05, 1, Infinity); // well past the display capacity
+    expect(BEHAVIORS.terminalSink.snapshot(state).fill).toBe(1); // saturates, never exceeds 1
   });
 });
 

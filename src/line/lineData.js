@@ -388,7 +388,15 @@ export const line = {
       // holding an unbounded running total rather than a working volume —
       // emptied "when full" is an operator/truck event out of scope, not a
       // capacity the sim needs to model (REAL_LINE_SPECS.md §5).
-      sim: { kind: "terminalSink" },
+      // `displayCapacityM3` is presenter-facing only (see behaviors.js
+      // `snapshotTerminalSink`): the real bin's working volume was never
+      // confirmed, so this just scales the fill bar to visibly rise over a
+      // demo run rather than sitting frozen — it gates no physics.
+      sim: {
+        kind: "terminalSink",
+        displayCapacityM3: 0.3,
+        provenance: { displayCapacityM3: "assumed" },
+      },
     },
 
     // ============ PACKAGING & OUTLOAD (sheet 52-13) ============

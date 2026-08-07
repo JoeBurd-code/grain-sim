@@ -231,8 +231,12 @@ export function DrumFeederSymbol({ machine: m }) {
   );
 }
 
-// Scalping screen: housing with an inclined mesh deck.
-export function ScreenSymbol({ machine: m }) {
+// Scalping screen: housing with an inclined mesh deck. The mesh and shake
+// line pick up C.wheat while `dynamic.flowing` (issue #26, splitter's own
+// snapshot) is true — a splitter holds no material for a fill bar to show,
+// so this is its stand-in for "is it actually doing anything right now",
+// the same role the elevator's discharge-gap pulse plays for backlogVol.
+export function ScreenSymbol({ machine: m, dynamic }) {
   const { w, h } = m;
   const x0 = 10, y0 = 14, x1 = w - 10, y1 = h - 16;
   const segs = 6;
@@ -243,11 +247,12 @@ export function ScreenSymbol({ machine: m }) {
     const y = y0 + (y1 - y0) * t + (i % 2 ? 5 : -5);
     mesh += ` L${x},${y}`;
   }
+  const flowing = dynamic?.flowing ?? false;
   return (
     <g>
       <rect className="body" width={w} height={h} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
-      <path d={mesh} fill="none" stroke={C.muted} strokeWidth="1.5" />
-      <line x1={x0} y1={y0 + 14} x2={x1 - 18} y2={y1 + 6} stroke="rgba(255,255,255,0.07)" strokeWidth="1" />
+      <path d={mesh} fill="none" stroke={flowing ? C.wheat : C.muted} strokeWidth={flowing ? 2 : 1.5} opacity={flowing ? 0.95 : 1} />
+      <line x1={x0} y1={y0 + 14} x2={x1 - 18} y2={y1 + 6} stroke={flowing ? C.wheat : "rgba(255,255,255,0.07)"} strokeWidth="1" opacity={flowing ? 0.4 : 1} />
       <Instruments machine={m} x={w + 24} y={14} />
     </g>
   );
