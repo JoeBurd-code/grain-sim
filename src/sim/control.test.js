@@ -232,7 +232,7 @@ describe("stepControl (twoStageThrottle)", () => {
     const sim = makeTwoStageSim(0.9);
     stepThrottle(sim, 0.05, 400); // well past both trips, delays and ramps
     expect(sim.control[0].phase).toBe("stopped");
-    expect(sim.control[0].log).toHaveLength(4); // slow-armed, slow-commanded, stop-armed, stop-commanded — no duplicates
+    expect(sim.control[0].log).toHaveLength(4); // LSH crossing, slow-armed, slow-commanded, stop-commanded — no duplicates
   });
 
   it("recovers to full speed once the level falls to the low set point, immediately (no arm/delay phase)", () => {
@@ -358,7 +358,9 @@ describe("stepControl (holdNextBatch)", () => {
 
     expect(sim.control[0].phase).toBe("released"); // commanded the same tick, no arm phase
     expect(sim.machines.get("treater").blocked).toBe(false);
-    expect(sim.control[0].log).toHaveLength(3);
+    // LSH crossing, hold commanded, LSL crossing (issue #41 — previously
+    // unlogged from this phase-gated branch alone), treater released.
+    expect(sim.control[0].log).toHaveLength(4);
   });
 });
 

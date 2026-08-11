@@ -119,8 +119,15 @@ function snapshotAccumulator(state) {
 // (see docs/OPEN_QUESTIONS.md); this behaviour assumes a linear opening ->
 // rate mapping across the confirmed 2-20 t/h range until the engineer's
 // spreadsheet of estimated values arrives.
+// `manualOverride` (issue #42) is stamped only by the engine's own
+// setFeederRate — the presenter-facing live control — never by `command`
+// below, so the auto-start interlock can tell "a presenter has already
+// touched this slider" apart from "still sitting at its own rate, whatever
+// that rate happens to be" (0 is not a safe proxy for "never touched": a
+// presenter deliberately pausing the feeder at 0 also leaves `rate` at 0,
+// and that pause must not look like "never started" to the interlock).
 function initMeteredFeeder(m) {
-  return { kind: "meteredFeeder", rate: m.sim.rateM3PerSec, drawn: 0 };
+  return { kind: "meteredFeeder", rate: m.sim.rateM3PerSec, drawn: 0, manualOverride: false };
 }
 // Reverse pass: how much this feeder can pull in this tick — its own
 // metering rate, further bounded by whatever its own downstream can accept.
@@ -131,6 +138,12 @@ function applyMeteredFeeder(state, dt, inflow, cap) {
   const out = Math.min(inflow, cap);
   state.drawn += out;
   return out;
+}
+// Commands the feeder's rate directly, no ramp modelled — the control
+// layer's own path (issue #42's auto-start interlock), kept distinct from
+// `manualOverride`, which only the presenter-facing setFeederRate sets.
+function commandMeteredFeeder(state, rateM3PerSec) {
+  state.rate = rateM3PerSec;
 }
 
 const EPS = 1e-9;
@@ -321,6 +334,21 @@ function commandTransportDelay(state, targetFraction, rampTimeSec) {
 }
 function isSettledTransportDelay(state) {
   return state.throttleFraction === state.throttleTarget;
+}
+// Issue #42: the auto-start interlock's read of "is this elevator confirmed
+// running" — the engineer named the trigger (the drum feeder starts once
+// the bucket elevator is confirmed running) but not the underlying signal
+// (a motor run-proof switch? an immediate command-issued flag? something
+// that only asserts once the chain reaches full commanded speed?), so this
+// assumes it's the elevator's own commanded speed settled at a nonzero
+// value — both the manual VFD dial (`speedFraction`) and the interlock's
+// own throttle (`throttleFraction`/`throttleTarget`) folded in, since
+// either one sitting at 0 means the chain genuinely isn't moving, and
+// "settled" (not mid-ramp) so a throttle still easing down through a
+// nonzero fraction on its way to a full stop doesn't read as running. See
+// docs/OPEN_QUESTIONS.md.
+function isConfirmedRunningTransportDelay(state) {
+  return isSettledTransportDelay(state) && chainSpeedMPerSec(state) > 0;
 }
 
 // Batch cycle (issue #24): the primitive behind any machine that takes a
@@ -591,12 +619,13 @@ export const BEHAVIORS = {
   },
   meteredFeeder: {
     init: initMeteredFeeder, capacityAvailable: capacityAvailableMeteredFeeder, apply: applyMeteredFeeder,
-    conserve: conserveMeteredFeeder,
+    conserve: conserveMeteredFeeder, command: commandMeteredFeeder,
   },
   transportDelay: {
     init: initTransportDelay, capacityAvailable: capacityAvailableTransportDelay, apply: applyTransportDelay,
     conserve: conserveTransportDelay, snapshot: snapshotTransportDelay,
     command: commandTransportDelay, isSettled: isSettledTransportDelay,
+    confirmedRunning: isConfirmedRunningTransportDelay,
   },
   batchCycle: {
     init: initBatchCycle, capacityAvailable: capacityAvailableBatchCycle, apply: applyBatchCycle,

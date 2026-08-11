@@ -234,13 +234,17 @@ export function setSourceRate(sim, id, rateM3PerSec) {
 
 // Live control (issue #20): the drum feeder's metering rate takes effect on
 // its very next capacityAvailable call, mid run — same immediacy as
-// setSourceRate, no ramp modelled for the feeder itself.
+// setSourceRate, no ramp modelled for the feeder itself. Stamps
+// `manualOverride` (issue #42) so the auto-start interlock can tell a
+// presenter has taken the feeder into their own hands, at any rate
+// including 0, and never re-commands it afterwards.
 export function setFeederRate(sim, id, rateM3PerSec) {
   const state = sim.machines.get(id);
   if (!state || state.kind !== "meteredFeeder") {
     throw new Error(`machine "${id}" is not a metered feeder`);
   }
-  state.rate = rateM3PerSec;
+  BEHAVIORS[state.kind].command(state, rateM3PerSec);
+  state.manualOverride = true;
 }
 
 // Live control (issue #21, the VFD): takes effect on the very next apply(),
