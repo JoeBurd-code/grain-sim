@@ -13,7 +13,7 @@ import ChartDock from "./ChartDock";
 import EventLogPanel from "./EventLogPanel";
 import { useViewport } from "../scene/useViewport";
 import { useSimEngine } from "../sim/useSimEngine";
-import { tPerHourToM3PerSec, BULK_DENSITY_T_PER_M3 } from "../sim/units";
+import { tPerHourToM3PerSec, m3PerSecToTPerHour, BULK_DENSITY_T_PER_M3 } from "../sim/units";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 
 // Params that opt into live sim control declare `bind`; anything without
@@ -46,6 +46,32 @@ const PARAM_BINDERS = {
   batchCycleTime: (engine, machineId, value) => engine.setBatchCycleTime(machineId, value),
   // Scalping screen (issue #26): the slider is a percentage, the engine wants a fraction.
   wasteFraction: (engine, machineId, value) => engine.setWasteFraction(machineId, value / 100),
+};
+
+// Live "actual" readouts (issue #34): the same declarative shape as
+// PARAM_BINDERS above, but resolved against a machine's live published
+// snapshot instead of calling into the engine. Only params whose machine can
+// have its real output overridden by an active interlock declare `readBind`;
+// a param with none shows no readout at all. The setpoint slider itself
+// never reads from these — it stays bound only to the operator's own dial.
+const PARAM_READERS = {
+  // Source valve (issue #19) and drum feeder (issue #42): each can be
+  // overridden by an interlock (valve openness; a direct rate command) out
+  // from under the presenter's own dial. Deliberately not flowRateM3PerSec
+  // (issue #28) here — that also dips under downstream backpressure (a full
+  // bin, a stalled belt) with no interlock involved at all, which would make
+  // the readout noisy during perfectly ordinary operation (see issue #34's
+  // "doesn't look like noise during normal operation" criterion). These
+  // instead read the machine's own commanded rate, snapshotSource /
+  // snapshotMeteredFeeder (src/sim/behaviors.js), which only moves when the
+  // dial or an interlock actually changes it.
+  sourceRateActual: (dynamic) => (dynamic ? m3PerSecToTPerHour((dynamic.nominalRate ?? 0) * (dynamic.openness ?? 1)) : null),
+  feederRateActual: (dynamic) => (dynamic ? m3PerSecToTPerHour(dynamic.rate ?? 0) : null),
+  // Elevator (issue #22's two-stage throttle): speedFraction is the
+  // operator's own VFD dial, throttleFraction is the interlock's own
+  // multiplier layered on top — both already published by
+  // snapshotTransportDelay, combined here the same way chainSpeedMPerMin is.
+  elevatorSpeedActual: (dynamic) => (dynamic ? (dynamic.speedFraction ?? 1) * (dynamic.throttleFraction ?? 1) * 100 : null),
 };
 
 const validation = validateLine(line);
@@ -85,6 +111,10 @@ export default function MeetingApp() {
   const onParamChange = useCallback(
     (machineId, param, value) => PARAM_BINDERS[param.bind]?.(engine, machineId, value),
     [engine]
+  );
+  const onParamRead = useCallback(
+    (machineId, param) => PARAM_READERS[param.readBind]?.(engine.snap.machines.get(machineId)) ?? null,
+    [engine.snap]
   );
 
   return (
@@ -162,6 +192,7 @@ export default function MeetingApp() {
               onTogglePlot={togglePlot}
               onClose={closePopup}
               onParamChange={onParamChange}
+              onParamRead={onParamRead}
               events={engine.snap.machines.get(selected.id)?.events}
             />
           )}
