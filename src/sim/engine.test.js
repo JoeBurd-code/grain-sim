@@ -51,6 +51,7 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
   it("source injects at its configured rate, accumulating in the empty-headroom bin", () => {
     const sim = createSim(line);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(12));
+    setFeederRate(sim, FEEDER_ID, 0); // isolate: this test is about the source/bin fill, not the feeder's own auto-start (issue #42)
     for (let i = 0; i < 100; i++) stepSim(sim, DT);
     const source = getMachineState(sim, SOURCE_ID);
     const bin = getMachineState(sim, BUFFER_BIN_ID);
@@ -87,6 +88,7 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
   it("buffer bin fills and rejects once full; rejected material backs up to the source instead of vanishing", () => {
     const sim = createSim(line);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20)); // fast enough to fill it
+    setFeederRate(sim, FEEDER_ID, 0); // isolate: this test is about the bin's own backpressure, not the feeder's own auto-start (issue #42)
     setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 2); // unreachable: isolates raw accumulator backpressure from the issue #19 interlock
     for (let i = 0; i < 20000; i++) stepSim(sim, DT);
 
@@ -114,8 +116,8 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
     const bin = getMachineState(sim, BUFFER_BIN_ID);
     // Since issue #22, the pre-bin is also a sim-enabled accumulator, and
     // since issue #25 so is the after-bin — both contribute their own
-    // (here, constant — the drum feeder defaults to off, so nothing moves
-    // past the buffer bin) stored volume to the total.
+    // stored volume to the total (since issue #42 that's genuinely moving:
+    // the feeder auto-starts once the elevator is confirmed running).
     const preBin = getMachineState(sim, PRE_BIN_ID);
     const afterBin = getMachineState(sim, AFTER_BIN_ID);
     expect(totals.stored).toBeCloseTo(bin.stored + preBin.stored + afterBin.stored);
@@ -163,6 +165,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
   it("keeps the valve fully open through the signal delay after the high set point trips", () => {
     const sim = createSim(line);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
     setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6); // just above the 55% start level
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 5);
 
@@ -183,6 +186,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
   it("grain released before the valve fully closes still arrives at the bin, and conservation holds throughout", () => {
     const sim = createSim(line);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
     setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 2);
 
@@ -203,6 +207,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
   it("the bin overshoots the high set point rather than stopping exactly at it", () => {
     const sim = createSim(line);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
     setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 3);
     for (let i = 0; i < 3000; i++) stepSim(sim, DT);
@@ -220,6 +225,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
       // (see the comment's arithmetic: rate * (delay + rampTime/2) must
       // stay under capacity * 0.15 even at the larger delay).
       setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(100));
+      setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
       setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.85);
       setInterlockSignalDelay(sim, BUFFER_BIN_ID, signalDelaySec);
       for (let i = 0; i < 6000; i++) stepSim(sim, DT); // long past delay + 6s ramp
@@ -236,6 +242,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
   it("the valve reopens once the level falls past the low set point", () => {
     const sim = createSim(line);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
     setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
     setInterlockLowSetpoint(sim, BUFFER_BIN_ID, 0.3);
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 1);
@@ -256,6 +263,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
   it("records the trip, the delayed action and the reopen in the buffer bin's event log, each with its simulated time", () => {
     const sim = createSim(line);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
     setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
     setInterlockLowSetpoint(sim, BUFFER_BIN_ID, 0.3);
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 1);
@@ -275,6 +283,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
   it("publishes the same trip through getCombinedEvents, tagged with the buffer bin's real id and display name (issue #29)", () => {
     const sim = createSim(line);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
     setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
     setInterlockLowSetpoint(sim, BUFFER_BIN_ID, 0.3);
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 1);
@@ -293,6 +302,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
   it("high set point, low set point and signal delay are live controls that take effect while the sim is running", () => {
     const sim = createSim(line);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
     for (let i = 0; i < 50; i++) stepSim(sim, DT); // a few ticks of "already running"
 
     setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
@@ -309,13 +319,63 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
 });
 
 describe("inlet drum feeder meters the buffer bin's discharge (issue #20)", () => {
-  it("starts off: the bin doesn't drain on its own, pending the elevator-confirmed-running interlock (issue #21+)", () => {
+  it("starts at 0 t/h at t=0, confirmed plant behaviour, before anything has had a chance to auto-start it (issue #42)", () => {
     const sim = createSim(line);
-    setSourceRate(sim, SOURCE_ID, 0);
-    const startStored = getMachineState(sim, BUFFER_BIN_ID).stored;
-    for (let i = 0; i < 200; i++) stepSim(sim, DT);
-    expect(getMachineState(sim, BUFFER_BIN_ID).stored).toBe(startStored);
+    expect(getMachineState(sim, FEEDER_ID).rate).toBe(0);
     expect(getMachineState(sim, FEEDER_ID).drawn).toBe(0);
+  });
+
+  // Issue #42: the engineer confirmed the real feeder starts itself as soon
+  // as the bucket elevator is confirmed running — no `setFeederRate` call
+  // here at all, unlike every other test in this file. The elevator reads
+  // as running from t=0 by default (both its manual VFD dial and its
+  // interlock throttle default to a settled, nonzero fraction), so the
+  // auto-start interlock fires on the very first control tick.
+  it("auto-starts at its configured rate the instant the treating elevator is confirmed running, with no presenter intervention", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, 0); // isolate the draw from the bin's own stock
+    const startStored = getMachineState(sim, BUFFER_BIN_ID).stored;
+
+    stepSim(sim, DT); // the elevator is already confirmed running at boot: this is the tick the interlock fires
+
+    const feeder = getMachineState(sim, FEEDER_ID);
+    expect(feeder.rate).toBeGreaterThan(0);
+    expect(feeder.manualOverride).toBe(false); // auto-started, not presenter-driven
+
+    for (let i = 0; i < 200; i++) stepSim(sim, DT);
+    expect(feeder.drawn).toBeGreaterThan(0);
+    expect(getMachineState(sim, BUFFER_BIN_ID).stored).toBeLessThan(startStored); // the bin genuinely drains on its own now
+  });
+
+  // Acceptance criterion: a presenter setting a rate before the elevator has
+  // confirmed running is a deliberate, documented choice (honoured
+  // immediately), not an accidental side effect of the interlock racing the
+  // presenter. Holding the elevator off with setElevatorSpeed(0) keeps
+  // `confirmedRunning` false until the presenter brings it back up.
+  it("honours a presenter's own feed rate set before the elevator confirms running, rather than overwriting it once the interlock fires", () => {
+    const sim = createSim(line);
+    setElevatorSpeed(sim, ELEVATOR_ID, 0); // hold the elevator off: confirmedRunning stays false
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(5)); // presenter starts the feeder early, at a rate of their own choosing
+    for (let i = 0; i < 20; i++) stepSim(sim, DT);
+    expect(getMachineState(sim, FEEDER_ID).rate).toBeCloseTo(tPerHourToM3PerSec(5));
+
+    setElevatorSpeed(sim, ELEVATOR_ID, 1); // elevator now confirmed running
+    for (let i = 0; i < 20; i++) stepSim(sim, DT);
+    // auto-start sees the feeder already under presenter control and leaves it alone
+    expect(getMachineState(sim, FEEDER_ID).rate).toBeCloseTo(tPerHourToM3PerSec(5));
+  });
+
+  // The existing live control still works after auto-start (acceptance
+  // criterion): once the rule has latched "started", it never touches the
+  // feeder again, so a presenter's own slider change mid-run sticks.
+  it("the presenter's feed-rate slider still works as a live control after auto-start", () => {
+    const sim = createSim(line);
+    stepSim(sim, DT); // auto-start fires
+    expect(getMachineState(sim, FEEDER_ID).rate).toBeGreaterThan(0);
+
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(2)); // presenter demos a rate change mid-run
+    for (let i = 0; i < 20; i++) stepSim(sim, DT);
+    expect(getMachineState(sim, FEEDER_ID).rate).toBeCloseTo(tPerHourToM3PerSec(2));
   });
 
   it("draws from the bin at its configured rate once started, and the two reconcile exactly", () => {
@@ -1186,6 +1246,7 @@ describe("engine publishes each machine's live outflow rate generically (issue #
   it("reports zero once a full downstream blocks a machine entirely, even though it was flowing moments before", () => {
     const sim = createSim(line);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    setFeederRate(sim, FEEDER_ID, 0); // isolate: this test is about the bin filling to capacity, not the feeder's own auto-start (issue #42)
     setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 2); // isolate raw backpressure from the issue #19 interlock
     stepSim(sim, DT);
     expect(getMachineState(sim, SOURCE_ID).flowRateM3PerSec).toBeGreaterThan(0); // genuinely flowing first
@@ -1352,6 +1413,29 @@ describe("the treating zone keeps cycling indefinitely under steady supply, neve
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15));
     for (let i = 0; i < Math.round(6000 / DT); i++) stepSim(sim, DT);
     expect(afterBinInterlock(sim).phase).toBe("released"); // never once tripped
+  });
+
+  // Issue #41: before centralizing the crossing log, holdNextBatch's LSL
+  // message only ever logged from inside the `phase === "held"` branch — a
+  // phase this rule (per the test above) never reaches under any in-range
+  // supply. So every one of the after-bin's own LSL crossings went entirely
+  // unlogged, no matter how many times the level oscillated below its low
+  // set point between batch discharges — exactly the gap issue #40's
+  // investigation ran into on treaterPreBin. This proves the fix on the
+  // machine the ticket names directly: LSH never trips (reused from the test
+  // above), yet LSL still crosses repeatedly and logs every time.
+  it("the after-bin's LSL crosses repeatedly under normal supply, and each crossing is logged, even though the phase never trips (issue #41)", () => {
+    const sim = createSim(line);
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15)); // same rate as the never-trips test above
+    for (let i = 0; i < Math.round(6000 / DT); i++) stepSim(sim, DT);
+
+    expect(afterBinInterlock(sim).phase).toBe("released"); // LSH never tripped, same as above
+    const lslCrossings = afterBinInterlock(sim).log.filter((e) => e.message.startsWith("LSL set point reached"));
+    expect(lslCrossings.length).toBeGreaterThan(1); // crossed more than once over the run
+    for (const entry of lslCrossings) {
+      expect(typeof entry.t).toBe("number");
+      expect(entry.message).toMatch(/^LSL set point reached at \d+% \(setpoint \d+%\)$/);
+    }
   });
 });
 

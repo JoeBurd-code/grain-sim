@@ -146,15 +146,17 @@ export const line = {
       // Confirmed 2-20 t/h operating range [CONFIRMED 2026-06-30,
       // REAL_LINE_SPECS.md §5]. Starts at 0 (off): the engineer confirmed
       // the real feeder starts as soon as the bucket elevator is confirmed
-      // running. The elevator itself is sim-enabled from issue #21, but the
-      // "elevator confirmed running" interlock that would auto-start this
-      // feeder is still not modelled (it needs a running/settled signal on
-      // the elevator, not just its transport delay). Until then the
-      // presenter starts it live with this slider, the same staging pattern
-      // issue #19 used for the bin's level. The real feeder is also not a
-      // direct rate control but a non-proportional percentage opening — a
-      // linear opening -> rate mapping is assumed across the confirmed range
-      // until the engineer's
+      // running. Issue #42 models that auto-start (see the
+      // `treatingElevatorRunningAutoStart` interlock below) now that the
+      // elevator is sim-enabled (issue #21) with a running signal of its
+      // own (`confirmedRunning`, src/sim/behaviors.js) — the presenter's
+      // own rate slider (bound here) still works exactly as issue #19's
+      // staging pattern did, both before the interlock fires (honoured
+      // immediately, never overwritten) and after (the interlock never
+      // touches the feeder again once started). See docs/OPEN_QUESTIONS.md.
+      // The real feeder is also not a direct rate control but a
+      // non-proportional percentage opening — a linear opening -> rate
+      // mapping is assumed across the confirmed range until the engineer's
       // spreadsheet of estimated values (referenced, never sent) arrives;
       // see docs/OPEN_QUESTIONS.md. The FD (2026-08-05) confirms the
       // mechanism but not the numbers: two actuators A/B drive two
@@ -874,6 +876,26 @@ export const line = {
         "stop.setpoint": "assumed", "stop.delaySec": "confirmed", "stop.rampTimeSec": "assumed",
         recoverRampTimeSec: "assumed",
       },
+    },
+    {
+      id: "treatingElevatorRunningAutoStart",
+      kind: "autoStartOnRunning",
+      sensor: { machine: "treatingElevator" },
+      // Issue #42: the engineer confirmed the real feeder starts as soon as
+      // the bucket elevator is confirmed running (see the FD's own process
+      // interlock "Simatek Bucket Elevator not Running" on 52.505.L00, 1 s
+      // failure delay — docs/OPEN_QUESTIONS.md Machine 2 row). This models
+      // only the start side, with no delay: the FD's 1 s figure is
+      // documented for the elevator *stopping* tripping the feeder off, a
+      // different (and still unmodelled) half of the same interlock, not
+      // the start this rule commands. rateM3PerSec has no engineer-given
+      // number to auto-start at either — 12 t/h is assumed, matching the
+      // line's own confirmed sustained rate (REAL_LINE_SPECS.md §9-10)
+      // rather than an arbitrary point in the confirmed 2-20 t/h range. See
+      // docs/OPEN_QUESTIONS.md.
+      rateM3PerSec: tPerHourToM3PerSec(12),
+      action: { machine: "treatDrumFeeder" },
+      provenance: { rateM3PerSec: "assumed" },
     },
     {
       id: "afterBinHoldTreater",

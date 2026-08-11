@@ -14,6 +14,7 @@
 // to `thresholdTrip` so every interlock authored before this registry
 // existed (issue #19) needs no `lineData.js` change.
 import { BEHAVIORS } from "./behaviors";
+import { m3PerSecToTPerHour } from "./units";
 
 function readLevel(machines, machineId) {
   const state = machines.get(machineId);
@@ -22,6 +23,17 @@ function readLevel(machines, machineId) {
     throw new Error(`machine "${machineId}" has no readable level for a sensor`);
   }
   return snap.fill;
+}
+
+// Same defensive shape as readLevel above, for a rule kind (issue #42) whose
+// sensor is read for a running/confirmed signal rather than a fill level.
+function readConfirmedRunning(machines, machineId) {
+  const state = machines.get(machineId);
+  const confirmedRunning = BEHAVIORS[state.kind]?.confirmedRunning;
+  if (!confirmedRunning) {
+    throw new Error(`machine "${machineId}" has no readable running state for a sensor`);
+  }
+  return confirmedRunning(state);
 }
 
 function logEvent(rule, t, message) {
@@ -74,13 +86,32 @@ export function instrumentReadings(rule, level) {
 // tripped state. Tolerates `rule.instruments` not existing yet (a rule's
 // very first call, whether from initial priming or a fabricated test that
 // never primes) by treating every code as previously untripped.
-function stepRuleInstruments(rule, level) {
+//
+// Issue #41: that same false->true edge is also the one true moment an
+// LSH/LSL "set point reached" event log entry belongs — logged here,
+// centrally, once per crossing, independent of `rule.phase`. Before this,
+// each phase machine below logged its own "set point reached" string from
+// inside exactly one phase-gated branch (e.g. thresholdTrip's LSL only from
+// `phase === "closed"`), so a rule whose high side never tripped — and so
+// never reached the one phase its low side's branch required — logged
+// nothing at all for a low-side crossing that happened dozens of times
+// (confirmed on treaterPreBin during the #40 investigation). Centralizing
+// here means every rule kind gets this for free, off the exact same table
+// and edge-detection logic the dot (issue #30) already computes above, with
+// no per-kind duplication. Each phase machine's own logEvent calls now
+// describe only the *resulting action* (armed/commanded/released), never
+// re-stating the crossing this function already logged the same tick.
+function stepRuleInstruments(rule, level, sim) {
   const prevAll = rule.instruments ?? {};
   const next = {};
   for (const [code, reading] of Object.entries(instrumentReadings(rule, level))) {
     const prev = prevAll[code];
-    const pulseGen = reading.tripped && !prev?.tripped ? (prev?.pulseGen ?? 0) + 1 : (prev?.pulseGen ?? 0);
+    const justTripped = reading.tripped && !prev?.tripped;
+    const pulseGen = justTripped ? (prev?.pulseGen ?? 0) + 1 : (prev?.pulseGen ?? 0);
     next[code] = { code, ...reading, pulseGen };
+    if (justTripped) {
+      logEvent(rule, sim.t, `${code} set point reached at ${pct(level)} (setpoint ${pct(reading.setpoint)})`);
+    }
   }
   rule.instruments = next;
 }
@@ -130,15 +161,13 @@ function initThresholdTrip(cfg) {
 }
 function stepThresholdTrip(rule, sim) {
   const level = readLevel(sim.machines, rule.sensorId);
-  stepRuleInstruments(rule, level);
+  stepRuleInstruments(rule, level, sim);
   const { actuator, behavior } = resolveActuator(rule, sim);
 
   if (rule.phase === "open" && level >= rule.highSetpoint) {
-    logEvent(rule, sim.t, `high set point reached at ${pct(level)} — closing signal armed`);
     rule.phase = "delayedClose";
     rule.fireAt = sim.t + rule.signalDelaySec;
   } else if (rule.phase === "closed" && level <= rule.lowSetpoint) {
-    logEvent(rule, sim.t, `low set point reached at ${pct(level)} — opening signal armed`);
     rule.phase = "delayedOpen";
     rule.fireAt = sim.t + rule.signalDelaySec;
   }
@@ -200,20 +229,25 @@ function initTwoStageThrottle(cfg) {
 }
 function stepTwoStageThrottle(rule, sim) {
   const level = readLevel(sim.machines, rule.sensorId);
-  stepRuleInstruments(rule, level);
+  stepRuleInstruments(rule, level, sim);
   const { actuator, behavior } = resolveActuator(rule, sim);
 
   if (rule.phase === "full" && level >= rule.slowSetpoint) {
+    // slowSetpoint has no LSH/LSL instrument backing it (see INSTRUMENT_FIELDS'
+    // own comment above — the slow stage is an engineer-described addition
+    // with no physical instrument tag), so stepRuleInstruments' centralized
+    // crossing log never covers this moment; unlike every other arm branch
+    // in this file, this one keeps its own logEvent so the crossing isn't
+    // silently lost.
     logEvent(rule, sim.t, `slow set point reached at ${pct(level)} — slow-down signal armed`);
     rule.phase = "armSlow";
     rule.fireAt = sim.t + rule.slowDelaySec;
   } else if (rule.phase === "slow" && level >= rule.stopSetpoint) {
-    logEvent(rule, sim.t, `stop set point reached at ${pct(level)} — stop signal armed`);
     rule.phase = "armStop";
     rule.fireAt = sim.t + rule.stopDelaySec;
   } else if ((rule.phase === "slow" || rule.phase === "stopped") && level <= rule.lowSetpoint) {
     behavior.command(actuator, 1, rule.recoverRampTimeSec);
-    logEvent(rule, sim.t, `level recovered to ${pct(level)} — elevator commanded back to full speed (ramping over ${rule.recoverRampTimeSec}s)`);
+    logEvent(rule, sim.t, `elevator commanded back to full speed (ramping over ${rule.recoverRampTimeSec}s)`);
     rule.phase = "recovering";
   }
 
@@ -269,16 +303,15 @@ function initHoldNextBatch(cfg) {
 }
 function stepHoldNextBatch(rule, sim) {
   const level = readLevel(sim.machines, rule.sensorId);
-  stepRuleInstruments(rule, level);
+  stepRuleInstruments(rule, level, sim);
   const { actuator, behavior } = resolveActuator(rule, sim);
 
   if (rule.phase === "released" && level >= rule.highSetpoint) {
-    logEvent(rule, sim.t, `high set point reached at ${pct(level)} — hold signal armed`);
     rule.phase = "armed";
     rule.fireAt = sim.t + rule.signalDelaySec;
   } else if (rule.phase === "held" && level <= rule.lowSetpoint) {
     behavior.command(actuator, false);
-    logEvent(rule, sim.t, `level cleared to ${pct(level)} — treater released to start its next batch`);
+    logEvent(rule, sim.t, `treater released to start its next batch`);
     rule.phase = "released";
   }
 
@@ -290,10 +323,55 @@ function stepHoldNextBatch(rule, sim) {
   }
 }
 
+// Auto-start (issue #42 — the inlet drum feeder starts itself once the
+// treating elevator is confirmed running, matching the real plant's own
+// interlock; see the engineer's note preserved in lineData.js's
+// `treatDrumFeeder` comment). Unlike the three kinds above, this rule's
+// sensor isn't a fill level (no LSH/LSL, no INSTRUMENT_FIELDS entry, no
+// stepRuleInstruments call) and its actuator isn't an interlock-latched
+// device with a settle to wait on — it's a one-shot: the instant the
+// elevator is confirmed running, the feeder is commanded to its configured
+// rate exactly once, and the rule then steps out of the way for good.
+//   waiting -> [elevator confirmedRunning] -> started
+// A presenter's own feed-rate slider (setFeederRate) is always honoured
+// immediately, whether set before or after the elevator comes up: this
+// step only ever commands the feeder while its `manualOverride` flag is
+// still unset, so a rate the presenter has already dialled in — including
+// deliberately pausing at 0 — is never overwritten, and once "started" this
+// rule never touches the feeder again regardless.
+// Like every other rule kind here, the log this rule writes is attributed
+// to `sensorId` (the elevator), not `actuatorId` (the feeder it commands) —
+// same convention as e.g. preBinSlowStopTrip's "elevator commanded to 50%
+// speed" living on the pre-bin's own popup, not the elevator's. A presenter
+// looking for "why did the feeder start" finds it on the elevator's popup,
+// since the elevator's own state is what the crossing/trip is about.
+function initAutoStartOnRunning(cfg) {
+  return {
+    kind: "autoStartOnRunning",
+    id: cfg.id,
+    sensorId: cfg.sensor.machine,
+    actuatorId: cfg.action.machine,
+    rateM3PerSec: cfg.rateM3PerSec,
+    phase: "waiting", // waiting -> started
+    log: [],
+  };
+}
+function stepAutoStartOnRunning(rule, sim) {
+  if (rule.phase === "started") return;
+  if (!readConfirmedRunning(sim.machines, rule.sensorId)) return;
+  const { actuator, behavior } = resolveActuator(rule, sim);
+  if (!actuator.manualOverride) {
+    behavior.command(actuator, rule.rateM3PerSec);
+    logEvent(rule, sim.t, `elevator confirmed running — feeder auto-started at ${m3PerSecToTPerHour(rule.rateM3PerSec).toFixed(1)} t/h`);
+  }
+  rule.phase = "started";
+}
+
 const CONTROL_KINDS = {
   thresholdTrip: { init: initThresholdTrip, step: stepThresholdTrip },
   twoStageThrottle: { init: initTwoStageThrottle, step: stepTwoStageThrottle },
   holdNextBatch: { init: initHoldNextBatch, step: stepHoldNextBatch },
+  autoStartOnRunning: { init: initAutoStartOnRunning, step: stepAutoStartOnRunning },
 };
 
 // Issue #29: one flat, chronological event list spanning every rule's log,
