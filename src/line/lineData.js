@@ -889,11 +889,16 @@ export const line = {
       // documented for the elevator *stopping* tripping the feeder off, a
       // different (and still unmodelled) half of the same interlock, not
       // the start this rule commands. rateM3PerSec has no engineer-given
-      // number to auto-start at either — 12 t/h is assumed, matching the
-      // line's own confirmed sustained rate (REAL_LINE_SPECS.md §9-10)
-      // rather than an arbitrary point in the confirmed 2-20 t/h range. See
-      // docs/OPEN_QUESTIONS.md.
-      rateM3PerSec: tPerHourToM3PerSec(12),
+      // number to auto-start at either — 15 t/h is assumed, not the line's
+      // 12 t/h "sustained" figure (REAL_LINE_SPECS.md §9-10): the batch
+      // treater's own modelled draw is ~14.4 t/h (160kg/40s, see the "14.4
+      // vs 12 t/h mismatch" row, Machine 5 below), so an auto-start rate at
+      // or below that leaves the pre-bin in permanent deficit — a
+      // structural starve, not a transient dip, and its own LSL never
+      // clears. 15 t/h matches the "well supplied" rate already used
+      // throughout this line's own test suite (e.g. issue #40's
+      // reproduction). See docs/OPEN_QUESTIONS.md.
+      rateM3PerSec: tPerHourToM3PerSec(15),
       action: { machine: "treatDrumFeeder" },
       provenance: { rateM3PerSec: "assumed" },
     },
