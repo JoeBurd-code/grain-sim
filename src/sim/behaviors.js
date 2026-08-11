@@ -53,6 +53,13 @@ function applySource(state, dt, inflow, cap) {
 function conserveSource(state) {
   return { fed: state.fed };
 }
+// `nominalRate` and `openness` (issue #34) let the UI show the dial's actual
+// resulting rate — nominalRate * openness — distinct from flowRateM3PerSec
+// (issue #28), which also reflects downstream backpressure, not just this
+// valve's own interlock-commanded position.
+function snapshotSource(state) {
+  return { nominalRate: state.nominalRate, openness: state.openness };
+}
 // Commands the valve toward fully open or fully closed over `rampTimeSec`.
 // The control layer is the only caller; a source with no interlock never
 // has this invoked and keeps its default openness of 1.
@@ -144,6 +151,13 @@ function applyMeteredFeeder(state, dt, inflow, cap) {
 // `manualOverride`, which only the presenter-facing setFeederRate sets.
 function commandMeteredFeeder(state, rateM3PerSec) {
   state.rate = rateM3PerSec;
+}
+// `rate` (issue #34) is whichever of the presenter's own dial or the
+// auto-start interlock's direct command last set it — see `manualOverride`
+// above. Published separately from flowRateM3PerSec (issue #28), which also
+// reflects downstream backpressure, not just this commanded rate.
+function snapshotMeteredFeeder(state) {
+  return { rate: state.rate };
 }
 
 const EPS = 1e-9;
@@ -608,7 +622,7 @@ function snapshotTerminalSink(state) {
 export const BEHAVIORS = {
   source: {
     init: initSource, capacityAvailable: forwardDownstreamCapacity, apply: applySource,
-    conserve: conserveSource, command: commandSource, isSettled: isSettledSource,
+    conserve: conserveSource, snapshot: snapshotSource, command: commandSource, isSettled: isSettledSource,
   },
   passThrough: {
     init: initPassThrough, capacityAvailable: forwardDownstreamCapacity, apply: applyPassThrough,
@@ -619,7 +633,7 @@ export const BEHAVIORS = {
   },
   meteredFeeder: {
     init: initMeteredFeeder, capacityAvailable: capacityAvailableMeteredFeeder, apply: applyMeteredFeeder,
-    conserve: conserveMeteredFeeder, command: commandMeteredFeeder,
+    conserve: conserveMeteredFeeder, snapshot: snapshotMeteredFeeder, command: commandMeteredFeeder,
   },
   transportDelay: {
     init: initTransportDelay, capacityAvailable: capacityAvailableTransportDelay, apply: applyTransportDelay,

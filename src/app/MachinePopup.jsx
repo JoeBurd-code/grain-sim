@@ -6,13 +6,27 @@ import { useEffect, useState } from "react";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 
 
-function Slider({ param, onChange }) {
+// `actual` (issue #34) is a live, read-only figure resolved by the parent
+// from the machine's published snapshot via `param.readBind` — see
+// PARAM_READERS in MeetingApp.jsx. It's rendered beside the setpoint but
+// never fed back into `value`: the setpoint slider always reflects exactly
+// what the operator last dragged it to, with no fighting between manual
+// input and live sim state. Hidden whenever the two already agree (rounded
+// to the slider's own integer step) so normal operation stays quiet.
+function Slider({ param, actual, onChange }) {
   const [value, setValue] = useState(param.value);
+  const roundedActual = actual != null ? Math.round(actual) : null;
+  const showActual = roundedActual != null && roundedActual !== value;
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.muted, marginBottom: 3 }}>
         <span>{param.label}</span>
-        <span style={{ color: C.text }}>{value} {param.unit}</span>
+        <span>
+          <span style={{ color: C.text }}>{value} {param.unit}</span>
+          {showActual && (
+            <span style={{ color: C.wheat, marginLeft: 8 }}>actual {roundedActual} {param.unit}</span>
+          )}
+        </span>
       </div>
       <input
         type="range"
@@ -30,7 +44,7 @@ function Slider({ param, onChange }) {
   );
 }
 
-export default function MachinePopup({ machine: m, plotted, onTogglePlot, onClose, onParamChange, events }) {
+export default function MachinePopup({ machine: m, plotted, onTogglePlot, onClose, onParamChange, onParamRead, events }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
@@ -72,7 +86,12 @@ export default function MachinePopup({ machine: m, plotted, onTogglePlot, onClos
         <>
           <div style={sectionTitle}>parameters</div>
           {m.params.map((p) => (
-            <Slider key={`${m.id}-${p.id}`} param={p} onChange={(v) => onParamChange?.(m.id, p, v)} />
+            <Slider
+              key={`${m.id}-${p.id}`}
+              param={p}
+              actual={p.readBind ? onParamRead?.(m.id, p) : null}
+              onChange={(v) => onParamChange?.(m.id, p, v)}
+            />
           ))}
         </>
       )}

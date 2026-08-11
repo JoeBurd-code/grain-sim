@@ -62,7 +62,12 @@ export const line = {
       // presenter can slide the source to zero and watch how the rest of
       // the line reacts once nothing new is coming in — a deliberately
       // off-spec testing position, not a claim about real feeder limits.
-      params: [{ id: "rate", label: "source rate", min: 0, max: 20, value: 12, unit: "t/h", bind: "sourceRate" }],
+      // `readBind` (issue #34) declares the live snapshot-derived reader that
+      // shows this dial's actual resulting rate beside it, the same shape as
+      // `bind` above — needed here because the buffer-bin-high interlock can
+      // close this valve's openness out from under the dial (see
+      // bufferBinHighTrip below).
+      params: [{ id: "rate", label: "source rate", min: 0, max: 20, value: 12, unit: "t/h", bind: "sourceRate", readBind: "sourceRateActual" }],
     },
     {
       id: "treatMetalRemover",
@@ -162,7 +167,10 @@ export const line = {
       // mechanism but not the numbers: two actuators A/B drive two
       // discrete opening-degree positions (XV4/XV5) — the real control
       // may be a two-position selector, not a continuous dial.
-      params: [{ id: "rate", label: "feed rate", min: 0, max: 20, value: 0, unit: "t/h", bind: "feederRate" }],
+      // `readBind` (issue #34): the auto-start interlock above commands this
+      // feeder's rate directly once the elevator's confirmed running,
+      // out from under whatever the presenter last dragged this dial to.
+      params: [{ id: "rate", label: "feed rate", min: 0, max: 20, value: 0, unit: "t/h", bind: "feederRate", readBind: "feederRateActual" }],
       sim: {
         kind: "meteredFeeder",
         rateM3PerSec: 0,
@@ -182,7 +190,10 @@ export const line = {
       anchors: { in: { x: 25, y: 204 }, out: { x: 376, y: 44 } },
       instruments: ["ST"],
       labelAt: { x: 200, y: -14 },
-      params: [{ id: "speed", label: "speed", min: 0, max: 100, value: 100, unit: "%", bind: "elevatorSpeed" }],
+      // `readBind` (issue #34): the pre-bin's two-stage throttle
+      // (preBinSlowStopTrip below) can slow or stop this elevator out from
+      // under the presenter's own VFD dial.
+      params: [{ id: "speed", label: "speed", min: 0, max: 100, value: 100, unit: "%", bind: "elevatorSpeed", readBind: "elevatorSpeedActual" }],
       // Transit delay derived, not guessed: rise 8.731 m at the drawing's
       // 10.08 m/min chain speed [MED/LOW, screenshot-sourced, REAL_LINE_SPECS.md
       // §5/§8] gives ~52 s. The chain speed is exactly the figure §8 flags as
