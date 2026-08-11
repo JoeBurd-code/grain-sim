@@ -1223,11 +1223,12 @@ describe("engine publishes each machine's live outflow rate generically (issue #
 // reverse pass computed for it (see capacityAvailableBatchCycle), so `held`
 // can never exceed `chargeM3` — the Math.max(0, ...) clamp the original
 // report worried about can never see a negative input, at any feeder rate
-// from 2-20 t/h (REAL_LINE_SPECS.md §5's confirmed range), swept exhaustively
-// while diagnosing this. What actually happened is a snapshot artifact: the
-// original repro only ever inspected the *final* state of a fixed 6000s run,
-// which happens to land ~3.6s into an ~8s charging window at a 15 t/h feeder
-// rate — a perfectly ordinary mid-cycle frame, not a stall. Running the same
+// across the confirmed 2-20 t/h operating range (REAL_LINE_SPECS.md §5) — see
+// the rate-sweep test below, not just the single 15 t/h rate the original
+// report used. What actually happened is a snapshot artifact: the original
+// repro only ever inspected the *final* state of a fixed 6000s run, which
+// happens to land ~3.6s into an ~8s charging window at a 15 t/h feeder rate —
+// a perfectly ordinary mid-cycle frame, not a stall. Running the same
 // reproduction for 10x longer (below) shows hundreds of complete cycles with
 // the gap between phase transitions never once exceeding the treater's own
 // 40s hold time, however far into the run it's sampled.
@@ -1262,17 +1263,64 @@ describe("the treating zone keeps cycling indefinitely under steady supply, neve
     expect(completedCycles).toBeGreaterThan(200); // far more than the original report's implied zero
   }, 20000);
 
-  // The pre-bin's own two-stage interlock (issue #22) already gets sustained
-  // exercise well above 12 t/h (see the "slows the elevator, then stops it"
-  // describe block) — genuinely recurring for the run's full length, not a
-  // one-off transient. What issue #40 flagged as missing was a *second*
-  // machine joining in. Below 12 t/h the feeder can't keep pace with supply,
-  // so the buffer bin genuinely fills and trips its own high-set-point
-  // interlock (issue #19) — a real, sustained boom-bust cycle, not a demo
-  // rate hack. A presenter raising the feed rate mid-run (the same live
-  // control issue #20 built, and the same staging pattern this project uses
-  // throughout — see feedback-stage-with-presenter-controls) then lets the
-  // pre-bin's own interlock join in too, all inside one continuous run.
+  // The single-rate test above only exercises 15 t/h. The overshoot theory
+  // it rules out (`held` clamped past `chargeM3` by the Math.max(0, ...) in
+  // capacityAvailableBatchCycle) is structural, not rate-dependent — but a
+  // regression test should say so in code, not just in a commit message.
+  // This sweeps the drum feeder's whole confirmed operating range (2-20 t/h,
+  // REAL_LINE_SPECS.md §5) at a shorter duration each, so a future change
+  // that only breaks at, say, 5 t/h still gets caught here.
+  it("never overshoots a charge or produces an unbounded stall gap, at any feeder rate across the confirmed 2-20 t/h range", () => {
+    for (const rate of [2, 5, 8, 11, 12, 12.5, 15, 18, 20]) {
+      const sim = createSim(line);
+      setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(rate));
+      const treater = getMachineState(sim, TREATER_ID);
+      // Below the source's own 12 t/h ceiling, gathering a full charge from
+      // empty genuinely takes longer the slower the feeder is — a real
+      // supply-limited charging phase, not a stall. Bounding against a fixed
+      // margin (as the 15 t/h single-rate test above does) would fail at low
+      // rates for exactly that legitimate reason, so the bound here scales
+      // with how long one charge can honestly take at this rate's own
+      // effective supply (capped by the source, same as the physical line).
+      const worstChargeTimeSec = treater.chargeM3 / tPerHourToM3PerSec(Math.min(rate, 12));
+      const maxAllowedGapSec = treater.cycleSec + 3 * worstChargeTimeSec;
+
+      let lastPhase = treater.phase;
+      let lastChangeT = 0;
+      let maxGapSec = 0;
+      let everOvershot = false;
+      for (let i = 0; i < Math.round(3000 / DT); i++) {
+        stepSim(sim, DT);
+        if (treater.held > treater.chargeM3 + 1e-9) everOvershot = true;
+        if (treater.phase !== lastPhase) {
+          maxGapSec = Math.max(maxGapSec, sim.t - lastChangeT);
+          lastChangeT = sim.t;
+          lastPhase = treater.phase;
+        }
+      }
+
+      expect(everOvershot).toBe(false);
+      expect(maxGapSec).toBeLessThan(maxAllowedGapSec);
+    }
+  }, 30000);
+
+  // Issue #40's acceptance criteria name TREATER BUFFER BIN and TREATER
+  // AFTER-BIN specifically. The after-bin can't be one of the two here — see
+  // the structural test below, and the pre-existing after-bin row in
+  // docs/OPEN_QUESTIONS.md ("Machine 6"): a single charge is only ~33% of
+  // its capacity against a 60% high set point deliberately given headroom,
+  // so no in-range feeder rate ever trips it. This test demonstrates the
+  // criterion's actual intent — more than one interlocked machine staying
+  // live deep into a long run, not silent after one early transient — with
+  // the buffer bin standing in for the after-bin. Below 12 t/h the feeder
+  // can't keep pace with supply, so the buffer bin genuinely fills and trips
+  // its own high-set-point interlock (issue #19) — a real, sustained
+  // boom-bust cycle, not a demo rate hack. A presenter raising the feed rate
+  // mid-run (the same live control issue #20 built, and the same staging
+  // pattern this project uses throughout — see
+  // feedback-stage-with-presenter-controls) then lets the pre-bin's own
+  // two-stage interlock (issue #22) join in too, all inside one continuous
+  // run.
   it("more than one interlocked machine logs events well past the initial startup transient, not just once each at the very start", () => {
     const sim = createSim(line);
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(8)); // below the 12 t/h source: the buffer bin genuinely fills and cycles
