@@ -4,6 +4,11 @@
 // this panel is a pure view over that one source of truth, independent of
 // each machine's own popup event log (MachinePopup.jsx), which is left as-is.
 //
+// Each machine's tag color comes from plotColorFor (plotColors.js), the same
+// lookup ChartDock.jsx uses for that machine's line -- not a color list of
+// this panel's own -- so a machine's tag here always matches its line color
+// on the chart, letting a presenter associate the two at a glance.
+//
 // `jumpTo` (issue #38) is a `{ idx, token }` naming one entry's position in
 // the untouched `events` list -- the same index a chart event dot's click
 // reports (ChartDock.jsx). `token` changes on every click, including
@@ -15,8 +20,7 @@
 // -- see https://react.dev/learn/you-might-not-need-an-effect.
 import { useLayoutEffect, useRef, useState } from "react";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
-
-const TAG_COLORS = [C.wheat, C.green, "#5a9ea0", C.red, "#b07cc6", C.amber];
+import { plotColorFor } from "./plotColors";
 
 export default function EventLogPanel({ machines, events, onClose, jumpTo }) {
   const [hidden, setHidden] = useState(() => new Set());
@@ -113,8 +117,8 @@ export default function EventLogPanel({ machines, events, onClose, jumpTo }) {
       <div style={{ flex: "none" }}>
         <div style={sectionTitle}>machines</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-          {machines.map((m, i) => {
-            const color = TAG_COLORS[i % TAG_COLORS.length];
+          {machines.map((m) => {
+            const color = plotColorFor(m.id);
             const active = !hidden.has(m.id);
             return (
               <button
@@ -144,8 +148,7 @@ export default function EventLogPanel({ machines, events, onClose, jumpTo }) {
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
             {ordered.map((e) => {
-              const idx = machines.findIndex((m) => m.id === e.machineId);
-              const color = TAG_COLORS[(idx < 0 ? 0 : idx) % TAG_COLORS.length];
+              const color = plotColorFor(e.machineId);
               return (
                 <div
                   key={e._idx}
