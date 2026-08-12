@@ -4,6 +4,7 @@
 // (docs/TREATER_LINE2_WORKSHEET.md), not in the app.
 import { useEffect, useState } from "react";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
+import { LEVEL_KINDS } from "../sim/behaviors";
 
 
 // `actual` (issue #34) is a live, read-only figure resolved by the parent
@@ -44,14 +45,38 @@ function Slider({ param, actual, onChange }) {
   );
 }
 
-export default function MachinePopup({ machine: m, plotted, onTogglePlot, onClose, onParamChange, onParamRead, events }) {
+// One of the two per-machine plot toggles (issue #36): level and rate are
+// separate switches rather than a single "plot this machine" button, so a
+// presenter can plot either or both. Colored with the machine's own stable
+// chart color when active, matching how its line will actually render.
+function PlotToggle({ active, color, label, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        background: active ? color : "transparent",
+        color: active ? "#1a1a14" : C.muted,
+        border: `1px solid ${active ? color : C.line}`,
+        borderRadius: 4, cursor: "pointer", fontFamily: FONT_MONO,
+        fontSize: 10, letterSpacing: 1, padding: "5px 10px",
+      }}
+    >
+      {active ? `${label} ✓` : `PLOT ${label}`}
+    </button>
+  );
+}
+
+export default function MachinePopup({
+  machine: m, levelPlotted, ratePlotted, plotColor, onToggleSeries, onClose, onParamChange, onParamRead, events,
+}) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const isPlotted = plotted.has(m.id);
+  const isSimEnabled = m.sim?.kind != null;
+  const hasLevel = LEVEL_KINDS.has(m.sim?.kind);
 
   const sectionTitle = {
     fontSize: 9, color: C.muted, letterSpacing: 2, textTransform: "uppercase",
@@ -112,21 +137,17 @@ export default function MachinePopup({ machine: m, plotted, onTogglePlot, onClos
         </div>
       )}
 
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
-        <button
-          onClick={() => onTogglePlot(m.id)}
-          style={{
-            background: isPlotted ? C.wheat : "transparent",
-            color: isPlotted ? "#1a1a14" : C.muted,
-            border: `1px solid ${isPlotted ? C.wheat : C.line}`,
-            borderRadius: 4, cursor: "pointer", fontFamily: FONT_MONO,
-            fontSize: 10, letterSpacing: 1, padding: "5px 10px",
-          }}
-        >
-          {isPlotted ? "PLOTTED ✓" : "PLOT THIS MACHINE"}
-        </button>
-        <span style={{ fontSize: 9, color: C.muted, fontStyle: "italic" }}>engine pending</span>
-      </div>
+      {isSimEnabled && (
+        <>
+          <div style={sectionTitle}>shared chart</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            {hasLevel && (
+              <PlotToggle active={levelPlotted} color={plotColor} label="LEVEL" onClick={() => onToggleSeries("level")} />
+            )}
+            <PlotToggle active={ratePlotted} color={plotColor} label="RATE" onClick={() => onToggleSeries("rate")} />
+          </div>
+        </>
+      )}
     </div>
   );
 }

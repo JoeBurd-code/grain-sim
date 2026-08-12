@@ -672,6 +672,14 @@ export const BEHAVIORS = {
 
 export const REGISTERED_KINDS = new Set(Object.keys(BEHAVIORS));
 
+// Kinds whose snapshot publishes a `fill` ratio (issue #36): only these have
+// a level series to offer on the shared chart. passThrough, source,
+// meteredFeeder, transportDelay and splitter all hold no vessel-like
+// inventory of their own (transportDelay's in-transit queue is a density
+// profile, not a single 0..1 fill), so a level checkbox for them would have
+// nothing meaningful to plot -- they only ever offer the rate series.
+export const LEVEL_KINDS = new Set(["accumulator", "batchCycle", "terminalSink"]);
+
 // Shared wording for the one error every unregistered-kind check throws or
 // reports (createSim, validateLine, the behaviour census) — one message
 // shape, not a copy in each caller.
