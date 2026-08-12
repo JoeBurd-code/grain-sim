@@ -4,7 +4,7 @@
 // rendering involved (issue #36's acceptance criteria).
 import { describe, it, expect } from "vitest";
 import {
-  createPlotHistory, isSeriesPlotted, setSeriesPlotted, recordSample, clearPlotHistory,
+  createPlotHistory, isSeriesPlotted, setSeriesPlotted, recordSample,
 } from "./plotHistory";
 
 function snap(fill, flowRateM3PerSec) {
@@ -92,28 +92,5 @@ describe("recordSample", () => {
     h = recordSample(h, 1, snap(0.5, 0.01));
     h = recordSample(h, 2, new Map()); // no snapshot for "bin" this tick
     expect(h.get("bin").level).toEqual([{ t: 1, value: 0.5 }]);
-  });
-});
-
-describe("clearPlotHistory", () => {
-  it("empties every plotted series but keeps them plotted", () => {
-    let h = createPlotHistory();
-    h = setSeriesPlotted(h, "bin", "level", true);
-    h = setSeriesPlotted(h, "bin", "rate", true);
-    h = recordSample(h, 1, snap(0.5, 0.01));
-    h = clearPlotHistory(h);
-    expect(isSeriesPlotted(h, "bin", "level")).toBe(true);
-    expect(isSeriesPlotted(h, "bin", "rate")).toBe(true);
-    expect(h.get("bin").level).toEqual([]);
-    expect(h.get("bin").rate).toEqual([]);
-  });
-
-  it("resumes recording fresh samples after a reset", () => {
-    let h = createPlotHistory();
-    h = setSeriesPlotted(h, "bin", "level", true);
-    h = recordSample(h, 10, snap(0.9, 0.01));
-    h = clearPlotHistory(h);
-    h = recordSample(h, 0, snap(0.1, 0.01)); // sim time restarted at 0
-    expect(h.get("bin").level).toEqual([{ t: 0, value: 0.1 }]);
   });
 });

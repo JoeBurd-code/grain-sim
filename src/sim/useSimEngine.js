@@ -11,7 +11,7 @@ import {
   setBatchSize, setBatchCycleSec, setSplitterWasteFraction, getCombinedEvents,
 } from "./engine";
 import { BEHAVIORS } from "./behaviors";
-import { createPlotHistory, setSeriesPlotted, recordSample, clearPlotHistory } from "./plotHistory";
+import { createPlotHistory, setSeriesPlotted, recordSample } from "./plotHistory";
 
 const MAX_STEPS_PER_FRAME = 60;
 const PUBLISH_INTERVAL_MS = 100;
@@ -121,10 +121,10 @@ export function useSimEngine(line) {
     resetSim(sim);
     lastTsRef.current = 0;
     budgetRef.current = 0;
-    // Empties currently-plotted series rather than un-plotting them (issue
-    // #36's "full history since the last reset"), so a presenter's chosen
-    // series stay plotted across a reset instead of needing re-toggling.
-    setHistory((prev) => clearPlotHistory(prev));
+    // Un-plots every series rather than just emptying them, so a presenter
+    // starts each fresh run by deliberately re-choosing what to plot instead
+    // of carrying over a prior run's selection.
+    setHistory(createPlotHistory());
     publish();
   }, [sim, pause, publish]);
 
