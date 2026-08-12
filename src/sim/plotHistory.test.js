@@ -4,7 +4,7 @@
 // rendering involved (issue #36's acceptance criteria).
 import { describe, it, expect } from "vitest";
 import {
-  createPlotHistory, isSeriesPlotted, setSeriesPlotted, recordSample,
+  createPlotHistory, isSeriesPlotted, setSeriesPlotted, recordSample, sampleValueAt,
 } from "./plotHistory";
 
 function snap(fill, flowRateM3PerSec) {
@@ -92,5 +92,36 @@ describe("recordSample", () => {
     h = recordSample(h, 1, snap(0.5, 0.01));
     h = recordSample(h, 2, new Map()); // no snapshot for "bin" this tick
     expect(h.get("bin").level).toEqual([{ t: 1, value: 0.5 }]);
+  });
+});
+
+describe("sampleValueAt", () => {
+  it("returns null for an empty series", () => {
+    expect(sampleValueAt([], 5)).toBeNull();
+  });
+
+  it("clamps to the first sample's value before the recorded span", () => {
+    const samples = [{ t: 10, value: 0.2 }, { t: 20, value: 0.4 }];
+    expect(sampleValueAt(samples, 3)).toBe(0.2);
+  });
+
+  it("clamps to the last sample's value after the recorded span", () => {
+    const samples = [{ t: 10, value: 0.2 }, { t: 20, value: 0.4 }];
+    expect(sampleValueAt(samples, 99)).toBe(0.4);
+  });
+
+  it("returns a sample's exact value when t lands on it", () => {
+    const samples = [{ t: 10, value: 0.2 }, { t: 20, value: 0.4 }];
+    expect(sampleValueAt(samples, 20)).toBe(0.4);
+  });
+
+  it("linearly interpolates between the two samples straddling t", () => {
+    const samples = [{ t: 10, value: 0.2 }, { t: 20, value: 0.6 }];
+    expect(sampleValueAt(samples, 15)).toBeCloseTo(0.4);
+  });
+
+  it("interpolates within the correct segment of a longer series", () => {
+    const samples = [{ t: 0, value: 0 }, { t: 10, value: 1 }, { t: 20, value: 0 }];
+    expect(sampleValueAt(samples, 15)).toBeCloseTo(0.5);
   });
 });

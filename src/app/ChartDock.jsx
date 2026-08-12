@@ -11,11 +11,20 @@
 // feedback that dragging directly on the chart didn't feel good. Dock height
 // is a separate, simpler drag-to-resize on the dock's own top edge; it has
 // no data dependency so it doesn't need a pure module of its own.
+//
+// Issue #38: each plotted machine's level line also gets a dot at every
+// timestamp that machine logged an interlock event, sourced from the same
+// combined `events` list (#29) the event log panel reads -- no second event
+// path. Clicking a dot calls `onEventClick` with the event's index in that
+// list; MeetingApp uses it to open/focus the panel and scroll to it.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 import { m3PerSecToTPerHour } from "../sim/units";
+import { sampleValueAt } from "../sim/plotHistory";
 import { PLOTTABLE_MACHINES, plotColorFor } from "./plotColors";
 import { useChartRange } from "./useChartRange";
+
+const EVENT_DOT_RADIUS = 3.5;
 
 const MARGIN = { left: 40, right: 44, top: 14, bottom: 24 };
 const PLOT_PADDING_LEFT = 8;
@@ -101,7 +110,7 @@ function useDockHeight() {
   return [height, onHandlePointerDown];
 }
 
-export default function ChartDock({ history }) {
+export default function ChartDock({ history, events, onEventClick }) {
   const [plotRef, size] = usePlotSize();
   const [dockHeight, onHandlePointerDown] = useDockHeight();
 
@@ -133,6 +142,33 @@ export default function ChartDock({ history }) {
     const bounds = dataMin > dataMax ? { start: 0, end: 1 } : { start: dataMin, end: dataMax };
     return { activeSeries: series, plottedMachines: plotted, dataBounds: bounds };
   }, [history]);
+
+  // Issue #38: one dot per event, anchored to its own machine's level line --
+  // interlock events are level-threshold crossings, so a rate-only view (no
+  // level series recorded for that machine) has nowhere natural to place one
+  // and is left without dots entirely, per the machine's own `entry.level`
+  // check below. `idx` is the event's position in the combined `events` list
+  // MeetingApp also hands EventLogPanel, so a click can identify exactly
+  // which event it was without a second event-fetching path of its own.
+  const eventDots = useMemo(() => {
+    if (!events || events.length === 0) return [];
+    const dots = [];
+    for (let idx = 0; idx < events.length; idx++) {
+      const e = events[idx];
+      const level = history.get(e.machineId)?.level;
+      if (!level || level.length === 0) continue;
+      // An event logged before this machine's level series started recording
+      // (e.g. it tripped, then the presenter toggled level plotting on later)
+      // has no real point on the drawn line to sit on -- sampleValueAt would
+      // clamp it to the line's first sample, placing a dot at that flat
+      // value out at the event's own (earlier) x, detached from where the
+      // line actually starts. Skipping it here keeps every dot genuinely on
+      // its machine's line rather than floating beside it.
+      if (e.t < level[0].t || e.t > level[level.length - 1].t) continue;
+      dots.push({ idx, t: e.t, value: sampleValueAt(level, e.t), color: plotColorFor(e.machineId) });
+    }
+    return dots;
+  }, [events, history]);
 
   let rateMaxRawTph = 0;
   for (const s of activeSeries) {
@@ -254,6 +290,21 @@ export default function ChartDock({ history }) {
                   />
                 );
               })}
+              {eventDots.map((d) => (
+                <circle
+                  key={d.idx}
+                  cx={x(d.t)}
+                  cy={yLevel(d.value * 100)}
+                  r={EVENT_DOT_RADIUS}
+                  fill={d.color}
+                  stroke={C.bg}
+                  strokeWidth="1"
+                  style={{ cursor: "pointer" }}
+                  onClick={() => onEventClick?.(d.idx)}
+                >
+                  <title>jump to event in log</title>
+                </circle>
+              ))}
             </g>
           </svg>
         )}
