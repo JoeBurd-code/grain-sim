@@ -51,6 +51,10 @@ Routing Middleware that Basic-auth gates every path against a shared password he
 Vercel environment. It does not run under `npm run dev`. Configuration, verification and
 the limits of what it protects are in `docs/DEPLOY_ACCESS.md`.
 
+## Browser verification
+
+Before using Claude in Chrome or Playwright to drive the app and verify a change, stop and ask first: offer the user the choice to check it themselves, or get their explicit go-ahead to proceed. Don't open a browser unprompted. This applies to any UI-facing change checked against the running dev server; it doesn't apply to `npm test` / `npm run lint`, which need no confirmation.
+
 ## Agent skills
 
 ### Issue tracker
