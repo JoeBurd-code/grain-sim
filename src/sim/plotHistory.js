@@ -46,16 +46,3 @@ export function recordSample(history, t, machineSnapshots) {
   }
   return next;
 }
-
-// Empties every currently-plotted series back to a fresh start, keeping
-// exactly which series are plotted unchanged -- the sim engine hook's reset
-// (issue #36's "full history since the last reset") calls this rather than
-// createPlotHistory() so a presenter's chosen series stay plotted across a
-// reset instead of needing to be re-toggled.
-export function clearPlotHistory(history) {
-  const next = new Map();
-  for (const [machineId, entry] of history) {
-    next.set(machineId, { level: entry.level ? [] : null, rate: entry.rate ? [] : null });
-  }
-  return next;
-}
