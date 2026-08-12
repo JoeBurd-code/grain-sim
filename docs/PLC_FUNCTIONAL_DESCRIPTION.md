@@ -45,15 +45,17 @@ rates, bin volumes), which was never this document's job.
 ## 2. Tag register (the big win)
 
 Of the 20 `TBC-nn` placeholders that were in `src/line/lineData.js` before this
-document, 13 now have a real, applied tag and one (`concettiMetalRemover`) was
-deleted because the FD shows the machine does not exist. Six remain
-placeholders, correctly: `wasteWaterIbc`, `binSegment`, `concettiScale`,
-`concettiFiller`, `palletising` and `grainBreak` are genuinely absent from the
-FD (out of PLC scope or, for the waste water IBC, out of demo scope). One
-further machine, the top transport conveyor, had a *real-looking but wrong*
-tag (`52.605.X00`, which the FD reassigns to the Concetti auto sampler) and
-has been demoted back to a placeholder (`TBC-21`) rather than left carrying a
-tag now known to be incorrect. See §8.3.
+document, 13 now have a real, applied tag and two (`concettiMetalRemover`,
+`binSegment`) were deleted because the FD (or, for `binSegment`, the FD read
+together with the drawing's own equipment roster) shows the machine does not
+exist as a separate node. Five remain placeholders, correctly: `wasteWaterIbc`,
+`concettiScale`, `concettiFiller`, `palletising` and `grainBreak` are genuinely
+absent from the FD (out of PLC scope or, for the waste water IBC, out of demo
+scope). One further machine, the top transport conveyor, had a *real-looking
+but wrong* tag (`52.605.X00`, which the FD reassigns to the Concetti auto
+sampler); it was demoted to a placeholder (`TBC-21`) and, as of 2026-08-12
+(issue #44), resolved outright — see §8.3, now updated to reflect that
+resolution.
 
 Sourced from the sequence lists (§3.2.3, §3.2.4) and the alarm tables
 (§2.4.6), which corroborate each other.
@@ -116,13 +118,17 @@ Sourced from the sequence lists (§3.2.3, §3.2.4) and the alarm tables
 
 ### Still unresolved
 
-`52.605.X00` turning out to be the Concetti auto sampler leaves the **top
-transport conveyor without a tag**, and §8.3 argues it may not be a separate
-machine at all. `52.608.H00` is the Pro Box station, so the "distribution
-hopper" we could not place does not exist. No tag anywhere for the **grain
-break**, the **Concetti bagging scale**, the **filling and sewing head**, or any
-**palletising** equipment: the Concetti line past its pre-bin is not in this
-PLC's scope (it is a vendor package with its own controller).
+`52.608.H00` is the Pro Box station, so the "distribution hopper" we could not
+place does not exist. No tag anywhere for the **grain break**, the **Concetti
+bagging scale**, the **filling and sewing head**, or any **palletising**
+equipment: the Concetti line past its pre-bin is not in this PLC's scope (it
+is a vendor package with its own controller).
+
+`52.605.X00` turning out to be the Concetti auto sampler had left the **top
+transport conveyor without a tag**; §8.3 argued it might not be a separate
+machine at all, and as of 2026-08-12 (issue #44) that reading is applied: it
+is the upper run of pendulum conveyor `52.604.E00`, not a separate machine.
+See §8.3.
 
 ## 3. Bulk density: a third bin corroborates the 0.72 t/m³ already in code
 
@@ -360,7 +366,7 @@ Sequence interlock #34 says "Scalping Screen Bin High / Fault
 a discharge hopper `52.603.H00` beneath it feeding the drum feeders. Marked
 [FD-INFERRED].
 
-### 8.3 The packaging bucket elevator and the "top transport conveyor"
+### 8.3 The packaging bucket elevator and the "top transport conveyor" (resolved 2026-08-12, issue #44)
 
 This is the structural one. The drawing reading gave branch B as: top conveyor →
 outload buffer bin `52.701.H00` → **bucket elevator `52.702.U00`** → grain break
@@ -383,9 +389,33 @@ for Flexicon, an unnamed third for the outload bins, and `52.604.E00.LS2` labell
 conveyor" and the "packaging bucket elevator" are one machine, and the
 20.5 L / 196 bucket / 120 m spec block on sheet 52-13 describes `52.604.E00`.
 
-This is inference, and it changes the scene topology, so it is the **one item on
-this list worth actually asking the engineer**: *"is the top distribution run a
-separate conveyor, or the upper horizontal of 52.604.E00?"*
+This was inference, and it changed the scene topology, so it was flagged as the
+**one item on this list worth actually asking the engineer**: *"is the top
+distribution run a separate conveyor, or the upper horizontal of 52.604.E00?"*
+
+**Resolved 2026-08-12 (issue #44), without waiting on the engineer.** The
+Packaging SCADA mimic itself (p.87) already answers the question: it shows one
+continuous path carrying one set of drive instruments, with no drive symbol
+anywhere on the upper run. Two independent machines would need two drives; one
+machine with a single drive and pneumatically switched outlets needs exactly
+one. That is a reading of the mimic, not a probabilistic inference, and it
+closes register item 26 (`REAL_LINE_SPECS.md` §12).
+
+Applied to `src/line/lineData.js`: the former `liftConveyor` and `topConveyor`
+are now one machine, `pendulumConveyor`, tagged `52.604.E00`, with the input
+ports for both inlet drum feeders and the output ports for all three
+pneumatically selected outlets. The phantom `52.702.U00` packaging bucket
+elevator this reading implied — never named in the FD, no lift shown anywhere
+on the outload branch — has been deleted, along with the duplicate "bin
+segment" machine (the "bin segment" of the drawing reading is the outload
+buffer bin `52.610.H00`, already modelled separately). The outload diverter is
+retagged `52.612.V00` (its old tag, `52.613.V00`, belongs to metal bin 1's own
+inlet slide gate), and the inlet drum feeders' sources are corrected to match
+the mimic: `52.603.L00` from the scalping screen, `52.603.L01` from the Pro
+Box. The grain break, which had been hung off the phantom elevator's
+discharge, is re-sited onto `52.604.E00`'s discharge into the outload buffer
+bin — a placement of convenience, since its exact position was never
+confirmed (flagged in `docs/OPEN_QUESTIONS.md`).
 
 ### 8.4 Concetti-branch metal remover: does not exist (removed 2026-08-05)
 

@@ -44,6 +44,13 @@
 > - **`52.701.H00` is the Flexicon Pre-Bin, not the outload buffer bin**, and
 >   `52.702.U00` appears nowhere in the FD. The branch-B routing below is wrong; see
 >   PLC_FUNCTIONAL_DESCRIPTION §8.3.
+> - **Applied 2026-08-12 [issue #44]: the packaging bucket elevator `52.702.U00` and
+>   the separate "top transport conveyor" do not exist.** `52.604.E00` is one Simatek
+>   E200 pendulum conveyor whose upper run carries all three outlets — confirmed by
+>   the Packaging mimic itself, not inference (§12 item 26 closed). `lineData.js`
+>   merges the former `liftConveyor` + `topConveyor` into `pendulumConveyor`, deletes
+>   `packagingElevator` and the duplicate `binSegment`, retags the outload diverter to
+>   `52.612.V00`, and swaps the inlet drum feeders' sources to match. See §6.
 > - **The Concetti-branch metal remover does not exist.** The FD names one metal
 >   remover on the whole line. This backs the engineer against the sheet 52-14
 >   cross-reference, and settles §12 item 23.
@@ -288,18 +295,18 @@ LSHH being the classic safety trip), **SS/ST** (machine actually running/speed),
 
 | Equipment (drawing label) | Tag | Status | Specs / instruments | Confidence |
 |---|---|---|---|---|
-| Inlet Drum Feeder 1 | 52.603.L00 | NEW | 20 t/h, 0.15 kW, .MX | [HIGH tag+kW, MED which-is-which vs L01] |
-| Inlet Drum Feeder 2 | 52.603.L01 | NEW | 20 t/h, 0.15 kW, .MX | [HIGH] |
+| Inlet Drum Feeder 1 | 52.603.L00 | NEW | 20 t/h, 0.15 kW, .MX. **Corrected 2026-08-12 [issue #44]**: the Packaging mimic settles which-is-which — this drawing label corresponds to `lineData.js`'s `inletDrumFeeder2` (fed by the scalping screen), not `inletDrumFeeder1` | [HIGH tag+kW, which-is-which now resolved] |
+| Inlet Drum Feeder 2 | 52.603.L01 | NEW | 20 t/h, 0.15 kW, .MX. **Corrected 2026-08-12 [issue #44]**: corresponds to `inletDrumFeeder1` (fed by the Pro Box) | [HIGH] |
 | Pro Box Unloading Station | **52.608.H00** | NEW | **Returns treated, stored seed to be re-bagged; ~1 day/month.** Feeds its own drum feeder (feeders are two independent units, one per branch). Resolves the "hopper the engineer did not recognise" | [CONFIRMED 2026-06-30; tag FD 2026-08-05] |
-| **Simatek E200 Bucket Elevator - Packaging** | **52.604.E00** | NEW | 4.0 kW (TBC) .MX, 20 t/h; **XA0 safe start alarm**, `LS0`/`LS1`/**`LS2` ("Outlet 3 (Waste) level switch")**, `PSL0`, `SS0`, `ZS12`, `XA4`; associated **Start-up Area Siren**. **Takes both drum feeders but only one runs at a time.** The FD calls this "Simatek E200 Bucket Elevator - Packaging" and never mentions `52.702.U00`, so the §8 spec block probably describes *this* machine; see PLC_FD §8.3 | [CONFIRMED 2026-06-30; naming FD 2026-08-05] |
-| Top transport conveyor | **no tag; may not be a separate machine** | | `52.605.X00` turns out to be the Concetti auto sampler, not this. The FD's three branches hang off "Selected Simatek Pneumatic Outlet"s, i.e. probably the **upper horizontal run of pendulum conveyor `52.604.E00`** with pneumatically selected discharge points. **The one open item worth asking the engineer**; see PLC_FD §8.3 | [FD-INFERRED] |
+| **Simatek E200 Pendulum Conveyor - Packaging** | **52.604.E00** | NEW | 4.0 kW (TBC) .MX, 20 t/h; **XA0 safe start alarm**, `LS0`/`LS1`/**`LS2` ("Outlet 3 (Waste) level switch")**, `PSL0`, `SS0`, `ZS12`, `XA4`; associated **Start-up Area Siren**. **Takes both drum feeders but only one runs at a time.** **Resolved 2026-08-12 [FD, issue #44]**: this is one machine, not a lift plus a separate top conveyor — see the "top transport conveyor" row below and PLC_FD §8.3. `lineData.js` models it as `pendulumConveyor`, merging the former `liftConveyor` and `topConveyor` | [CONFIRMED 2026-06-30; naming FD 2026-08-05; topology FD 2026-08-12] |
+| ~~Top transport conveyor~~ | ~~no tag; may not be a separate machine~~ | RESOLVED | **Resolved 2026-08-12 [FD, issue #44]: it is not a separate machine.** It is the upper horizontal run of pendulum conveyor `52.604.E00`, with pneumatically selected discharge points. The Packaging mimic (p.87) shows the three branches hanging off a plain distribution run with no drive symbol — closes §12 item 26 | [CONFIRMED, FD 2026-08-12] |
 | Simatek Pneumatic Outlet → Concetti | **52.604.V00** | NEW | `XV0` open / `XV1` close | [FD 2026-08-05] |
 | Simatek Pneumatic Outlet → Flexicon | **52.604.V01** | NEW | `XV0` open / `XV1` close | [FD 2026-08-05] |
 | Auto Sampler (Concetti branch) | **52.605.X00** | NEW | `XV0`; **pass-through, no holdup**; sample ~every 3 h | [CONFIRMED 2026-06-30; tag FD 2026-08-05] |
 | Auto Sampler (Flexicon branch) | **52.609.X00** | NEW | `XV0`; same | [CONFIRMED 2026-06-30; tag FD 2026-08-05] |
 | **Outload Buffer Bin** (this is the "Bin Segment") | **52.610.H00** | NEW | **4.51 m³ (3.25 t)**, `LSH0` + `LSL0`, **pneumatic hammer `52.610.X00`** (rev L); outlet valve `52.611.V00`; **SCADA-triggered discharge**. High level trips elevator `52.604.E00` after 5 s when this branch is selected | [CONFIRMED 2026-06-30 specs; tag FD 2026-08-05] |
 | Outload Diverter Valve | **52.612.V00** | NEW | `ZS1`/`ZS2`/`XV0`; outload chute hammer `52.612.X00` | [FD 2026-08-05] |
-| Grain Break | unknown, not in FD | NEW | on elevator discharge path (cascade chute slowing falling grain); **pass-through, no holdup**. The FD does not mention it, consistent with it being an unpowered chute | [CONFIRMED 2026-06-30] |
+| Grain Break | unknown, not in FD | NEW | cascade chute slowing falling grain; **pass-through, no holdup**. The FD does not mention it, consistent with it being an unpowered chute. **Re-sited 2026-08-12 [issue #44]**: its old parent, the phantom packaging bucket elevator, does not exist (see the pendulum conveyor row above); `lineData.js` now places it on `52.604.E00`'s discharge into the outload buffer bin, but its exact position was never confirmed — flagged in `docs/OPEN_QUESTIONS.md` for engineer follow-up | [CONFIRMED 2026-06-30 exists; position OPEN] |
 | Treated Outload Metal Bin 1 | 52.613.H00 | NEW | LT0 level transmitter; fed via inlet slide gate 52.613.V00 (NEW, ZS1/ZS2, XV0). High level trips `52.604.E00` after 5 s | [HIGH] |
 | Treated Outload Metal Bin 2 | 52.613.H01 | NEW | LT0 level transmitter; fed via inlet slide gate 52.613.V01 (NEW, ZS1/ZS2, XV0) | [HIGH] |
 | **Flexicon Pre-Bin** | **52.701.H00** (outlet valve `52.701.V00`) | RELOCATED | `LSH0` + `LSL0`. **Correction: `52.701.H00` is this bin, not the outload buffer bin** | [FD 2026-08-05] |
@@ -310,7 +317,7 @@ LSHH being the classic safety trip), **SS/ST** (machine actually running/speed),
 | Inline Belt Scale | 52.704.K00 | RELOCATED | sits within the roller conveyor row (between conveyors 2 and 3 by layout) | [HIGH tag, MED position] |
 | Start-up Area Siren | tied to 52.604.E00 (XA0) | NEW | **Sounds 20 s before any motion**; covers any equipment in the area | [CONFIRMED 2026-06-30] |
 | Auto Samplers (Concetti + Big Bag branches) | unknown | NEW | **Pass-through, no holdup.** Sample taken ~every 3 hours / per QC team | [CONFIRMED 2026-06-30] |
-| Outload Diverter | 52.613.V00/V01 | NEW | **A single diverter; operators decide which of bin 1/2 is fed** | [CONFIRMED 2026-06-30] |
+| Outload Diverter | **52.612.V00** (drawing-era reading said `52.613.V00/V01`) | NEW | **A single diverter; operators decide which of bin 1/2 is fed.** Same device as the "Outload Diverter Valve" row above — `52.613.V00`/`V01` are the two metal bins' own inlet slide gates, not the diverter itself; see PLC_FD §8.3 | [CONFIRMED 2026-06-30 behaviour; tag FD 2026-08-05, applied 2026-08-12 issue #44] |
 
 Off-sheet references **[HIGH]**: in = "FROM TREATMENT SCALPING SCREEN 52.602.F00 -
 SHEET 52-12"; out = "TO CONCETTI BAGGING LINE 2 PRE-BIN 52.705.H00 - SHEET 52-14".
@@ -324,11 +331,11 @@ have two discrete opening positions, two actuators, and an empty-out cycle.
 
 Two infeeds converge, one distribution conveyor splits three ways:
 
-1. Scalping screen product (from 52-12) → Inlet Drum Feeder (one of 52.603.L00/L01) **[HIGH]**
-2. Pro Box Unloading Station → the other Inlet Drum Feeder **[HIGH]** (feeders are two independent units, one per branch) **[CONFIRMED 2026-06-30]**
-3. Both drum feeders → 52.604.E00 (4 kW lift) → top transport conveyor. **Only one drum feeder runs at a time; they never run together** — this resolves the previously MED edge **[CONFIRMED 2026-06-30]**
+1. Scalping screen product (from 52-12) → Inlet Drum Feeder **52.603.L00** (`inletDrumFeeder2` in `lineData.js`) **[HIGH; source corrected 2026-08-12, issue #44]**
+2. Pro Box Unloading Station → Inlet Drum Feeder **52.603.L01** (`inletDrumFeeder1` in `lineData.js`) **[CONFIRMED 2026-06-30; source corrected 2026-08-12]** (feeders are two independent units, one per branch)
+3. Both drum feeders → `52.604.E00`, one Simatek E200 pendulum conveyor (4 kW lift, floor run + climb, then the ceiling run carrying all three outlets — **resolved 2026-08-12, not a lift-then-separate-conveyor pair**, see the equipment roster above). **Only one drum feeder runs at a time; they never run together** — this resolves the previously MED edge **[CONFIRMED 2026-06-30]**
 4. Branch A: Simatek Pneumatic Outlet `52.604.V00` → Auto Sampler `52.605.X00` → **Concetti Bagging Line 2 Pre-Bin 52.705.H00 (sheet 52-14)**. **The metal remover on this branch does not exist** — the FD names exactly one metal remover on the line (`52.501.F00`, treating side) and the Packaging mimic shows none here, which backs the engineer against the sheet 52-14 cross-reference **[CONFIRMED FD 2026-08-05]**
-5. Branch B: Simatek Pneumatic Outlet (third outlet, unnamed) → **Outload Buffer Bin `52.610.H00`** → outlet valve `52.611.V00` → diverter `52.612.V00` → inlet gates `52.613.V00`/`V01` → **Treated Outload Metal Bins 1/2 (`52.613.H00`/`H01`)**. **Corrected 2026-08-05**: there is no second bucket elevator and no `52.701.H00` on this branch; the earlier reading conflated the Flexicon pre-bin with the outload buffer bin **[FD]**
+5. Branch B: Simatek Pneumatic Outlet (third outlet, unnamed) → grain break (unsited, see the equipment roster above) → **Outload Buffer Bin `52.610.H00`** → outlet valve `52.611.V00` (not yet modelled) → diverter `52.612.V00` → inlet gates `52.613.V00`/`V01` → **Treated Outload Metal Bins 1/2 (`52.613.H00`/`H01`)**. **Corrected 2026-08-05**: there is no second bucket elevator and no `52.701.H00` on this branch; the earlier reading conflated the Flexicon pre-bin with the outload buffer bin **[FD]**
 6. Branch C: Simatek Pneumatic Outlet `52.604.V01` → Auto Sampler `52.609.X00` → **Flexicon Pre-Bin `52.701.H00`** (+ outlet valve `52.701.V00`) → **Vibrating Conveyor `52.702.C00`** → **Flexicon Filling Head `52.703.L00`** → big bag riding Motorised Roller Conveyors 1..4 over the Inline Belt Scale 52.704.K00. **Corrected 2026-08-05**: the "Bin Segment" of the earlier reading is the branch-B outload buffer bin, not a separate bin on this branch **[FD]**
 7. Discharge of Metal Bins 1/2 (truck outload?) — **not shown / not captured** (§12)
 
@@ -373,7 +380,14 @@ discrete bag-and-pallet handling. Natural sim sink = bagged product counter.
 Both are Simatek E200 **pendulum** bucket conveyors (Z-shaped path: lower horizontal →
 vertical lift → upper horizontal), which is why they have horizontal run lengths.
 
-| Parameter | Packaging elevator 52.702.U00 (sheet 52-13, exact) | Treating elevator (sheet 52-12, low-res) |
+**Corrected 2026-08-12 [FD, issue #44]:** the sheet 52-13 spec block below was originally
+read against tag `52.702.U00`, which does not exist (see the equipment roster in §6). The
+FD names exactly one Simatek E200 on the packaging side, `52.604.E00`, so this spec block
+describes *that* machine — the pendulum conveyor, not a separate bucket elevator. The
+numbers themselves (bucket volume, chain speed, bucket count, run lengths) are unchanged;
+only the tag they belong to is corrected.
+
+| Parameter | Packaging pendulum conveyor 52.604.E00 (sheet 52-13, exact) | Treating elevator (sheet 52-12, low-res) |
 |---|---|---|
 | Volume per bucket | 20.5 L | 20.5 L |
 | Chain speed | 10.08 m/min | 10.08 m/min |
@@ -385,7 +399,7 @@ vertical lift → upper horizontal), which is why they have horizontal run lengt
 | Motor | 5.0 kW, .MX (fill to confirm, 50% normal) | **1.5 kW with VFD** [CONFIRMED 2026-06-30] |
 | Normal operating fill | **50%** [CONFIRMED 2026-06-30] | **50%** [CONFIRMED 2026-06-30] |
 
-Operating output table for 52.702.U00 (exact, at 100% speed / 50 Hz):
+Operating output table for 52.604.E00 (exact, at 100% speed / 50 Hz):
 
 | Filling degree | TPH | kg/min |
 |---|---|---|
@@ -410,13 +424,15 @@ batch treater** (chemical from Formulation sheet 52-15, waste water to an IBC). 
 seed surges through a 0.67 m³ after-bin to the **scalping screen 52.602.F00**, which
 discards scalpings to a waste bin and sends product to sheet 52-13. There it lands in
 an inlet drum feeder (a second drum feeder takes returned product from the **Pro Box
-unloading station**), lifts via 52.604.E00 to the top distribution conveyor, and splits
-three ways: (A) through an auto sampler and metal remover to the **Concetti bagging
-line 2** (pre-bin → ~12 t/h scale → fill/sew → palletiser); (B) into the outload buffer
-bin, up the **packaging bucket elevator 52.702.U00**, through the grain break and
-diverters into **treated outload metal bins 1 and 2**; (C) through an auto sampler into
-the 4.51 m³ **bin segment**, then Flexicon pre-bin → vibrating conveyor → **Flexicon
-big-bag filling head** (bag on roller conveyors over an inline belt scale). Equipment
+unloading station**), and both feeders lift via the single **pendulum conveyor
+52.604.E00** to its upper run, which splits three ways at pneumatically selected
+outlets **[corrected 2026-08-12, issue #44: one machine, not a lift-then-conveyor
+pair]**: (A) through an auto sampler to the **Concetti bagging line 2** (pre-bin →
+~12 t/h scale → fill/sew → palletiser); (B) through the grain break into the **4.51 m³
+outload buffer bin**, then straight (no second elevator) through the diverter into
+**treated outload metal bins 1 and 2**; (C) through an auto sampler into the
+**Flexicon pre-bin**, then vibrating conveyor → **Flexicon big-bag filling head** (bag
+on roller conveyors over an inline belt scale). Equipment
 capacity is ~20 t/h, but **sustained line rate is ~12 t/h, choked at the batch treater**
 (160 kg / ~40 s ≈ 14.4 t/h), which the engineer names as the slowest point. Only one of
 the three outload branches runs at a time, selected by operators. The product is **maize,
@@ -597,9 +613,16 @@ always the same crop**, with size/shape varying ~10%. **[CONFIRMED 2026-06-30]**
 
 **Newly raised by the Functional Description:**
 
-26. **[OPEN, worth asking]** Is the top distribution run a separate conveyor, or the upper
-    horizontal of pendulum conveyor `52.604.E00` with pneumatically selected outlets? This
-    changes the scene topology. See PLC_FD §8.3.
+26. **[RESOLVED, FD; applied 2026-08-12, issue #44]** The top distribution run is not a
+    separate conveyor: it is the upper horizontal of pendulum conveyor `52.604.E00` with
+    pneumatically selected outlets. The Packaging mimic (PLC_FD §8.3) shows one
+    continuous path carrying one set of drive instruments and no drive symbol anywhere on
+    the upper run — a reading of the mimic itself, not inference. `lineData.js`'s former
+    `liftConveyor` and `topConveyor` are now one machine, `pendulumConveyor`, tagged
+    `52.604.E00`. This also removed the phantom packaging bucket elevator `52.702.U00`
+    (nowhere in the FD, no lift shown on the outload branch) and the duplicate "bin
+    segment" machine (§6's flow item 6 already identified the drawing-reading's "Bin
+    Segment" as the branch-B outload buffer bin, `52.610.H00`, not a separate vessel).
 27. **[OPEN, minor]** Buffer bin tag `52.502.H00` (sequences) vs `52.501.H00` (alarm
     tables), a straight typo either way. PLC_FD §8.1.
 28. **[OPEN]** The CS Inload Box Dumper `52.417.L00` is a **second source into treating**,
