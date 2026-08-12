@@ -11,6 +11,7 @@ import {
   setBatchSize, setBatchCycleSec, setSplitterWasteFraction, getCombinedEvents,
 } from "./engine";
 import { BEHAVIORS } from "./behaviors";
+import { createPlotHistory, setSeriesPlotted, recordSample, clearPlotHistory } from "./plotHistory";
 
 const MAX_STEPS_PER_FRAME = 60;
 const PUBLISH_INTERVAL_MS = 100;
@@ -45,6 +46,11 @@ export function useSimEngine(line) {
   const [snap, setSnap] = useState(() => publishSnap(sim));
   const [running, setRunning] = useState(false);
   const [speed, setSpeed] = useState(5);
+  // Issue #36: the shared chart's recorded series live here, not in the page
+  // component, since this hook already owns the throttled publish cadence
+  // that determines the graph's sample rate -- every recordSample call below
+  // rides the same `publish` this hook already runs on.
+  const [history, setHistory] = useState(() => createPlotHistory());
 
   const runRef = useRef(false);
   const speedRef = useRef(speed);
@@ -59,7 +65,11 @@ export function useSimEngine(line) {
 
   useEffect(() => { speedRef.current = speed; }, [speed]);
 
-  const publish = useCallback(() => setSnap(publishSnap(sim)), [sim]);
+  const publish = useCallback(() => {
+    const s = publishSnap(sim);
+    setSnap(s);
+    setHistory((prev) => recordSample(prev, s.t, s.machines));
+  }, [sim]);
 
   const loop = useCallback((ts) => {
     if (!runRef.current) return;
@@ -111,8 +121,19 @@ export function useSimEngine(line) {
     resetSim(sim);
     lastTsRef.current = 0;
     budgetRef.current = 0;
+    // Empties currently-plotted series rather than un-plotting them (issue
+    // #36's "full history since the last reset"), so a presenter's chosen
+    // series stay plotted across a reset instead of needing re-toggling.
+    setHistory((prev) => clearPlotHistory(prev));
     publish();
   }, [sim, pause, publish]);
+
+  // Toggles one machine's level/rate series on or off (issue #36). Reads the
+  // latest history via the functional updater rather than closing over the
+  // `history` state value, so rapid double-toggles never race a stale read.
+  const togglePlotSeries = useCallback((machineId, kind) => {
+    setHistory((prev) => setSeriesPlotted(prev, machineId, kind, !(prev.get(machineId)?.[kind] != null)));
+  }, []);
 
   const setRate = useCallback((machineId, rateM3PerSec) => {
     setSourceRate(sim, machineId, rateM3PerSec);
@@ -194,5 +215,6 @@ export function useSimEngine(line) {
     setInterlockHigh, setInterlockLow, setInterlockDelay, setElevatorSpeed: setElevatorSpeedFraction,
     setInterlockSlow, setInterlockStop, setInterlockSlowDelay, setInterlockStopDelay,
     setBatchSize: setBatchSizeM3, setBatchCycleTime, setWasteFraction,
+    history, togglePlotSeries,
   };
 }

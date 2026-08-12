@@ -1,0 +1,119 @@
+// Unit tests over plotHistory.js's pure state machine, exercised the same
+// way control.test.js exercises the interlock state machine: fabricated
+// state and a fabricated sequence of publish ticks, no engine.js, no
+// rendering involved (issue #36's acceptance criteria).
+import { describe, it, expect } from "vitest";
+import {
+  createPlotHistory, isSeriesPlotted, setSeriesPlotted, recordSample, clearPlotHistory,
+} from "./plotHistory";
+
+function snap(fill, flowRateM3PerSec) {
+  return new Map([["bin", { fill, flowRateM3PerSec }]]);
+}
+
+describe("setSeriesPlotted", () => {
+  it("starts an empty series when toggled on", () => {
+    const h = setSeriesPlotted(createPlotHistory(), "bin", "level", true);
+    expect(isSeriesPlotted(h, "bin", "level")).toBe(true);
+    expect(h.get("bin").level).toEqual([]);
+  });
+
+  it("leaves the machine's other series untouched", () => {
+    let h = setSeriesPlotted(createPlotHistory(), "bin", "level", true);
+    h = setSeriesPlotted(h, "bin", "rate", true);
+    expect(isSeriesPlotted(h, "bin", "level")).toBe(true);
+    expect(isSeriesPlotted(h, "bin", "rate")).toBe(true);
+  });
+
+  it("removes the machine entirely once its last series is toggled off", () => {
+    let h = setSeriesPlotted(createPlotHistory(), "bin", "level", true);
+    h = setSeriesPlotted(h, "bin", "level", false);
+    expect(h.has("bin")).toBe(false);
+  });
+
+  it("is a no-op that returns the same reference when the requested state already holds", () => {
+    const empty = createPlotHistory();
+    expect(setSeriesPlotted(empty, "bin", "level", false)).toBe(empty);
+    const plotted = setSeriesPlotted(empty, "bin", "level", true);
+    expect(setSeriesPlotted(plotted, "bin", "level", true)).toBe(plotted);
+  });
+});
+
+describe("recordSample", () => {
+  it("records nothing for a series that was never toggled on", () => {
+    const h = recordSample(createPlotHistory(), 1, snap(0.5, 0.01));
+    expect(h.size).toBe(0);
+  });
+
+  it("begins recording from the moment a series is toggled on, not retroactively", () => {
+    let h = createPlotHistory();
+    h = recordSample(h, 1, snap(0.2, 0.001)); // before toggle: nothing plotted yet
+    h = setSeriesPlotted(h, "bin", "level", true);
+    h = recordSample(h, 2, snap(0.3, 0.002));
+    h = recordSample(h, 3, snap(0.4, 0.003));
+    expect(h.get("bin").level).toEqual([{ t: 2, value: 0.3 }, { t: 3, value: 0.4 }]);
+  });
+
+  it("records level and rate independently per their own toggle", () => {
+    let h = createPlotHistory();
+    h = setSeriesPlotted(h, "bin", "rate", true);
+    h = recordSample(h, 1, snap(0.5, 0.01));
+    h = setSeriesPlotted(h, "bin", "level", true);
+    h = recordSample(h, 2, snap(0.6, 0.02));
+    expect(h.get("bin").rate).toEqual([{ t: 1, value: 0.01 }, { t: 2, value: 0.02 }]);
+    expect(h.get("bin").level).toEqual([{ t: 2, value: 0.6 }]);
+  });
+
+  it("discards a series' entire history the instant it's toggled off", () => {
+    let h = createPlotHistory();
+    h = setSeriesPlotted(h, "bin", "level", true);
+    h = recordSample(h, 1, snap(0.5, 0.01));
+    h = recordSample(h, 2, snap(0.6, 0.01));
+    expect(h.get("bin").level).toHaveLength(2);
+    h = setSeriesPlotted(h, "bin", "level", false);
+    expect(isSeriesPlotted(h, "bin", "level")).toBe(false);
+  });
+
+  it("starts a clean, empty series when re-plotted after being toggled off, not a gapped one", () => {
+    let h = createPlotHistory();
+    h = setSeriesPlotted(h, "bin", "level", true);
+    h = recordSample(h, 1, snap(0.5, 0.01));
+    h = recordSample(h, 2, snap(0.6, 0.01));
+    h = setSeriesPlotted(h, "bin", "level", false);
+    h = setSeriesPlotted(h, "bin", "level", true);
+    expect(h.get("bin").level).toEqual([]);
+    h = recordSample(h, 5, snap(0.9, 0.01));
+    expect(h.get("bin").level).toEqual([{ t: 5, value: 0.9 }]);
+  });
+
+  it("leaves a machine's series unchanged when its snapshot is absent from a given tick", () => {
+    let h = createPlotHistory();
+    h = setSeriesPlotted(h, "bin", "level", true);
+    h = recordSample(h, 1, snap(0.5, 0.01));
+    h = recordSample(h, 2, new Map()); // no snapshot for "bin" this tick
+    expect(h.get("bin").level).toEqual([{ t: 1, value: 0.5 }]);
+  });
+});
+
+describe("clearPlotHistory", () => {
+  it("empties every plotted series but keeps them plotted", () => {
+    let h = createPlotHistory();
+    h = setSeriesPlotted(h, "bin", "level", true);
+    h = setSeriesPlotted(h, "bin", "rate", true);
+    h = recordSample(h, 1, snap(0.5, 0.01));
+    h = clearPlotHistory(h);
+    expect(isSeriesPlotted(h, "bin", "level")).toBe(true);
+    expect(isSeriesPlotted(h, "bin", "rate")).toBe(true);
+    expect(h.get("bin").level).toEqual([]);
+    expect(h.get("bin").rate).toEqual([]);
+  });
+
+  it("resumes recording fresh samples after a reset", () => {
+    let h = createPlotHistory();
+    h = setSeriesPlotted(h, "bin", "level", true);
+    h = recordSample(h, 10, snap(0.9, 0.01));
+    h = clearPlotHistory(h);
+    h = recordSample(h, 0, snap(0.1, 0.01)); // sim time restarted at 0
+    expect(h.get("bin").level).toEqual([{ t: 0, value: 0.1 }]);
+  });
+});

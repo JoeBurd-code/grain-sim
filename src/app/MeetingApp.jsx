@@ -14,6 +14,8 @@ import EventLogPanel from "./EventLogPanel";
 import { useViewport } from "../scene/useViewport";
 import { useSimEngine } from "../sim/useSimEngine";
 import { tPerHourToM3PerSec, m3PerSecToTPerHour, BULK_DENSITY_T_PER_M3 } from "../sim/units";
+import { isSeriesPlotted } from "../sim/plotHistory";
+import { plotColorFor } from "./plotColors";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 
 // Params that opt into live sim control declare `bind`; anything without
@@ -91,7 +93,6 @@ const zoneBtnStyle = {
 
 export default function MeetingApp() {
   const [selectedId, setSelectedId] = useState(null);
-  const [plotted, setPlotted] = useState(() => new Set());
   const [eventPanelOpen, setEventPanelOpen] = useState(false);
   const selected = line.machines.find((m) => m.id === selectedId);
 
@@ -99,14 +100,6 @@ export default function MeetingApp() {
   const { containerRef, vb, fitTo, wasDrag, handlers } = useViewport(home);
   const engine = useSimEngine(line);
 
-  const togglePlot = useCallback((id) => {
-    setPlotted((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
   const closePopup = useCallback(() => setSelectedId(null), []);
   const onParamChange = useCallback(
     (machineId, param, value) => PARAM_BINDERS[param.bind]?.(engine, machineId, value),
@@ -188,8 +181,10 @@ export default function MeetingApp() {
             <MachinePopup
               key={selected.id}
               machine={selected}
-              plotted={plotted}
-              onTogglePlot={togglePlot}
+              levelPlotted={isSeriesPlotted(engine.history, selected.id, "level")}
+              ratePlotted={isSeriesPlotted(engine.history, selected.id, "rate")}
+              plotColor={plotColorFor(selected.id)}
+              onToggleSeries={(kind) => engine.togglePlotSeries(selected.id, kind)}
               onClose={closePopup}
               onParamChange={onParamChange}
               onParamRead={onParamRead}
@@ -213,7 +208,7 @@ export default function MeetingApp() {
         </main>
       )}
 
-      {validation.ok && <ChartDock machines={line.machines} plotted={plotted} />}
+      {validation.ok && <ChartDock history={engine.history} />}
     </div>
   );
 }
