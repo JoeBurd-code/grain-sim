@@ -46,3 +46,25 @@ export function recordSample(history, t, machineSnapshots) {
   }
   return next;
 }
+
+// Linearly interpolates a recorded series' value at time t, for placing an
+// event marker (issue #38) on a level line between the two samples that
+// straddle its timestamp -- event ticks and the throttled publish cadence
+// that produces `samples` aren't the same clock, so an event's exact instant
+// rarely lands on a recorded sample. Clamps to the nearest endpoint's value
+// for a t outside the recorded span; returns null for an empty series.
+export function sampleValueAt(samples, t) {
+  if (samples.length === 0) return null;
+  if (t <= samples[0].t) return samples[0].value;
+  const last = samples[samples.length - 1];
+  if (t >= last.t) return last.value;
+  for (let i = 1; i < samples.length; i++) {
+    const b = samples[i];
+    if (b.t >= t) {
+      const a = samples[i - 1];
+      const frac = b.t === a.t ? 0 : (t - a.t) / (b.t - a.t);
+      return a.value + (b.value - a.value) * frac;
+    }
+  }
+  return last.value;
+}

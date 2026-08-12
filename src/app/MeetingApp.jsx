@@ -2,7 +2,7 @@
 // line definition with pan/zoom navigation. The full header chrome (transport
 // stubs, legend, chart dock) lands with issue #9; zone buttons here are the
 // provisional form from issue #5.
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { line } from "../line/lineData";
 import { validateLine } from "../line/validateLine";
 import { lineBounds, zoneBounds } from "../line/bounds";
@@ -94,6 +94,8 @@ const zoneBtnStyle = {
 export default function MeetingApp() {
   const [selectedId, setSelectedId] = useState(null);
   const [eventPanelOpen, setEventPanelOpen] = useState(false);
+  const [eventJump, setEventJump] = useState(null);
+  const jumpTokenRef = useRef(0);
   const selected = line.machines.find((m) => m.id === selectedId);
 
   const home = useMemo(() => lineBounds(line), []);
@@ -109,6 +111,17 @@ export default function MeetingApp() {
     (machineId, param) => PARAM_READERS[param.readBind]?.(engine.snap.machines.get(machineId)) ?? null,
     [engine.snap]
   );
+
+  // Issue #38: a chart event dot reports the clicked event's index in the
+  // same combined `events` list the panel below reads, so opening/focusing
+  // the panel and jumping it to that event need no second event lookup.
+  // `token` always changes so re-clicking the same dot re-triggers the
+  // scroll even when the panel is already open and already there.
+  const onEventMarkerClick = useCallback((idx) => {
+    setEventPanelOpen(true);
+    jumpTokenRef.current += 1;
+    setEventJump({ idx, token: jumpTokenRef.current });
+  }, []);
 
   return (
     <div style={{ background: C.bg, color: C.text, height: "100vh", display: "flex", flexDirection: "column", fontFamily: FONT_MONO }}>
@@ -196,6 +209,7 @@ export default function MeetingApp() {
               machines={interlockedMachines}
               events={engine.snap.events}
               onClose={() => setEventPanelOpen(false)}
+              jumpTo={eventJump}
             />
           )}
         </main>
@@ -208,7 +222,9 @@ export default function MeetingApp() {
         </main>
       )}
 
-      {validation.ok && <ChartDock history={engine.history} />}
+      {validation.ok && (
+        <ChartDock history={engine.history} events={engine.snap.events} onEventClick={onEventMarkerClick} />
+      )}
     </div>
   );
 }

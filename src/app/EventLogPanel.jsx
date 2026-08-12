@@ -3,15 +3,28 @@
 // combined event list engine.js/control.js already publish (issue #29) —
 // this panel is a pure view over that one source of truth, independent of
 // each machine's own popup event log (MachinePopup.jsx), which is left as-is.
+//
+// `jumpTo` (issue #38) is a `{ idx, token }` naming one entry's position in
+// the untouched `events` list -- the same index a chart event dot's click
+// reports (ChartDock.jsx). `token` changes on every click, including
+// re-clicks of the same dot, so the scroll re-fires even when the target was
+// already on screen. Jumping always shows the target regardless of the
+// current per-machine filter: its machine is unhidden first if needed, via
+// the "adjust state during render" pattern (not an effect) so the unhide is
+// committed before this same render's `ordered` list and row refs are built
+// -- see https://react.dev/learn/you-might-not-need-an-effect.
 import { useLayoutEffect, useRef, useState } from "react";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 
 const TAG_COLORS = [C.wheat, C.green, "#5a9ea0", C.red, "#b07cc6", C.amber];
 
-export default function EventLogPanel({ machines, events, onClose }) {
+export default function EventLogPanel({ machines, events, onClose, jumpTo }) {
   const [hidden, setHidden] = useState(() => new Set());
+  const [handledJumpToken, setHandledJumpToken] = useState(null);
   const scrollRef = useRef(null);
   const prevHeightRef = useRef(null);
+  const rowRefs = useRef(new Map());
+  const scrolledJumpTokenRef = useRef(null);
 
   const toggleMachine = (id) => {
     setHidden((prev) => {
@@ -21,6 +34,16 @@ export default function EventLogPanel({ machines, events, onClose }) {
       return next;
     });
   };
+
+  if (jumpTo && jumpTo.token !== handledJumpToken) {
+    const target = events[jumpTo.idx];
+    if (target && hidden.has(target.machineId)) {
+      const next = new Set(hidden);
+      next.delete(target.machineId);
+      setHidden(next);
+    }
+    setHandledJumpToken(jumpTo.token);
+  }
 
   // Tag with each event's position in the untouched chronological list so
   // React keys stay stable across re-filtering and reversal, then filter
@@ -35,15 +58,30 @@ export default function EventLogPanel({ machines, events, onClose }) {
   // was anchored to shifts downward, reading as a jump to the reader.
   // Compensating scrollTop by the resulting height delta keeps whatever
   // was on screen in place regardless of where the reader had scrolled to.
+  //
+  // An unscrolled jumpTo takes priority over that compensation for this
+  // render: scroll straight to the target row instead. By the time this
+  // effect runs, the render-time unhide above has already committed and
+  // `ordered` reflects it, so the target row is in `rowRefs` whenever the
+  // jump names a real event.
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    if (jumpTo && jumpTo.token !== scrolledJumpTokenRef.current) {
+      const row = rowRefs.current.get(jumpTo.idx);
+      scrolledJumpTokenRef.current = jumpTo.token;
+      if (row) {
+        row.scrollIntoView({ block: "center" });
+        prevHeightRef.current = el.scrollHeight;
+        return;
+      }
+    }
     if (prevHeightRef.current !== null) {
       const diff = el.scrollHeight - prevHeightRef.current;
       if (diff !== 0) el.scrollTop += diff;
     }
     prevHeightRef.current = el.scrollHeight;
-  }, [events, hidden]);
+  }, [events, hidden, jumpTo]);
 
   const sectionTitle = {
     fontSize: 9, color: C.muted, letterSpacing: 2, textTransform: "uppercase",
@@ -109,7 +147,14 @@ export default function EventLogPanel({ machines, events, onClose }) {
               const idx = machines.findIndex((m) => m.id === e.machineId);
               const color = TAG_COLORS[(idx < 0 ? 0 : idx) % TAG_COLORS.length];
               return (
-                <div key={e._idx} style={{ fontSize: 10, lineHeight: 1.4 }}>
+                <div
+                  key={e._idx}
+                  ref={(el) => {
+                    if (el) rowRefs.current.set(e._idx, el);
+                    else rowRefs.current.delete(e._idx);
+                  }}
+                  style={{ fontSize: 10, lineHeight: 1.4 }}
+                >
                   <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
                     <span style={{ color: C.wheat }}>{e.t.toFixed(1)}s</span>
                     <span style={{ color, fontSize: 8, letterSpacing: 0.5, textTransform: "uppercase" }}>
