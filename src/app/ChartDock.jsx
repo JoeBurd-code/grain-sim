@@ -33,6 +33,11 @@ import { useMeasure } from "./useMeasure";
 
 const EVENT_DOT_RADIUS = 3.5;
 
+// Silver-white, distinct from every plotted machine's own palette color
+// (plotColors.js) and from the wheat accent the zoom/shift sliders use, so
+// a measurement never reads as if it belongs to one particular machine.
+const MEASURE_COLOR = "#e4e7ea";
+
 const MARGIN = { left: 40, right: 44, top: 14, bottom: 24 };
 const PLOT_PADDING_LEFT = 8;
 const PLOT_PADDING_RIGHT = 14;
@@ -72,9 +77,9 @@ function MeasureToggle({ active, onClick }) {
       title={active ? "exit measure mode (Esc)" : "drag to measure a time span"}
       style={{
         display: "block", width: "100%", marginBottom: 12,
-        background: active ? C.wheat : "transparent",
+        background: active ? MEASURE_COLOR : "transparent",
         color: active ? "#1a1a14" : C.muted,
-        border: `1px solid ${active ? C.wheat : C.line}`,
+        border: `1px solid ${active ? MEASURE_COLOR : C.line}`,
         borderRadius: 4, cursor: "pointer", fontFamily: FONT_MONO,
         fontSize: 10, letterSpacing: 1, padding: "6px 10px",
       }}
@@ -318,9 +323,9 @@ export default function ChartDock({ history, events, onEventClick }) {
                   y={plotTop}
                   width={Math.abs(measureX2 - measureX1)}
                   height={plotH}
-                  fill={C.wheat}
+                  fill={MEASURE_COLOR}
                   fillOpacity={0.15}
-                  stroke={C.wheat}
+                  stroke={MEASURE_COLOR}
                   strokeOpacity={0.6}
                   strokeWidth="1"
                 />
@@ -358,7 +363,7 @@ export default function ChartDock({ history, events, onEventClick }) {
                 <text
                   x={Math.min(Math.max((measureX1 + measureX2) / 2, plotLeft + 26), plotRight - 26)}
                   y={plotTop + 12}
-                  fontFamily={FONT_MONO} fontSize="9" fill={C.wheat} textAnchor="middle"
+                  fontFamily={FONT_MONO} fontSize="9" fill={MEASURE_COLOR} textAnchor="middle"
                 >
                   Δ {(measure.span.end - measure.span.start).toFixed(1)}s
                 </text>
