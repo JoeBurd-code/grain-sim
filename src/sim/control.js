@@ -136,14 +136,17 @@ export function primeInstruments(control, machines) {
 
 // Phase machine (issue #19 — the buffer bin closes the source valve, late):
 //   open -> [level >= highSetpoint] -> delayedClose -> [delay elapses,
-//   command close] -> closing -> [valve settles at 0] -> closed ->
-//   [level <= lowSetpoint] -> delayedOpen -> [delay elapses, command open]
-//   -> opening -> [valve settles at 1] -> open
-// A trip latches: once armed, a delayed action always fires, even if the
-// level recrosses the set point before the delay elapses (real interlocks
-// don't cancel on a transient — and by design the level only keeps
-// climbing during the closing delay, which is the overshoot this issue
-// exists to demonstrate).
+//   command close] -> closing -> [valve settles at 0] -> closed
+// A trip latches twice over. First, once armed, a delayed action always
+// fires, even if the level recrosses the set point before the delay
+// elapses (real interlocks don't cancel on a transient — and by design the
+// level only keeps climbing during the closing delay, which is the
+// overshoot this issue exists to demonstrate). Second, and per issue #45:
+// "closed" is a terminal state the level falling back past lowSetpoint no
+// longer exits on its own — the FD is explicit that a trip requires a
+// SCADA reset before the device can run again (docs/OPEN_QUESTIONS.md, the
+// "no automatic reopen" finding). Only resetThresholdTrip below can move a
+// rule out of "closed", and only when the level has actually cleared.
 function initThresholdTrip(cfg) {
   return {
     kind: "thresholdTrip",
@@ -167,20 +170,12 @@ function stepThresholdTrip(rule, sim) {
   if (rule.phase === "open" && level >= rule.highSetpoint) {
     rule.phase = "delayedClose";
     rule.fireAt = sim.t + rule.signalDelaySec;
-  } else if (rule.phase === "closed" && level <= rule.lowSetpoint) {
-    rule.phase = "delayedOpen";
-    rule.fireAt = sim.t + rule.signalDelaySec;
   }
 
   if (rule.phase === "delayedClose" && sim.t >= rule.fireAt) {
     behavior.command(actuator, "close", rule.rampTimeSec);
     logEvent(rule, sim.t, `valve commanded closed (ramping over ${rule.rampTimeSec}s)`);
     rule.phase = "closing";
-    rule.fireAt = null;
-  } else if (rule.phase === "delayedOpen" && sim.t >= rule.fireAt) {
-    behavior.command(actuator, "open", rule.rampTimeSec);
-    logEvent(rule, sim.t, `valve commanded open (ramping over ${rule.rampTimeSec}s)`);
-    rule.phase = "opening";
     rule.fireAt = null;
   }
 
@@ -189,6 +184,31 @@ function stepThresholdTrip(rule, sim) {
   } else if (rule.phase === "opening" && behavior.isSettled(actuator)) {
     rule.phase = "open";
   }
+}
+
+// Reset (issue #45): the SCADA reset's one effect on this rule. Only
+// "closed" — the latched, at-rest trip state — is ever eligible; a rule
+// still mid-transition (delayedClose/closing) is a commitment already in
+// flight (see this kind's own latch comment above) and isn't touched. Per
+// the FD's own severity distinction (§5: a Trip needs a reset, but the
+// level switch is also a Process Interlock that "prevents start"), a reset
+// only clears the SCADA latch — the PI itself still blocks the valve from
+// opening while the high set point remains tripped, so this re-reads the
+// live level rather than unconditionally commanding open. That's what
+// keeps a reset pressed while the bin is still full from flapping the
+// valve open and immediately back shut.
+function resetThresholdTrip(rule, sim) {
+  if (rule.phase !== "closed") return;
+  const level = readLevel(sim.machines, rule.sensorId);
+  if (level >= rule.highSetpoint) {
+    logEvent(rule, sim.t, `reset commanded — high set point still tripped at ${pct(level)}, remains latched`);
+    return;
+  }
+  const { actuator, behavior } = resolveActuator(rule, sim);
+  behavior.command(actuator, "open", rule.rampTimeSec);
+  logEvent(rule, sim.t, `reset — valve commanded open (ramping over ${rule.rampTimeSec}s)`);
+  rule.phase = "opening";
+  rule.fireAt = null;
 }
 
 // Phase machine (issue #22 — the treater pre-bin slows the elevator, then
@@ -200,13 +220,18 @@ function stepThresholdTrip(rule, sim) {
 //   slow.speedFraction] -> slowing -> [settles] -> slow ->
 //     [level >= stopSetpoint] -> armStop -> [delay elapses, command 0]
 //     -> stopping -> [settles] -> stopped
-//     [level <= lowSetpoint] -> recovering (commanded immediately: no FD or
-//     worksheet number backs a delay on the recovery path, unlike the two
-//     rising stages) -> [settles] -> full
-// Recovery is armed from "slow" or "stopped" only (not mid-ramp), and a
-// rise past stopSetpoint is armed from "slow" only — both mirror
+// A rise past stopSetpoint is armed from "slow" only, mirroring
 // thresholdTrip's latch: once armed, a delayed action always fires, and a
 // settled phase is what re-opens the sensor to its next possible crossing.
+// "slow" and "stopped" are both terminal per issue #45: neither exits on
+// its own anymore when the level falls back past lowSetpoint (that path
+// was the same auto-reopen modelling convenience thresholdTrip's own
+// bufferBinHighTrip had, per docs/OPEN_QUESTIONS.md — the FD's "no
+// automatic reopen" finding applies just as much to a graduated throttle
+// as to a hard close). Only resetTwoStageThrottle below moves a rule out
+// of either, via a `recovering` phase (commanded immediately: no FD or
+// worksheet number backs a delay on the recovery path, unlike the two
+// rising stages) -> [settles] -> full.
 function initTwoStageThrottle(cfg) {
   return {
     kind: "twoStageThrottle",
@@ -245,10 +270,6 @@ function stepTwoStageThrottle(rule, sim) {
   } else if (rule.phase === "slow" && level >= rule.stopSetpoint) {
     rule.phase = "armStop";
     rule.fireAt = sim.t + rule.stopDelaySec;
-  } else if ((rule.phase === "slow" || rule.phase === "stopped") && level <= rule.lowSetpoint) {
-    behavior.command(actuator, 1, rule.recoverRampTimeSec);
-    logEvent(rule, sim.t, `elevator commanded back to full speed (ramping over ${rule.recoverRampTimeSec}s)`);
-    rule.phase = "recovering";
   }
 
   if (rule.phase === "armSlow" && sim.t >= rule.fireAt) {
@@ -272,6 +293,41 @@ function stepTwoStageThrottle(rule, sim) {
   }
 }
 
+// Reset (issue #45): eligible from either terminal phase, gated on the same
+// setpoint that arms it — stopSetpoint for "stopped", slowSetpoint for
+// "slow" — per the FD's Process Interlock wording (§5: the level switch
+// "prevents start" independent of the Trip's own SCADA-reset requirement),
+// so a reset pressed while still above that phase's own threshold re-latches
+// rather than flapping the elevator. Clearing "stopped" checks slowSetpoint
+// too: a level between slowSetpoint and stopSetpoint has cleared the stop
+// trip but not the slow one, and the spec is explicit that "clearing a
+// latch permits a machine to run again, it does not force it to run while
+// its own interlock condition is still true" — commanding full speed here
+// (even briefly, on the way to stepTwoStageThrottle noticing and re-arming
+// a `slowDelaySec` later) would be exactly that forcing. Going straight to
+// "slowing" instead means the reset never commands a speed the live level
+// doesn't already warrant.
+function resetTwoStageThrottle(rule, sim) {
+  if (rule.phase !== "slow" && rule.phase !== "stopped") return;
+  const level = readLevel(sim.machines, rule.sensorId);
+  const stage = rule.phase === "stopped" ? "stop" : "slow";
+  const setpoint = rule.phase === "stopped" ? rule.stopSetpoint : rule.slowSetpoint;
+  if (level >= setpoint) {
+    logEvent(rule, sim.t, `reset commanded — ${stage} set point still tripped at ${pct(level)}, remains latched`);
+    return;
+  }
+  const { actuator, behavior } = resolveActuator(rule, sim);
+  if (rule.phase === "stopped" && level >= rule.slowSetpoint) {
+    behavior.command(actuator, rule.slowFraction, rule.slowRampTimeSec);
+    logEvent(rule, sim.t, `reset — elevator commanded to ${Math.round(rule.slowFraction * 100)}% speed (ramping over ${rule.slowRampTimeSec}s) — slow set point still tripped`);
+    rule.phase = "slowing";
+    return;
+  }
+  behavior.command(actuator, 1, rule.recoverRampTimeSec);
+  logEvent(rule, sim.t, `reset — elevator commanded back to full speed (ramping over ${rule.recoverRampTimeSec}s)`);
+  rule.phase = "recovering";
+}
+
 // Hold-next-batch (issue #25 — the treater after-bin's response to a full
 // bin): the third distinct response to a full bin on this line, after
 // thresholdTrip's valve close (issue #19) and twoStageThrottle's slow-then-
@@ -281,12 +337,15 @@ function stepTwoStageThrottle(rule, sim) {
 // slowing/stopping equivalent — commanding it takes effect immediately, the
 // same tick isSettled would otherwise have waited for.
 //   released -> [level >= highSetpoint] -> armed -> [delay elapses, command
-//   hold] -> held -> [level <= lowSetpoint] -> command release -> released
+//   hold] -> held
 // Latches exactly like the other two kinds: once armed, the hold always
 // fires, even if the level dips back below highSetpoint before the delay
-// elapses. The batch-cycle behaviour itself is what guarantees a held gate
-// never interrupts a batch already under way (see capacityAvailableBatchCycle) —
-// this rule only ever decides when the gate opens and closes.
+// elapses. "held" is terminal per issue #45 — the level falling back past
+// lowSetpoint no longer releases the gate on its own; only resetHoldNextBatch
+// below does, and only once the level has actually cleared. The batch-cycle
+// behaviour itself is what guarantees a held gate never interrupts a batch
+// already under way (see capacityAvailableBatchCycle) — this rule only ever
+// decides when the gate opens and closes.
 function initHoldNextBatch(cfg) {
   return {
     kind: "holdNextBatch",
@@ -309,10 +368,6 @@ function stepHoldNextBatch(rule, sim) {
   if (rule.phase === "released" && level >= rule.highSetpoint) {
     rule.phase = "armed";
     rule.fireAt = sim.t + rule.signalDelaySec;
-  } else if (rule.phase === "held" && level <= rule.lowSetpoint) {
-    behavior.command(actuator, false);
-    logEvent(rule, sim.t, `treater released to start its next batch`);
-    rule.phase = "released";
   }
 
   if (rule.phase === "armed" && sim.t >= rule.fireAt) {
@@ -321,6 +376,25 @@ function stepHoldNextBatch(rule, sim) {
     rule.phase = "held";
     rule.fireAt = null;
   }
+}
+
+// Reset (issue #45): only "held" is eligible. Gated on highSetpoint, the
+// same instrument that armed the hold — the FD's Process Interlock still
+// prevents the treater from accepting a fresh batch while the after-bin
+// reads full, independent of the Trip's own SCADA-reset requirement — so a
+// reset pressed while the bin is still above highSetpoint re-latches rather
+// than releasing and immediately re-holding.
+function resetHoldNextBatch(rule, sim) {
+  if (rule.phase !== "held") return;
+  const level = readLevel(sim.machines, rule.sensorId);
+  if (level >= rule.highSetpoint) {
+    logEvent(rule, sim.t, `reset commanded — high set point still tripped at ${pct(level)}, remains latched`);
+    return;
+  }
+  const { actuator, behavior } = resolveActuator(rule, sim);
+  behavior.command(actuator, false);
+  logEvent(rule, sim.t, `reset — treater released to start its next batch`);
+  rule.phase = "released";
 }
 
 // Auto-start (issue #42 — the inlet drum feeder starts itself once the
@@ -366,12 +440,25 @@ function stepAutoStartOnRunning(rule, sim) {
   }
   rule.phase = "started";
 }
+// Reset (issue #45): a no-op. This rule never stops the feeder — the FD
+// names the elevator-stops-the-feeder half of this same interlock but it
+// remains unmodelled (docs/OPEN_QUESTIONS.md, Machine 2) — so there is
+// nothing here for a SCADA reset to latch or unlatch. Declared explicitly,
+// rather than omitted, so resetTrips' dispatch table below stays one entry
+// per kind with no per-kind branch of its own to skip a kind that has
+// nothing to reset.
+function resetAutoStartOnRunning() {}
 
+// One dispatch table entry per rule kind (issue #45's own instruction:
+// latching belongs in the control layer once, so every kind inherits the
+// reset mechanism through this registry rather than resetTrips branching on
+// kind itself). Three kinds do real work in their `reset`; the fourth's is
+// a deliberate no-op, not a missing case.
 const CONTROL_KINDS = {
-  thresholdTrip: { init: initThresholdTrip, step: stepThresholdTrip },
-  twoStageThrottle: { init: initTwoStageThrottle, step: stepTwoStageThrottle },
-  holdNextBatch: { init: initHoldNextBatch, step: stepHoldNextBatch },
-  autoStartOnRunning: { init: initAutoStartOnRunning, step: stepAutoStartOnRunning },
+  thresholdTrip: { init: initThresholdTrip, step: stepThresholdTrip, reset: resetThresholdTrip },
+  twoStageThrottle: { init: initTwoStageThrottle, step: stepTwoStageThrottle, reset: resetTwoStageThrottle },
+  holdNextBatch: { init: initHoldNextBatch, step: stepHoldNextBatch, reset: resetHoldNextBatch },
+  autoStartOnRunning: { init: initAutoStartOnRunning, step: stepAutoStartOnRunning, reset: resetAutoStartOnRunning },
 };
 
 // Issue #29: one flat, chronological event list spanning every rule's log,
@@ -398,5 +485,20 @@ export function initControl(line) {
 export function stepControl(sim) {
   for (const rule of sim.control) {
     CONTROL_KINDS[rule.kind].step(rule, sim);
+  }
+}
+
+// The SCADA reset (issue #45): a single command that sweeps every rule on
+// the line, clearing whichever ones are currently latched — the plant
+// control, distinct from resetSim's t=0 rebuild (engine.js), and the only
+// way any of the four rule kinds above ever exits its own terminal phase
+// now that none of them auto-recovers. Each kind's own `reset` decides for
+// itself whether it has anything latched and whether the underlying
+// condition has actually cleared; this just dispatches to all of them,
+// exactly as stepControl dispatches `step` — one rule kind added here means
+// one CONTROL_KINDS entry, never a branch added to this loop.
+export function resetTrips(sim) {
+  for (const rule of sim.control) {
+    CONTROL_KINDS[rule.kind].reset(rule, sim);
   }
 }

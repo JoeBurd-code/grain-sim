@@ -127,10 +127,11 @@ export const line = {
       labelAt: { x: -6, y: -16 },
       // Live jump, not just an initial condition: dragging this sets the
       // running sim's current level immediately (see PARAM_BINDERS.levelJump
-      // in MeetingApp.jsx), for staging a scenario mid-presentation — this is
-      // also how a presenter demonstrates the low-set-point reopen (issue
-      // #19) without waiting on the drum feeder's own drain (issue #20),
-      // which starts off by default (see treatDrumFeeder below).
+      // in MeetingApp.jsx), for staging a scenario mid-presentation —
+      // including dragging the level below the clearing set point before
+      // pressing the plant control's RESET TRIPS (issue #45), without
+      // waiting on the drum feeder's own drain (issue #20), which starts off
+      // by default (see treatDrumFeeder below).
       params: [
         { id: "level", label: "fill level", min: 0, max: 100, value: 55, unit: "%", bind: "levelJump" },
         { id: "highSetpoint", label: "LSH set point", min: 55, max: 100, value: 85, unit: "%", bind: "interlockHighSetpoint" },
@@ -853,11 +854,15 @@ export const line = {
       // outlet valves close (~7s total). See
       // docs/PLC_FUNCTIONAL_DESCRIPTION.md §5.
       //
-      // Note this interlock models only the trip (close). The FD shows
-      // there is no automatic reopen in the real plant: a level-high
-      // event is a trip, and a tripped device needs a SCADA reset before
-      // it can restart. The reopen at lowSetpoint below is a modelling
-      // convenience for the demo, not plant behaviour — see
+      // The FD shows there is no automatic reopen in the real plant: a
+      // level-high event is a trip, and a tripped device needs a SCADA
+      // reset before it can restart — modelled since issue #45 as a
+      // latch only the plant control's RESET TRIPS command clears (and
+      // only once the level has actually cleared past highSetpoint; see
+      // control.js's resetThresholdTrip). lowSetpoint below no longer
+      // drives any control action — it's display-only, the LSL
+      // instrument dot's setpoint — matching the FD's own classification
+      // of LSL0 as an information alarm with no interlock role. See
       // docs/OPEN_QUESTIONS.md.
       highSetpoint: 0.85,
       lowSetpoint: 0.35,

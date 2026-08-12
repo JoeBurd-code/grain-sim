@@ -2,7 +2,7 @@
 // behaviors.test.js exercises a behaviour: fabricated machine states and a
 // fabricated sim shell, no real line data, no engine.js involved.
 import { describe, it, expect } from "vitest";
-import { initControl, stepControl, combineEventLogs, instrumentReadings, primeInstruments } from "./control";
+import { initControl, stepControl, resetTrips, combineEventLogs, instrumentReadings, primeInstruments } from "./control";
 import { BEHAVIORS } from "./behaviors";
 
 const RULE_CFG = {
@@ -90,20 +90,48 @@ describe("stepControl", () => {
     expect(sim.control[0].log).toHaveLength(2); // trip + action, no duplicates
   });
 
-  it("arms a delayed open once level falls to the low set point while closed, then commands the valve open", () => {
+  // Issue #45: no automatic reopen. The FD is explicit that a trip needs a
+  // SCADA reset before the device can run again; only resetTrips (tested in
+  // its own describe block below) ever moves a rule out of "closed" now.
+  it("stays closed once the level falls past the low set point — no automatic reopen", () => {
     const sim = makeSim(0.8);
     step(sim, 0.05, 200); // reach "closed"
     sim.machines.get("bin").stored = 0.3 * 10; // presenter drags the level down (setAccumulatorLevel)
-    step(sim, 0.05);
-    expect(sim.control[0].phase).toBe("delayedOpen");
-    expect(sim.control[0].log).toHaveLength(3);
+    step(sim, 0.05, 200);
+    expect(sim.control[0].phase).toBe("closed");
+    expect(sim.machines.get("valve").openness).toBe(0);
+  });
+});
 
-    step(sim, 0.05, 62); // consume delay
+describe("resetTrips (thresholdTrip) — issue #45", () => {
+  it("is a no-op outside the closed phase", () => {
+    const sim = makeSim(0.5); // still "open", never tripped
+    const logLenBefore = sim.control[0].log.length;
+    resetTrips(sim);
+    expect(sim.control[0].phase).toBe("open");
+    expect(sim.control[0].log).toHaveLength(logLenBefore);
+  });
+
+  it("re-latches rather than opening while the level is still above the high set point, logging the attempt", () => {
+    const sim = makeSim(0.8);
+    step(sim, 0.05, 200); // reach "closed"
+    const logLenBefore = sim.control[0].log.length;
+    resetTrips(sim);
+    expect(sim.control[0].phase).toBe("closed");
+    expect(sim.machines.get("valve").openness).toBe(0);
+    expect(sim.control[0].log).toHaveLength(logLenBefore + 1);
+    expect(sim.control[0].log.at(-1).message).toMatch(/remains latched/);
+  });
+
+  it("commands the valve open once the level has actually cleared the high set point, then ramps it there", () => {
+    const sim = makeSim(0.8);
+    step(sim, 0.05, 200); // reach "closed"
+    sim.machines.get("bin").stored = 0.3 * 10; // level clears, but stays latched with no reset
+    resetTrips(sim);
     expect(sim.control[0].phase).toBe("opening");
     expect(sim.machines.get("valve").opennessTarget).toBe(1);
-    expect(sim.control[0].log).toHaveLength(4);
 
-    step(sim, 0.05, 42); // consume ramp
+    step(sim, 0.05, 42); // consume the ramp
     expect(sim.machines.get("valve").openness).toBe(1);
     expect(sim.control[0].phase).toBe("open");
   });
@@ -235,21 +263,20 @@ describe("stepControl (twoStageThrottle)", () => {
     expect(sim.control[0].log).toHaveLength(4); // LSH crossing, slow-armed, slow-commanded, stop-commanded — no duplicates
   });
 
-  it("recovers to full speed once the level falls to the low set point, immediately (no arm/delay phase)", () => {
+  // Issue #45: no automatic recovery. Both "slow" and "stopped" are
+  // terminal now; only resetTrips (tested in its own describe block below)
+  // ever moves a rule out of either.
+  it("stays stopped once the level falls past the low set point — no automatic recovery", () => {
     const sim = makeTwoStageSim(0.9);
     stepThrottle(sim, 0.05, 400); // reach "stopped"
     sim.machines.get("bin").stored = 0.3 * 10; // presenter drags the level down
-    stepThrottle(sim, 0.05);
+    stepThrottle(sim, 0.05, 400);
 
-    expect(sim.control[0].phase).toBe("recovering"); // commanded the same tick, no arm phase
-    expect(sim.machines.get("elevator").throttleTarget).toBe(1);
-
-    stepThrottle(sim, 0.05, 42); // consume the 1s recovery ramp
-    expect(sim.machines.get("elevator").throttleFraction).toBe(1);
-    expect(sim.control[0].phase).toBe("full");
+    expect(sim.control[0].phase).toBe("stopped");
+    expect(sim.machines.get("elevator").throttleFraction).toBe(0);
   });
 
-  it("conserves through the full slow / stop / recover cycle: the elevator never loses in-flight material", () => {
+  it("conserves through the full slow / stop / reset-recover cycle: the elevator never loses in-flight material", () => {
     const sim = makeTwoStageSim(0.9);
     const elevator = sim.machines.get("elevator");
     BEHAVIORS.transportDelay.apply(elevator, 0.05, 5, 5); // one packet already on the chain
@@ -259,10 +286,73 @@ describe("stepControl (twoStageThrottle)", () => {
     expect(inTransitAtStop).toBeCloseTo(5); // frozen, not lost
 
     sim.machines.get("bin").stored = 0.3 * 10;
-    stepThrottle(sim, 0.05, 2000); // recover and let the frozen packet resume and arrive
+    resetTrips(sim); // presenter clears the latch now that the level has cleared
+    stepThrottle(sim, 0.05, 2000); // let the frozen packet resume and arrive
     expect(elevator.delivered).toBeGreaterThan(0);
     const stillInTransit = elevator.queue.reduce((a, p) => a + p.vol, 0) + elevator.backlog;
     expect(stillInTransit + elevator.delivered).toBeCloseTo(5); // nothing created or destroyed
+  });
+});
+
+describe("resetTrips (twoStageThrottle) — issue #45", () => {
+  it("is a no-op outside the slow/stopped phases", () => {
+    const sim = makeTwoStageSim(0.5); // still "full", never tripped
+    const logLenBefore = sim.control[0].log.length;
+    resetTrips(sim);
+    expect(sim.control[0].phase).toBe("full");
+    expect(sim.control[0].log).toHaveLength(logLenBefore);
+  });
+
+  it("re-latches from the slow phase while the level is still above the slow set point, logging the attempt", () => {
+    const sim = makeTwoStageSim(0.65); // above slow (0.6), below stop (0.85)
+    stepThrottle(sim, 0.05, 100); // reach "slow"
+    expect(sim.control[0].phase).toBe("slow");
+    const logLenBefore = sim.control[0].log.length;
+
+    resetTrips(sim);
+    expect(sim.control[0].phase).toBe("slow"); // re-latched, not flapped back to full
+    expect(sim.machines.get("elevator").throttleFraction).toBeCloseTo(0.5);
+    expect(sim.control[0].log).toHaveLength(logLenBefore + 1);
+    expect(sim.control[0].log.at(-1).message).toMatch(/remains latched/);
+  });
+
+  it("re-latches from the stopped phase while the level is still above the stop set point, distinct from the slow set point", () => {
+    const sim = makeTwoStageSim(0.9);
+    stepThrottle(sim, 0.05, 400); // reach "stopped"
+    const logLenBefore = sim.control[0].log.length;
+
+    resetTrips(sim);
+    expect(sim.control[0].phase).toBe("stopped");
+    expect(sim.control[0].log).toHaveLength(logLenBefore + 1);
+    expect(sim.control[0].log.at(-1).message).toMatch(/remains latched/);
+  });
+
+  it("recovers to full speed, immediately (no arm/delay phase), once the level has actually cleared the stop set point", () => {
+    const sim = makeTwoStageSim(0.9);
+    stepThrottle(sim, 0.05, 400); // reach "stopped"
+    sim.machines.get("bin").stored = 0.3 * 10; // level clears, but stays latched with no reset
+    resetTrips(sim);
+
+    expect(sim.control[0].phase).toBe("recovering"); // commanded the same tick, no arm phase
+    expect(sim.machines.get("elevator").throttleTarget).toBe(1);
+
+    stepThrottle(sim, 0.05, 42); // consume the 1s recovery ramp
+    expect(sim.machines.get("elevator").throttleFraction).toBe(1);
+    expect(sim.control[0].phase).toBe("full");
+  });
+
+  it("clearing from stopped while still above the slow set point goes straight to the slow stage, never forcing full speed first", () => {
+    const sim = makeTwoStageSim(0.9);
+    stepThrottle(sim, 0.05, 400); // reach "stopped"
+    sim.machines.get("bin").stored = 0.7 * 10; // below stopSetpoint (0.85) but still above slowSetpoint (0.6)
+    resetTrips(sim);
+
+    expect(sim.control[0].phase).toBe("slowing");
+    expect(sim.machines.get("elevator").throttleTarget).toBe(0.5); // never commanded to full speed
+
+    stepThrottle(sim, 0.05, 22); // consume the slow ramp
+    expect(sim.control[0].phase).toBe("slow");
+    expect(sim.machines.get("elevator").throttleFraction).toBeCloseTo(0.5);
   });
 });
 
@@ -350,17 +440,72 @@ describe("stepControl (holdNextBatch)", () => {
     expect(treater.held).toBeCloseTo(0.4); // untouched — the interlock only gates new capacity, apply() is what moves material
   });
 
-  it("recovers to released once the level falls to the low set point, immediately (no arm/delay phase)", () => {
+  // Issue #45: no automatic release. "held" is terminal now; only
+  // resetTrips (tested in its own describe block below) ever releases it.
+  it("stays held once the level falls past the low set point — no automatic release", () => {
     const sim = makeHoldNextBatchSim(0.8);
     for (let i = 0; i < 400; i++) { sim.t += 0.05; stepControl(sim); } // reach "held"
     sim.machines.get("bin").stored = 0.3 * 10; // presenter drags the level down
-    sim.t += 0.05; stepControl(sim);
+    for (let i = 0; i < 400; i++) { sim.t += 0.05; stepControl(sim); }
 
-    expect(sim.control[0].phase).toBe("released"); // commanded the same tick, no arm phase
+    expect(sim.control[0].phase).toBe("held");
+    expect(sim.machines.get("treater").blocked).toBe(true);
+  });
+});
+
+describe("resetTrips (holdNextBatch) — issue #45", () => {
+  it("is a no-op outside the held phase", () => {
+    const sim = makeHoldNextBatchSim(0.5); // still "released", never tripped
+    const logLenBefore = sim.control[0].log.length;
+    resetTrips(sim);
+    expect(sim.control[0].phase).toBe("released");
+    expect(sim.control[0].log).toHaveLength(logLenBefore);
+  });
+
+  it("re-latches rather than releasing while the level is still above the high set point, logging the attempt", () => {
+    const sim = makeHoldNextBatchSim(0.8);
+    for (let i = 0; i < 400; i++) { sim.t += 0.05; stepControl(sim); } // reach "held"
+    const logLenBefore = sim.control[0].log.length;
+    resetTrips(sim);
+    expect(sim.control[0].phase).toBe("held");
+    expect(sim.machines.get("treater").blocked).toBe(true);
+    expect(sim.control[0].log).toHaveLength(logLenBefore + 1);
+    expect(sim.control[0].log.at(-1).message).toMatch(/remains latched/);
+  });
+
+  it("releases the treater, immediately (no arm/delay phase), once the level has actually cleared the high set point", () => {
+    const sim = makeHoldNextBatchSim(0.8);
+    for (let i = 0; i < 400; i++) { sim.t += 0.05; stepControl(sim); } // reach "held"
+    sim.machines.get("bin").stored = 0.3 * 10; // level clears, but stays latched with no reset
+    resetTrips(sim);
+
+    expect(sim.control[0].phase).toBe("released");
     expect(sim.machines.get("treater").blocked).toBe(false);
-    // LSH crossing, hold commanded, LSL crossing (issue #41 — previously
-    // unlogged from this phase-gated branch alone), treater released.
-    expect(sim.control[0].log).toHaveLength(4);
+    // LSH crossing, hold commanded, reset release — no LSL crossing logged
+    // here since the level jump bypassed stepControl (only resetTrips ran).
+    expect(sim.control[0].log).toHaveLength(3);
+  });
+});
+
+describe("resetTrips (autoStartOnRunning) — issue #45", () => {
+  it("is a no-op: nothing to latch or unlatch on a one-shot auto-start rule, even after it has fired", () => {
+    const cfg = {
+      id: "testAutoStart", kind: "autoStartOnRunning", sensor: { machine: "elevator" },
+      rateM3PerSec: 1, action: { machine: "feeder" },
+    };
+    const elevator = BEHAVIORS.transportDelay.init({ sim: { distanceM: 10, speedMPerMin: 60, ceilingM3PerSec: 1 } });
+    const feeder = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 0 } });
+    const machines = new Map([["elevator", elevator], ["feeder", feeder]]);
+    const control = initControl({ interlocks: [cfg] });
+    const sim = { t: 0, machines, control };
+
+    stepControl(sim); // the elevator is confirmed running by default: fires immediately
+    expect(sim.control[0].phase).toBe("started");
+    const logLenBefore = sim.control[0].log.length;
+
+    resetTrips(sim);
+    expect(sim.control[0].phase).toBe("started");
+    expect(sim.control[0].log).toHaveLength(logLenBefore);
   });
 });
 
