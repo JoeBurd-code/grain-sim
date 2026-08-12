@@ -64,10 +64,17 @@ export default function EventLogPanel({ machines, events, onClose, jumpTo }) {
   // was on screen in place regardless of where the reader had scrolled to.
   //
   // An unscrolled jumpTo takes priority over that compensation for this
-  // render: scroll straight to the target row instead. By the time this
-  // effect runs, the render-time unhide above has already committed and
-  // `ordered` reflects it, so the target row is in `rowRefs` whenever the
-  // jump names a real event.
+  // render: scroll straight to the target row instead, and flash it (the
+  // .event-row-flash keyframes, MeetingApp.jsx's shared stylesheet) so it's
+  // obvious which entry the chart dot that was just clicked refers to. By
+  // the time this effect runs, the render-time unhide above has already
+  // committed and `ordered` reflects it, so the target row is in `rowRefs`
+  // whenever the jump names a real event. The class is toggled off then
+  // back on via a forced reflow (classList, not React state) so a re-click
+  // of the same dot restarts the animation instead of it being a no-op --
+  // scene/symbols.jsx's InstrumentDot gets the same restart for free by
+  // remounting a fresh element (`key={pulseGen}`) instead, which isn't an
+  // option here since this row's own key must stay stable (see above).
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -76,6 +83,9 @@ export default function EventLogPanel({ machines, events, onClose, jumpTo }) {
       scrolledJumpTokenRef.current = jumpTo.token;
       if (row) {
         row.scrollIntoView({ block: "center" });
+        row.classList.remove("event-row-flash");
+        void row.offsetWidth;
+        row.classList.add("event-row-flash");
         prevHeightRef.current = el.scrollHeight;
         return;
       }
@@ -156,7 +166,7 @@ export default function EventLogPanel({ machines, events, onClose, jumpTo }) {
                     if (el) rowRefs.current.set(e._idx, el);
                     else rowRefs.current.delete(e._idx);
                   }}
-                  style={{ fontSize: 10, lineHeight: 1.4 }}
+                  style={{ fontSize: 10, lineHeight: 1.4, padding: "2px 4px", margin: "-2px -4px" }}
                 >
                   <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
                     <span style={{ color: C.wheat }}>{e.t.toFixed(1)}s</span>

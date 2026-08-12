@@ -138,6 +138,11 @@ export default function MeetingApp() {
           100% { r: 20; opacity: 0; }
         }
         .instrument-pulse { animation: instrumentPulse 0.6s ease-out forwards; }
+        @keyframes eventRowFlash {
+          0%, 100% { background: transparent; }
+          50% { background: rgba(224, 168, 46, 0.35); }
+        }
+        .event-row-flash { animation: eventRowFlash 0.5s ease-out 3; border-radius: 4px; }
       `}</style>
 
       <header style={{
