@@ -5,9 +5,10 @@
 // own recorded-series state (src/sim/plotHistory.js); this component is a
 // pure view over it; it records nothing itself.
 //
-// Pan/zoom over the time axis (issue #37) is driven by useChartRange, a thin
-// hook over the pure chartRange.js module -- the chart's analogue of the
-// scene's viewport.js/useViewport.js pair, one dimension down. Dock height
+// The visible time window is controlled by two sliders (zoom + shift) driven
+// by useChartRange, a thin hook over the pure chartRange.js module -- this
+// replaced an earlier drag-pan/wheel-zoom interaction (issue #37) after user
+// feedback that dragging directly on the chart didn't feel good. Dock height
 // is a separate, simpler drag-to-resize on the dock's own top edge; it has
 // no data dependency so it doesn't need a pure module of its own.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -17,16 +18,34 @@ import { PLOTTABLE_MACHINES, plotColorFor } from "./plotColors";
 import { useChartRange } from "./useChartRange";
 
 const MARGIN = { left: 40, right: 44, top: 14, bottom: 24 };
-// CSS padding on the plot container (below): kept as a named constant because
-// useChartRange needs it too, to convert a pointer position measured against
-// that container's border box into the SVG-local x the plotted lines
-// actually use -- see the plotOffsetX comment at the useChartRange call.
 const PLOT_PADDING_LEFT = 8;
 const PLOT_PADDING_RIGHT = 14;
 const MIN_RATE_AXIS_MAX_TPH = 5;
 const DEFAULT_DOCK_HEIGHT = 260;
 const MIN_DOCK_HEIGHT = 120;
 const MAX_DOCK_HEIGHT = 520;
+
+// Matches MachinePopup.jsx's Slider styling (label row + accent-colored
+// range input) so the chart's controls read as the same widget family.
+function RangeSlider({ label, value, onChange, disabled, formatValue }) {
+  return (
+    <div style={{ marginBottom: 10, opacity: disabled ? 0.4 : 1 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: C.muted, marginBottom: 3 }}>
+        <span>{label}</span>
+        <span style={{ color: C.text }}>{formatValue(value)}</span>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        value={Math.round(value * 100)}
+        disabled={disabled}
+        onChange={(e) => onChange(Number(e.target.value) / 100)}
+        style={{ width: "100%", accentColor: C.wheat, height: 14 }}
+      />
+    </div>
+  );
+}
 
 // Measures the plot area's real rendered pixel size so the SVG can use plain
 // pixel coordinates for its polylines (the `points` list on <polyline> takes
@@ -129,14 +148,7 @@ export default function ChartDock({ history }) {
   const plotH = Math.max(1, plotBottom - plotTop);
   const ready = w > MARGIN.left + MARGIN.right && h > MARGIN.top + MARGIN.bottom;
 
-  // The plotted lines only span [plotLeft, plotRight] of the SVG, not the
-  // full measured container width (the rest is axis-label margin) -- so pan
-  // and zoom, which operate on screen pixels, need the plot's own width and
-  // its screen offset from the container's left edge (CSS padding + the
-  // SVG's left margin), not the raw container width, or the cursor-anchored
-  // zoom and the pan distance would both drift off by that margin.
-  const plotOffsetX = PLOT_PADDING_LEFT + plotLeft;
-  const { range, handlers } = useChartRange(dataBounds, plotRef, plotW, plotOffsetX);
+  const { range, zoomFrac, setZoomFrac, shiftFrac, setShiftFrac, shiftDisabled } = useChartRange(dataBounds);
   const tMin = range.start, tMax = range.end;
   const tSpan = tMax - tMin || 1;
 
@@ -160,18 +172,24 @@ export default function ChartDock({ history }) {
 
       <div style={{ width: 190, flex: "none", padding: "12px 16px", borderRight: `1px solid ${C.line}` }}>
         <div style={{ fontFamily: FONT_DISP, fontSize: 13, letterSpacing: 0.5, color: C.text }}>SHARED CHART</div>
-        <div style={{ fontSize: 9, color: C.muted, marginTop: 4, lineHeight: 1.6 }}>
-          level % · left axis, solid<br />rate t/h · right axis, dashed<br />drag pan · wheel zoom
+        <div style={{ fontSize: 9, color: C.muted, marginTop: 4, marginBottom: 12, lineHeight: 1.6 }}>
+          level % · left axis, solid<br />rate t/h · right axis, dashed
         </div>
+        <RangeSlider
+          label="zoom" value={zoomFrac} onChange={setZoomFrac}
+          formatValue={(v) => `${Math.round(v * 100)}%`}
+        />
+        <RangeSlider
+          label="shift" value={shiftFrac} onChange={setShiftFrac} disabled={shiftDisabled}
+          formatValue={(v) => (shiftDisabled ? "—" : `${Math.round(v * 100)}%`)}
+        />
       </div>
 
       <div
         ref={plotRef}
-        {...handlers}
         style={{
           flex: 1, minWidth: 0, position: "relative", overflow: "hidden",
           padding: `0 ${PLOT_PADDING_RIGHT}px 0 ${PLOT_PADDING_LEFT}px`,
-          cursor: "grab", touchAction: "none", userSelect: "none", WebkitUserSelect: "none",
         }}
       >
         {ready && (

@@ -1,90 +1,59 @@
 import { describe, it, expect } from "vitest";
-import {
-  screenToTime, timeToScreen, panBy, zoomAt, clampToBounds, fitToBounds,
-} from "./chartRange";
+import { rangeFromControls } from "./chartRange";
 
-const range = { start: 100, end: 300 }; // 200s window
-const width = 800; // 0.25 s/px
+const bounds = { start: 100, end: 500 }; // 400s of recorded history
+const minSpan = 10;
 
-describe("chart time-range math", () => {
-  it("round-trips screen to time and back", () => {
-    const screenX = 120;
-    const t = screenToTime(range, width, screenX);
-    expect(t).toBeCloseTo(130, 6);
-    const back = timeToScreen(range, width, t);
-    expect(back).toBeCloseTo(screenX, 6);
-    // and a known point: screen 0 maps to range.start
-    expect(screenToTime(range, width, 0)).toBe(100);
+describe("rangeFromControls", () => {
+  it("shows the full recorded history when fully zoomed out, regardless of shift", () => {
+    expect(rangeFromControls(bounds, 0, 0, minSpan)).toEqual({ start: 100, end: 500 });
+    expect(rangeFromControls(bounds, 0, 0.5, minSpan)).toEqual({ start: 100, end: 500 });
+    expect(rangeFromControls(bounds, 0, 1, minSpan)).toEqual({ start: 100, end: 500 });
   });
 
-  it("zoomAt keeps the time under the cursor fixed", () => {
-    const cursorX = 600;
-    const before = screenToTime(range, width, cursorX);
-    const zoomed = zoomAt(range, width, cursorX, 2);
-    const after = screenToTime(zoomed, width, cursorX);
-    expect(after).toBeCloseTo(before, 6);
-    // factor > 1 zooms in: the visible span shrinks
-    expect(zoomed.end - zoomed.start).toBeCloseTo((range.end - range.start) / 2, 6);
+  it("shrinks to minSpan when fully zoomed in", () => {
+    const r = rangeFromControls(bounds, 1, 0, minSpan);
+    expect(r.end - r.start).toBeCloseTo(minSpan, 6);
   });
 
-  it("panBy shifts the range opposite the drag, scaled to time units", () => {
-    // dragging content right by 80px moves the range left (earlier in time)
-    const panned = panBy(range, width, 80);
-    const scale = (range.end - range.start) / width; // 0.25 s/px
-    expect(panned.start).toBeCloseTo(range.start - 80 * scale, 6);
-    expect(panned.end).toBeCloseTo(range.end - 80 * scale, 6);
-    expect(panned.end - panned.start).toBeCloseTo(range.end - range.start, 6);
+  it("interpolates the span linearly between minSpan and the full data span", () => {
+    // halfway zoomed: span should be halfway between minSpan(10) and dataSpan(400)
+    const r = rangeFromControls(bounds, 0.5, 0, minSpan);
+    expect(r.end - r.start).toBeCloseTo((minSpan + 400) / 2, 6);
   });
 
-  it("zoomAt clamps to the given span limits", () => {
-    const limits = { minSpan: 50, maxSpan: 1000 };
-    const cursorX = 400;
-    // try to zoom in far past the limit: span stops at minSpan
-    const zoomedIn = zoomAt(range, width, cursorX, 100, limits);
-    expect(zoomedIn.end - zoomedIn.start).toBeCloseTo(limits.minSpan, 6);
-    // try to zoom out far past the limit: span stops at maxSpan
-    const zoomedOut = zoomAt(range, width, cursorX, 0.01, limits);
-    expect(zoomedOut.end - zoomedOut.start).toBeCloseTo(limits.maxSpan, 6);
-    // clamped zoom still keeps the cursor's time fixed
-    const before = screenToTime(range, width, cursorX);
-    const after = screenToTime(zoomedIn, width, cursorX);
-    expect(after).toBeCloseTo(before, 6);
+  it("shiftFrac 0 anchors the window to the oldest data", () => {
+    const r = rangeFromControls(bounds, 1, 0, minSpan);
+    expect(r.start).toBeCloseTo(bounds.start, 6);
   });
 
-  it("fitToBounds frames the bounds with a padding fraction, centred", () => {
-    const bounds = { start: 10, end: 50 }; // 40s span
-    const fitted = fitToBounds(bounds, 0.1);
-    expect(fitted.start).toBeCloseTo(6, 6);
-    expect(fitted.end).toBeCloseTo(54, 6);
-    // no padding: exact bounds
-    expect(fitToBounds(bounds)).toEqual({ start: 10, end: 50 });
+  it("shiftFrac 1 anchors the window to the newest data", () => {
+    const r = rangeFromControls(bounds, 1, 1, minSpan);
+    expect(r.end).toBeCloseTo(bounds.end, 6);
   });
 
-  describe("clampToBounds", () => {
-    it("leaves a range untouched when it already sits inside the bounds", () => {
-      const bounds = { start: 0, end: 1000 };
-      const inside = { start: 100, end: 300 };
-      expect(clampToBounds(inside, bounds)).toEqual(inside);
-    });
+  it("shiftFrac slides the window within the available slack at a fixed zoom", () => {
+    // span = 100 (zoomFrac such that dataSpan - zoomFrac*(dataSpan-minSpan) = 100)
+    const zoomFrac = (400 - 100) / (400 - minSpan);
+    const slack = 400 - 100; // dataSpan - span
+    const r = rangeFromControls(bounds, zoomFrac, 0.25, minSpan);
+    expect(r.end - r.start).toBeCloseTo(100, 6);
+    expect(r.start).toBeCloseTo(bounds.start + 0.25 * slack, 6);
+  });
 
-    it("pulls a range that has panned before the bounds' start back in, keeping its span", () => {
-      const bounds = { start: 50, end: 1000 };
-      const clamped = clampToBounds({ start: -20, end: 180 }, bounds);
-      expect(clamped.start).toBe(50);
-      expect(clamped.end).toBe(250);
-    });
+  it("collapses to the full bounds when the data span is already narrower than minSpan", () => {
+    const narrow = { start: 0, end: 5 }; // 5s of data, less than minSpan(10)
+    expect(rangeFromControls(narrow, 0, 0, minSpan)).toEqual({ start: 0, end: 5 });
+    expect(rangeFromControls(narrow, 1, 1, minSpan)).toEqual({ start: 0, end: 5 });
+  });
 
-    it("pulls a range that has panned past the bounds' end back in, keeping its span", () => {
-      const bounds = { start: 0, end: 500 };
-      const clamped = clampToBounds({ start: 450, end: 650 }, bounds);
-      expect(clamped.end).toBe(500);
-      expect(clamped.start).toBe(300);
-    });
-
-    it("collapses to the full bounds when the range's span is wider than the data itself", () => {
-      const bounds = { start: 100, end: 200 }; // 100s of data
-      const clamped = clampToBounds({ start: -500, end: 500 }, bounds); // 1000s window
-      expect(clamped).toEqual({ start: 100, end: 200 });
-    });
+  it("never produces a window outside the recorded bounds", () => {
+    for (const zoomFrac of [0, 0.2, 0.5, 0.8, 1]) {
+      for (const shiftFrac of [0, 0.3, 0.7, 1]) {
+        const r = rangeFromControls(bounds, zoomFrac, shiftFrac, minSpan);
+        expect(r.start).toBeGreaterThanOrEqual(bounds.start - 1e-9);
+        expect(r.end).toBeLessThanOrEqual(bounds.end + 1e-9);
+      }
+    }
   });
 });
