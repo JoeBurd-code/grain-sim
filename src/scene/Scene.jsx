@@ -1,7 +1,8 @@
 // Renders the line definition as an SVG scene: connection paths underneath,
 // machine silhouettes + labels on top. Scene structure is declarative React
-// (it only changes when the line data changes); per-frame animation, when it
-// arrives, will mutate attributes imperatively per the locked architecture.
+// (it only changes when the line data changes); per-frame animation (the
+// flow-dash overlay, issue #35) mutates attributes imperatively via refs
+// through useFlowAnimation, per the locked architecture.
 import { C, SELECT_STROKE } from "./theme";
 import {
   BinSymbol, MetalBinSymbol, ElevatorSymbol, DiverterSymbol,
@@ -11,6 +12,7 @@ import {
   ProBoxSymbol, VibratorySymbol, FillingHeadSymbol, RollerScaleSymbol,
   ScaleSymbol, FillerSymbol, PalletiserSymbol,
 } from "./symbols";
+import { useFlowAnimation, FLOW_DASH_PATTERN } from "./useFlowAnimation";
 
 // Temporary direction markers: flip to false (or delete usages) when the
 // animated flow shimmer replaces them. One flag = the one-step removal.
@@ -73,6 +75,7 @@ function resolveDynamic(machine, simSnap) {
 }
 
 export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelect, simSnap }) {
+  const flowPathRef = useFlowAnimation(line, simSnap);
   return (
     <svg
       viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`}
@@ -110,17 +113,39 @@ export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelec
       {line.connections.map((c, i) => {
         const dim = c.tbc || c.inactive;
         const s = STREAM_STYLE[c.kind];
+        const d = connectionPath(line, c);
         return (
-          <path
-            key={i}
-            d={connectionPath(line, c)}
-            fill="none"
-            stroke={dim ? C.muted : s.stroke}
-            strokeWidth={dim ? 1.5 : s.width}
-            strokeDasharray={dim ? "4 4" : undefined}
-            opacity={dim ? 0.7 : s.opacity}
-            markerEnd={SHOW_FLOW_ARROWS ? `url(#${dim ? "arrMuted" : s.marker})` : undefined}
-          />
+          <g key={i}>
+            <path
+              d={d}
+              fill="none"
+              stroke={dim ? C.muted : s.stroke}
+              strokeWidth={dim ? 1.5 : s.width}
+              strokeDasharray={dim ? "4 4" : undefined}
+              opacity={dim ? 0.7 : s.opacity}
+              markerEnd={SHOW_FLOW_ARROWS ? `url(#${dim ? "arrMuted" : s.marker})` : undefined}
+            />
+            {/* Issue #35: moving-dash overlay, invisible until
+                useFlowAnimation's rAF loop finds a live flow to animate —
+                the path above (marker, colour, width) is otherwise
+                untouched. Skipped for a dim (tbc/inactive) connection: those
+                are already flagged as not-real/not-currently-active, and
+                should never appear to carry live motion regardless of what
+                the flow computation finds. */}
+            {!dim && (
+              <path
+                ref={flowPathRef(i)}
+                d={d}
+                fill="none"
+                stroke={s.stroke}
+                strokeWidth={s.width}
+                strokeLinecap="round"
+                strokeDasharray={FLOW_DASH_PATTERN}
+                opacity="0"
+                pointerEvents="none"
+              />
+            )}
+          </g>
         );
       })}
 

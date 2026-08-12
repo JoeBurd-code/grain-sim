@@ -394,8 +394,15 @@ function isConfirmedRunningTransportDelay(state) {
 // timer (and the eventual discharge pulse) only starts once `held` reaches
 // `chargeM3` exactly, so an under-supplied treater simply waits rather than
 // batching short.
+// Exported since the scene layer's flow-animation nominal-rate computation
+// (issue #35, src/scene/flowAnimation.js) needs the same sum as a static
+// fallback for a tick before the first snapshot publishes state.cycleSec.
+export function cycleSecFromPhases(phases) {
+  return phases.reduce((a, p) => a + p.durationSec, 0);
+}
+
 function initBatchCycle(m) {
-  const cycleSec = m.sim.phases.reduce((a, p) => a + p.durationSec, 0);
+  const cycleSec = cycleSecFromPhases(m.sim.phases);
   return {
     kind: "batchCycle",
     chargeM3: m.sim.chargeM3,
@@ -493,6 +500,14 @@ function snapshotBatchCycle(state) {
   return {
     fill: state.chargeM3 > 0 ? state.held / state.chargeM3 : 0,
     phase: waiting ? "waiting" : state.phase,
+    // chargeM3/cycleSec (issue #35): published live, not just read off the
+    // line's authored sim block, since setBatchSize/setBatchCycleSec (both
+    // issue #24 presenter controls) mutate these on `state` directly — the
+    // flow-animation overlay normalizes against whichever one the presenter
+    // is actually running, the same live-dial convention issue #34's own
+    // readBinds use for the source and metered feeder.
+    chargeM3: state.chargeM3,
+    cycleSec: state.cycleSec,
   };
 }
 // Commands the hold-next-batch gate (issue #25). The control layer is the
