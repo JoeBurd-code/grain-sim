@@ -34,3 +34,7 @@ page-*.yml
 # Source PDFs dropped in docs/ for reference during analysis — the durable
 # record is the .md writeup made from them, not the PDF itself.
 docs/*.pdf
+
+# Fillable follow-up worksheet for the engineer — a working doc, not a
+# durable record; answers get merged into OPEN_QUESTIONS.md / lineData.js.
+docs/TREATER_LINE2_OPEN_QUESTIONS.html
