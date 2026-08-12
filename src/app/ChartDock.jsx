@@ -4,20 +4,35 @@
 // absolute values -- no normalization. `history` is the sim engine hook's
 // own recorded-series state (src/sim/plotHistory.js); this component is a
 // pure view over it; it records nothing itself.
-import { useEffect, useRef, useState } from "react";
+//
+// Pan/zoom over the time axis (issue #37) is driven by useChartRange, a thin
+// hook over the pure chartRange.js module -- the chart's analogue of the
+// scene's viewport.js/useViewport.js pair, one dimension down. Dock height
+// is a separate, simpler drag-to-resize on the dock's own top edge; it has
+// no data dependency so it doesn't need a pure module of its own.
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 import { m3PerSecToTPerHour } from "../sim/units";
 import { PLOTTABLE_MACHINES, plotColorFor } from "./plotColors";
+import { useChartRange } from "./useChartRange";
 
 const MARGIN = { left: 40, right: 44, top: 14, bottom: 24 };
+// CSS padding on the plot container (below): kept as a named constant because
+// useChartRange needs it too, to convert a pointer position measured against
+// that container's border box into the SVG-local x the plotted lines
+// actually use -- see the plotOffsetX comment at the useChartRange call.
+const PLOT_PADDING_LEFT = 8;
+const PLOT_PADDING_RIGHT = 14;
 const MIN_RATE_AXIS_MAX_TPH = 5;
+const DEFAULT_DOCK_HEIGHT = 260;
+const MIN_DOCK_HEIGHT = 120;
+const MAX_DOCK_HEIGHT = 520;
 
 // Measures the plot area's real rendered pixel size so the SVG can use plain
 // pixel coordinates for its polylines (the `points` list on <polyline> takes
 // only unitless numbers, not percentages) and stay correct across resizes --
 // the same ResizeObserver + getBoundingClientRect idiom useViewport.js uses
-// for the scene, scoped locally here since the chart has no pan/zoom math of
-// its own yet (that's issue #37).
+// for the scene.
 function usePlotSize() {
   const ref = useRef(null);
   const [size, setSize] = useState({ width: 0, height: 0 });
@@ -36,28 +51,69 @@ function usePlotSize() {
   return [ref, size];
 }
 
+// Drag-to-resize on the dock's top edge. Moving the pointer up grows the
+// dock (handle and cursor move opposite the height delta), matching the
+// direction a top-edge resize handle reads as natural.
+function useDockHeight() {
+  const [height, setHeight] = useState(DEFAULT_DOCK_HEIGHT);
+  const dragRef = useRef(null);
+
+  useEffect(() => {
+    const onMove = (e) => {
+      const start = dragRef.current;
+      if (!start) return;
+      const next = start.height + (start.y - e.clientY);
+      setHeight(Math.min(MAX_DOCK_HEIGHT, Math.max(MIN_DOCK_HEIGHT, next)));
+    };
+    const onUp = () => { dragRef.current = null; };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, []);
+
+  const onHandlePointerDown = useCallback((e) => {
+    if (e.button !== 0) return;
+    dragRef.current = { y: e.clientY, height };
+  }, [height]);
+
+  return [height, onHandlePointerDown];
+}
+
 export default function ChartDock({ history }) {
   const [plotRef, size] = usePlotSize();
+  const [dockHeight, onHandlePointerDown] = useDockHeight();
 
-  const activeSeries = [];
-  for (const m of PLOTTABLE_MACHINES) {
-    const entry = history.get(m.id);
-    if (!entry) continue;
-    const color = plotColorFor(m.id);
-    if (entry.level) activeSeries.push({ machine: m, kind: "level", color, samples: entry.level });
-    if (entry.rate) activeSeries.push({ machine: m, kind: "rate", color, samples: entry.rate });
-  }
-  const plottedMachines = PLOTTABLE_MACHINES.filter((m) => history.has(m.id));
-
-  let tMin = Infinity, tMax = -Infinity;
-  for (const s of activeSeries) {
-    for (const p of s.samples) {
-      if (p.t < tMin) tMin = p.t;
-      if (p.t > tMax) tMax = p.t;
+  // Derived together, keyed only on `history` (referentially stable while
+  // nothing is plotted -- see plotHistory.js's recordSample no-op fast path
+  // -- and otherwise changes exactly when a new sample lands). `dataBounds`
+  // needs a stable identity across renders that don't change its values: it
+  // feeds useChartRange as an effect dependency (matching the useMemo'd
+  // homeBounds MeetingApp passes into useViewport), and a fresh object every
+  // render would re-trigger that effect every render, looping forever.
+  const { activeSeries, plottedMachines, dataBounds } = useMemo(() => {
+    const series = [];
+    for (const m of PLOTTABLE_MACHINES) {
+      const entry = history.get(m.id);
+      if (!entry) continue;
+      const color = plotColorFor(m.id);
+      if (entry.level) series.push({ machine: m, kind: "level", color, samples: entry.level });
+      if (entry.rate) series.push({ machine: m, kind: "rate", color, samples: entry.rate });
     }
-  }
-  if (tMin > tMax) { tMin = 0; tMax = 1; }
-  const tSpan = tMax - tMin || 1;
+    const plotted = PLOTTABLE_MACHINES.filter((m) => history.has(m.id));
+
+    let dataMin = Infinity, dataMax = -Infinity;
+    for (const s of series) {
+      for (const p of s.samples) {
+        if (p.t < dataMin) dataMin = p.t;
+        if (p.t > dataMax) dataMax = p.t;
+      }
+    }
+    const bounds = dataMin > dataMax ? { start: 0, end: 1 } : { start: dataMin, end: dataMax };
+    return { activeSeries: series, plottedMachines: plotted, dataBounds: bounds };
+  }, [history]);
 
   let rateMaxRawTph = 0;
   for (const s of activeSeries) {
@@ -73,6 +129,17 @@ export default function ChartDock({ history }) {
   const plotH = Math.max(1, plotBottom - plotTop);
   const ready = w > MARGIN.left + MARGIN.right && h > MARGIN.top + MARGIN.bottom;
 
+  // The plotted lines only span [plotLeft, plotRight] of the SVG, not the
+  // full measured container width (the rest is axis-label margin) -- so pan
+  // and zoom, which operate on screen pixels, need the plot's own width and
+  // its screen offset from the container's left edge (CSS padding + the
+  // SVG's left margin), not the raw container width, or the cursor-anchored
+  // zoom and the pan distance would both drift off by that margin.
+  const plotOffsetX = PLOT_PADDING_LEFT + plotLeft;
+  const { range, handlers } = useChartRange(dataBounds, plotRef, plotW, plotOffsetX);
+  const tMin = range.start, tMax = range.end;
+  const tSpan = tMax - tMin || 1;
+
   const x = (t) => plotLeft + (plotW * (t - tMin)) / tSpan;
   const yLevel = (pct) => plotTop + plotH * (1 - pct / 100);
   const yRate = (rate) => plotTop + plotH * (1 - rate / rateAxisMax);
@@ -80,19 +147,40 @@ export default function ChartDock({ history }) {
 
   return (
     <div style={{
-      flex: "none", height: 150, borderTop: `1px solid ${C.line}`,
-      display: "flex", fontFamily: FONT_MONO, background: C.bg,
+      flex: "none", height: dockHeight, borderTop: `1px solid ${C.line}`,
+      display: "flex", fontFamily: FONT_MONO, background: C.bg, position: "relative",
     }}>
+      <div
+        onPointerDown={onHandlePointerDown}
+        style={{
+          position: "absolute", top: -3, left: 0, right: 0, height: 6,
+          cursor: "ns-resize", userSelect: "none", WebkitUserSelect: "none",
+        }}
+      />
+
       <div style={{ width: 190, flex: "none", padding: "12px 16px", borderRight: `1px solid ${C.line}` }}>
         <div style={{ fontFamily: FONT_DISP, fontSize: 13, letterSpacing: 0.5, color: C.text }}>SHARED CHART</div>
         <div style={{ fontSize: 9, color: C.muted, marginTop: 4, lineHeight: 1.6 }}>
-          level % · left axis, solid<br />rate t/h · right axis, dashed
+          level % · left axis, solid<br />rate t/h · right axis, dashed<br />drag pan · wheel zoom
         </div>
       </div>
 
-      <div ref={plotRef} style={{ flex: 1, minWidth: 0, position: "relative", padding: "0 14px 0 8px", overflow: "hidden" }}>
+      <div
+        ref={plotRef}
+        {...handlers}
+        style={{
+          flex: 1, minWidth: 0, position: "relative", overflow: "hidden",
+          padding: `0 ${PLOT_PADDING_RIGHT}px 0 ${PLOT_PADDING_LEFT}px`,
+          cursor: "grab", touchAction: "none", userSelect: "none", WebkitUserSelect: "none",
+        }}
+      >
         {ready && (
           <svg width={w} height={h}>
+            <defs>
+              <clipPath id="chartPlotClip">
+                <rect x={plotLeft} y={plotTop} width={plotW} height={plotH} />
+              </clipPath>
+            </defs>
             <line x1={plotLeft} y1={plotTop} x2={plotLeft} y2={plotBottom} stroke={C.line} strokeWidth="1" />
             <line x1={plotLeft} y1={plotBottom} x2={plotRight} y2={plotBottom} stroke={C.line} strokeWidth="1" />
             <line x1={plotRight} y1={plotTop} x2={plotRight} y2={plotBottom} stroke={C.line} strokeWidth="1" />
@@ -133,20 +221,22 @@ export default function ChartDock({ history }) {
               </text>
             )}
 
-            {activeSeries.map((s) => {
-              if (s.samples.length < 2) return null;
-              const points = s.samples.map((p) => `${x(p.t)},${seriesY(s, p)}`).join(" ");
-              return (
-                <polyline
-                  key={`${s.machine.id}-${s.kind}`}
-                  points={points}
-                  fill="none"
-                  stroke={s.color}
-                  strokeWidth="1.5"
-                  strokeDasharray={s.kind === "rate" ? "4 3" : undefined}
-                />
-              );
-            })}
+            <g clipPath="url(#chartPlotClip)">
+              {activeSeries.map((s) => {
+                if (s.samples.length < 2) return null;
+                const points = s.samples.map((p) => `${x(p.t)},${seriesY(s, p)}`).join(" ");
+                return (
+                  <polyline
+                    key={`${s.machine.id}-${s.kind}`}
+                    points={points}
+                    fill="none"
+                    stroke={s.color}
+                    strokeWidth="1.5"
+                    strokeDasharray={s.kind === "rate" ? "4 3" : undefined}
+                  />
+                );
+              })}
+            </g>
           </svg>
         )}
       </div>
