@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  createSim, stepSim, resetSim, getMachineState, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
+  createSim, stepSim, resetSim, resetTrips, getMachineState, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, getInterlockState,
   getCombinedEvents, setElevatorSpeed,
   setInterlockSlowSetpoint, setInterlockStopSetpoint, setInterlockSlowDelay, setInterlockStopDelay,
@@ -239,7 +239,10 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
     expect(largeDelayOvershoot).toBeGreaterThan(smallDelayOvershoot);
   });
 
-  it("the valve reopens once the level falls past the low set point", () => {
+  // Issue #45: the FD is explicit that a trip needs a SCADA reset before the
+  // device can run again — the sim's former auto-reopen at the low set point
+  // was a modelling convenience, not plant behaviour (docs/OPEN_QUESTIONS.md).
+  it("the valve stays closed once the level falls past the low set point — no automatic reopen", () => {
     const sim = createSim(line);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
@@ -250,17 +253,18 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
     expect(interlockRule(sim).phase).toBe("closed");
     expect(getMachineState(sim, SOURCE_ID).openness).toBe(0);
 
-    // presenter stages the reopen scenario by dragging the level down, same
-    // control used to stage a near-overflow (setAccumulatorLevel)
+    // presenter drags the level down well past the clearing set point, same
+    // control used to stage a near-overflow (setAccumulatorLevel) — the
+    // valve still doesn't reopen on its own
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.3);
     for (let i = 0; i < 2000; i++) stepSim(sim, DT);
 
-    expect(interlockRule(sim).phase).toBe("open");
-    expect(getMachineState(sim, SOURCE_ID).openness).toBe(1);
+    expect(interlockRule(sim).phase).toBe("closed");
+    expect(getMachineState(sim, SOURCE_ID).openness).toBe(0);
     expect(() => assertConserved(sim)).not.toThrow();
   });
 
-  it("records the trip, the delayed action and the reopen in the buffer bin's event log, each with its simulated time", () => {
+  it("resetTrips reopens the valve once the level has actually cleared the high set point", () => {
     const sim = createSim(line);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
@@ -268,16 +272,40 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
     setInterlockLowSetpoint(sim, BUFFER_BIN_ID, 0.3);
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 1);
     for (let i = 0; i < 2000; i++) stepSim(sim, DT);
-    setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.3);
+    expect(interlockRule(sim).phase).toBe("closed");
+
+    resetTrips(sim); // still above the high set point: re-latches, no flapping
+    expect(interlockRule(sim).phase).toBe("closed");
+    expect(getMachineState(sim, SOURCE_ID).openness).toBe(0);
+
+    setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.3); // presenter drains it below the high set point
+    resetTrips(sim);
     for (let i = 0; i < 2000; i++) stepSim(sim, DT);
 
+    expect(interlockRule(sim).phase).toBe("open");
+    expect(getMachineState(sim, SOURCE_ID).openness).toBe(1);
+    expect(() => assertConserved(sim)).not.toThrow();
+  });
+
+  it("records the trip, the delayed action, the re-latched reset attempt and the eventual reset in the buffer bin's event log, each with its simulated time", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
+    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
+    setInterlockLowSetpoint(sim, BUFFER_BIN_ID, 0.3);
+    setInterlockSignalDelay(sim, BUFFER_BIN_ID, 1);
+    for (let i = 0; i < 2000; i++) stepSim(sim, DT);
+    resetTrips(sim); // still tripped: logs the re-latch attempt
+    setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.3);
+    resetTrips(sim); // now clears: logs the reset
+
     const log = interlockRule(sim).log;
-    expect(log.length).toBeGreaterThanOrEqual(4); // high trip, close commanded, low trip, open commanded
+    expect(log.length).toBeGreaterThanOrEqual(4); // high trip, close commanded, re-latch attempt, reset open commanded
     for (const entry of log) {
       expect(typeof entry.t).toBe("number");
       expect(typeof entry.message).toBe("string");
     }
-    expect(log[0].t).toBeLessThan(log[log.length - 1].t); // strictly ordered in sim time
+    expect(log[0].t).toBeLessThanOrEqual(log[log.length - 1].t); // ordered in sim time
   });
 
   it("publishes the same trip through getCombinedEvents, tagged with the buffer bin's real id and display name (issue #29)", () => {
@@ -726,6 +754,7 @@ describe("treater pre-bin slows the elevator, then stops it (issue #22)", () => 
     expect(getMachineState(sim, PRE_BIN_ID).stored).toBeCloseTo(preBinBeforeRecover); // frozen, not lost
 
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.3); // presenter drags the level down below the recovery set point
+    resetTrips(sim); // issue #45: recovery no longer happens on its own, it needs the plant reset
     const preBinAtRecoverStart = getMachineState(sim, PRE_BIN_ID).stored;
     for (let i = 0; i < Math.round(60 / DT); i++) { stepSim(sim, DT); assertConserved(sim); } // past the recovery ramp, long enough for the frozen packet to finish arriving
     expect(preBinInterlock(sim).phase).toBe("full");
@@ -734,13 +763,28 @@ describe("treater pre-bin slows the elevator, then stops it (issue #22)", () => 
     expect(() => assertConserved(sim)).not.toThrow();
   });
 
-  it("the level recovers and the elevator returns to full speed once the bin drains", () => {
+  // Issue #45: no automatic recovery. The bin draining is no longer enough
+  // on its own — the plant control's RESET TRIPS clears the latch.
+  it("stays stopped once the bin drains — no automatic recovery", () => {
     const sim = createSim(lineWithoutBatchTreater);
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.9);
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
     expect(preBinInterlock(sim).phase).toBe("stopped");
 
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.2); // presenter drags the level back down
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(preBinInterlock(sim).phase).toBe("stopped");
+    expect(getMachineState(sim, ELEVATOR_ID).throttleFraction).toBe(0);
+  });
+
+  it("resetTrips returns the elevator to full speed once the bin has actually drained", () => {
+    const sim = createSim(lineWithoutBatchTreater);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.9);
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+    expect(preBinInterlock(sim).phase).toBe("stopped");
+
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.2); // presenter drags the level back down
+    resetTrips(sim);
     for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // past the recovery ramp
     expect(preBinInterlock(sim).phase).toBe("full");
     expect(getMachineState(sim, ELEVATOR_ID).throttleFraction).toBe(1);
@@ -959,7 +1003,10 @@ describe("treater after-bin holds the next batch (issue #25)", () => {
     expect(messages.some((m) => /stop/i.test(m))).toBe(false); // never described as a stop — the plant distinguishes the two
   });
 
-  it("the treater resumes only once the level has fallen back below the clearing threshold", () => {
+  // Issue #45: no automatic release. The level clearing the high set point
+  // is necessary for resetTrips to succeed, but resetTrips itself is what
+  // actually resumes the treater now — the level falling alone is not enough.
+  it("stays held even once the level has fallen back below the high set point — no automatic release", () => {
     const sim = createSim(line);
     feedElevator(sim, 20);
     setAccumulatorLevel(sim, AFTER_BIN_ID, 0.9);
@@ -968,13 +1015,27 @@ describe("treater after-bin holds the next batch (issue #25)", () => {
     const treater = getMachineState(sim, TREATER_ID);
     expect(treater.blocked).toBe(true);
 
-    setAccumulatorLevel(sim, AFTER_BIN_ID, 0.5); // still above the 20% clearing threshold
+    setAccumulatorLevel(sim, AFTER_BIN_ID, 0.1); // well below the high set point
     stepSim(sim, DT);
-    expect(afterBinInterlock(sim).phase).toBe("held"); // does not resume yet
+    expect(afterBinInterlock(sim).phase).toBe("held"); // still latched
+    expect(treater.blocked).toBe(true);
+  });
+
+  it("resetTrips re-latches while the level is still above the high set point, then resumes the treater once it has actually cleared", () => {
+    const sim = createSim(line);
+    feedElevator(sim, 20);
+    setAccumulatorLevel(sim, AFTER_BIN_ID, 0.9);
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(afterBinInterlock(sim).phase).toBe("held");
+    const treater = getMachineState(sim, TREATER_ID);
+
+    setAccumulatorLevel(sim, AFTER_BIN_ID, 0.65); // still above the 60% high set point
+    resetTrips(sim);
+    expect(afterBinInterlock(sim).phase).toBe("held"); // re-latches, does not resume
     expect(treater.blocked).toBe(true);
 
-    setAccumulatorLevel(sim, AFTER_BIN_ID, 0.1); // now below the clearing threshold
-    stepSim(sim, DT);
+    setAccumulatorLevel(sim, AFTER_BIN_ID, 0.1); // now below the high set point
+    resetTrips(sim);
     expect(afterBinInterlock(sim).phase).toBe("released");
     expect(treater.blocked).toBe(false);
 
@@ -1013,7 +1074,8 @@ describe("treater after-bin holds the next batch (issue #25)", () => {
     expect(treater.blocked).toBe(true);
     expect(afterBin.spill).toBeCloseTo(0);
 
-    setAccumulatorLevel(sim, AFTER_BIN_ID, 0.1); // presenter drains it for the demo, below the clearing threshold
+    setAccumulatorLevel(sim, AFTER_BIN_ID, 0.1); // presenter drains it for the demo, below the high set point
+    resetTrips(sim); // issue #45: release no longer happens on its own, it needs the plant reset
     for (let i = 0; i < Math.round(45 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
     expect(afterBinInterlock(sim).phase).toBe("released");
     expect(treater.blocked).toBe(false);
@@ -1413,7 +1475,7 @@ describe("the treating zone keeps cycling indefinitely under steady supply, neve
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15));
     for (let i = 0; i < Math.round(6000 / DT); i++) stepSim(sim, DT);
     expect(afterBinInterlock(sim).phase).toBe("released"); // never once tripped
-  });
+  }, 20000);
 
   // Issue #41: before centralizing the crossing log, holdNextBatch's LSL
   // message only ever logged from inside the `phase === "held"` branch — a
@@ -1436,7 +1498,7 @@ describe("the treating zone keeps cycling indefinitely under steady supply, neve
       expect(typeof entry.t).toBe("number");
       expect(entry.message).toMatch(/^LSL set point reached at \d+% \(setpoint \d+%\)$/);
     }
-  });
+  }, 20000);
 });
 
 describe("resetSim (presenter reset, no page reload needed)", () => {

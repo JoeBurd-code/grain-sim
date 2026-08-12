@@ -4,7 +4,7 @@
 // consumed per wall-clock second, never the fixed timestep itself.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  createSim, stepSim, resetSim, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
+  createSim, stepSim, resetSim, resetTrips as resetTripsSim, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, setElevatorSpeed,
   setInterlockSlowSetpoint, setInterlockStopSetpoint,
   setInterlockSlowDelay as engineSetInterlockSlowDelay, setInterlockStopDelay as engineSetInterlockStopDelay,
@@ -115,8 +115,11 @@ export function useSimEngine(line) {
   // Puts the whole system back to t=0 with every live control (rates,
   // interlock set points, elevator speed) back at the line's authored
   // defaults — the same end state as reloading the page, without losing
-  // pan/zoom or the selected machine's popup.
-  const reset = useCallback(() => {
+  // pan/zoom or the selected machine's popup. Named `restart`, not `reset`
+  // (issue #45), so it's never confused with the plant control's own
+  // resetTrips below — one wipes the whole run, the other only clears
+  // latched interlocks and leaves everything else running.
+  const restart = useCallback(() => {
     pause();
     resetSim(sim);
     lastTsRef.current = 0;
@@ -127,6 +130,14 @@ export function useSimEngine(line) {
     setHistory(createPlotHistory());
     publish();
   }, [sim, pause, publish]);
+
+  // Plant control (issue #45): the SCADA reset, clearing every latched trip
+  // on the line at once. Takes effect immediately, whether paused or
+  // running, same as the other presenter-facing live controls below.
+  const resetTrips = useCallback(() => {
+    resetTripsSim(sim);
+    publish();
+  }, [sim, publish]);
 
   // Toggles one machine's level/rate series on or off (issue #36). Reads the
   // latest history via the functional updater rather than closing over the
@@ -211,7 +222,7 @@ export function useSimEngine(line) {
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
   return {
-    snap, running, start, pause, stepOnce, reset, speed, setSpeed, setRate, setFeedRate, setLevel,
+    snap, running, start, pause, stepOnce, restart, resetTrips, speed, setSpeed, setRate, setFeedRate, setLevel,
     setInterlockHigh, setInterlockLow, setInterlockDelay, setElevatorSpeed: setElevatorSpeedFraction,
     setInterlockSlow, setInterlockStop, setInterlockSlowDelay, setInterlockStopDelay,
     setBatchSize: setBatchSizeM3, setBatchCycleTime, setWasteFraction,

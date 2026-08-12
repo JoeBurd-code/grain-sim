@@ -3,7 +3,7 @@
 // state back. Internals (the two-phase step, how behaviours are wired) are
 // not part of this seam.
 import { BEHAVIORS, REGISTERED_KINDS, unregisteredKindMessage } from "./behaviors";
-import { initControl, stepControl, combineEventLogs, primeInstruments } from "./control";
+import { initControl, stepControl, combineEventLogs, primeInstruments, resetTrips as resetControlTrips } from "./control";
 
 export const DT = 0.05; // s, fixed sim timestep (matches the proven mock)
 
@@ -95,7 +95,10 @@ export function createSim(line) {
 // onto `sim` — the UI's useState value, never replaced via its setter — sees
 // the reset without needing to know its identity changed. Every live
 // control set during the run (rates, interlock set points, elevator speed)
-// reverts to the line's authored defaults, same as a page reload.
+// reverts to the line's authored defaults, same as a page reload. This is
+// the whole-sim rebuild — surfaced to the presenter as RESTART, not RESET,
+// so it's never confused with resetTrips below, which only clears latched
+// interlocks and leaves the running demo alone.
 export function resetSim(sim) {
   Object.assign(sim, createSim(sim.line));
   return sim;
@@ -204,6 +207,16 @@ export function stepSim(sim, dt) {
 
 export function getMachineState(sim, id) {
   return sim.machines.get(id);
+}
+
+// Plant control (issue #45): clears every latched trip on the line at once
+// — the SCADA reset, distinct from resetSim above (which rebuilds the whole
+// sim back to t=0 and every authored default). A machine whose interlock
+// condition is still live stays exactly where it was; see control.js's own
+// resetTrips and each rule kind's `reset` for what "still live" means per
+// kind.
+export function resetTrips(sim) {
+  resetControlTrips(sim);
 }
 
 // Read access to an interlock's runtime state (phase, event log, live

@@ -9,6 +9,7 @@ import { lineBounds, zoneBounds } from "../line/bounds";
 import Scene from "../scene/Scene";
 import MachinePopup from "./MachinePopup";
 import TransportControls from "./TransportControls";
+import PlantControls from "./PlantControls";
 import ChartDock from "./ChartDock";
 import EventLogPanel from "./EventLogPanel";
 import { useViewport } from "../scene/useViewport";
@@ -154,10 +155,11 @@ export default function MeetingApp() {
           onStart={engine.start}
           onPause={engine.pause}
           onStep={engine.stepOnce}
-          onReset={engine.reset}
+          onRestart={engine.restart}
           speed={engine.speed}
           onSpeedChange={engine.setSpeed}
         />
+        <PlantControls onResetTrips={engine.resetTrips} />
         <div style={{ display: "flex", gap: 6, flex: "none" }}>
           {line.zones.map((z) => (
             <button key={z.id} className="zonebtn" style={zoneBtnStyle} onClick={() => fitTo(zoneBounds(line, z.id))}>
