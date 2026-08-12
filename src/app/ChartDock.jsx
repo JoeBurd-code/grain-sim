@@ -17,12 +17,19 @@
 // combined `events` list (#29) the event log panel reads -- no second event
 // path. Clicking a dot calls `onEventClick` with the event's index in that
 // list; MeetingApp uses it to open/focus the panel and scroll to it.
+//
+// Issue #39: a toggleable measure mode swaps the plot area's drag from doing
+// nothing (panning is slider-driven now, see the #37 note above) to
+// selecting a time span -- a shaded band with a live elapsed-time readout,
+// left in place once released. useMeasure owns the mode/span state; the
+// pure math lives in measureSpan.js, mirroring useChartRange/chartRange.js.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 import { m3PerSecToTPerHour } from "../sim/units";
 import { sampleValueAt } from "../sim/plotHistory";
 import { PLOTTABLE_MACHINES, plotColorFor } from "./plotColors";
 import { useChartRange } from "./useChartRange";
+import { useMeasure } from "./useMeasure";
 
 const EVENT_DOT_RADIUS = 3.5;
 
@@ -53,6 +60,27 @@ function RangeSlider({ label, value, onChange, disabled, formatValue }) {
         style={{ width: "100%", accentColor: C.wheat, height: 14 }}
       />
     </div>
+  );
+}
+
+// Measure-mode toggle, styled like MachinePopup.jsx's PlotToggle so it reads
+// as the same button family as the rest of the demo's on/off controls.
+function MeasureToggle({ active, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      title={active ? "exit measure mode (Esc)" : "drag to measure a time span"}
+      style={{
+        display: "block", width: "100%", marginBottom: 12,
+        background: active ? C.wheat : "transparent",
+        color: active ? "#1a1a14" : C.muted,
+        border: `1px solid ${active ? C.wheat : C.line}`,
+        borderRadius: 4, cursor: "pointer", fontFamily: FONT_MONO,
+        fontSize: 10, letterSpacing: 1, padding: "6px 10px",
+      }}
+    >
+      {active ? "MEASURING ✕" : "⟷ MEASURE"}
+    </button>
   );
 }
 
@@ -188,10 +216,15 @@ export default function ChartDock({ history, events, onEventClick }) {
   const tMin = range.start, tMax = range.end;
   const tSpan = tMax - tMin || 1;
 
+  const measure = useMeasure();
+
   const x = (t) => plotLeft + (plotW * (t - tMin)) / tSpan;
   const yLevel = (pct) => plotTop + plotH * (1 - pct / 100);
   const yRate = (rate) => plotTop + plotH * (1 - rate / rateAxisMax);
   const seriesY = (s, p) => (s.kind === "level" ? yLevel(p.value * 100) : yRate(m3PerSecToTPerHour(p.value)));
+
+  const measureX1 = measure.span ? x(measure.span.start) : null;
+  const measureX2 = measure.span ? x(measure.span.end) : null;
 
   return (
     <div style={{
@@ -211,6 +244,7 @@ export default function ChartDock({ history, events, onEventClick }) {
         <div style={{ fontSize: 9, color: C.muted, marginTop: 4, marginBottom: 12, lineHeight: 1.6 }}>
           level % · left axis, solid<br />rate t/h · right axis, dashed
         </div>
+        <MeasureToggle active={measure.active} onClick={measure.toggle} />
         <RangeSlider
           label="zoom" value={zoomFrac} onChange={setZoomFrac}
           formatValue={(v) => `${Math.round(v * 100)}%`}
@@ -226,6 +260,8 @@ export default function ChartDock({ history, events, onEventClick }) {
         style={{
           flex: 1, minWidth: 0, position: "relative", overflow: "hidden",
           padding: `0 ${PLOT_PADDING_RIGHT}px 0 ${PLOT_PADDING_LEFT}px`,
+          cursor: measure.active ? "crosshair" : "default",
+          userSelect: "none", WebkitUserSelect: "none",
         }}
       >
         {ready && (
@@ -276,6 +312,19 @@ export default function ChartDock({ history, events, onEventClick }) {
             )}
 
             <g clipPath="url(#chartPlotClip)">
+              {measure.span && (
+                <rect
+                  x={Math.min(measureX1, measureX2)}
+                  y={plotTop}
+                  width={Math.abs(measureX2 - measureX1)}
+                  height={plotH}
+                  fill={C.wheat}
+                  fillOpacity={0.15}
+                  stroke={C.wheat}
+                  strokeOpacity={0.6}
+                  strokeWidth="1"
+                />
+              )}
               {activeSeries.map((s) => {
                 if (s.samples.length < 2) return null;
                 const points = s.samples.map((p) => `${x(p.t)},${seriesY(s, p)}`).join(" ");
@@ -305,7 +354,26 @@ export default function ChartDock({ history, events, onEventClick }) {
                   <title>jump to event in log</title>
                 </circle>
               ))}
+              {measure.span && (
+                <text
+                  x={Math.min(Math.max((measureX1 + measureX2) / 2, plotLeft + 26), plotRight - 26)}
+                  y={plotTop + 12}
+                  fontFamily={FONT_MONO} fontSize="9" fill={C.wheat} textAnchor="middle"
+                >
+                  Δ {(measure.span.end - measure.span.start).toFixed(1)}s
+                </text>
+              )}
             </g>
+
+            {/* Issue #39: transparent capture surface for measure-mode drag
+                -- only intercepts pointer events while measure mode is on,
+                so event-dot clicks above keep working the rest of the time. */}
+            <rect
+              x={plotLeft} y={plotTop} width={plotW} height={plotH}
+              fill="transparent"
+              pointerEvents={measure.active ? "all" : "none"}
+              onPointerDown={(e) => measure.onPlotPointerDown(e, range)}
+            />
           </svg>
         )}
       </div>
