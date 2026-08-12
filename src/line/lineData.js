@@ -10,10 +10,21 @@
 // PLC & SCADA Functional Description (A2653FSD001, analysed 2026-08-05,
 // see docs/PLC_FUNCTIONAL_DESCRIPTION.md) resolved most TBC-nn tags to
 // real ones and confirmed the Concetti-branch metal remover does not
-// exist (removed below). It did not resolve whether the top distribution
-// conveyor is a separate machine or the upper horizontal run of
-// 52.604.E00 (see PLC_FUNCTIONAL_DESCRIPTION.md §8.3) — left unretagged
-// pending that answer.
+// exist (removed below).
+//
+// 2026-08-12 (issue #44, closes register item 26): the Packaging SCADA
+// mimic (PLC_FUNCTIONAL_DESCRIPTION.md §8.3) shows one continuous
+// distribution run with one set of drive instruments and no drive symbol
+// on the upper horizontal — not just an inference anymore. The former
+// "lift conveyor" and "top transport conveyor" are one machine,
+// `pendulumConveyor` (tag 52.604.E00), a Simatek E200 pendulum conveyor
+// running a Z path (floor run, climb, ceiling run) with pneumatically
+// selected discharge outlets along the ceiling run. The phantom
+// `52.702.U00` packaging bucket elevator (nowhere in the FD, no lift
+// shown on the outload branch) and the duplicate "bin segment" (the
+// drawing-reading's own outload buffer bin 52.610.H00, already modelled
+// separately) are removed. See docs/REAL_LINE_SPECS.md §12 item 26 and
+// docs/PLC_FUNCTIONAL_DESCRIPTION.md §8.3 for the full reasoning.
 //
 // Coordinates are world units, side elevation, gravity-true: grain falls
 // down the screen, elevators climb, what catches sits below what drops.
@@ -429,7 +440,11 @@ export const line = {
       id: "inletDrumFeeder1",
       type: "drumFeeder",
       name: "INLET DRUM FEEDER 1",
-      tag: "52.603.L00",
+      // Tag corrected 2026-08-12 (issue #44): the Packaging mimic settles
+      // which source feeds which tag. This feeder (fed by the Pro Box,
+      // below) is 52.603.L01, not 52.603.L00 — the earlier drawing
+      // reading had the two feeders' sources swapped.
+      tag: "52.603.L01",
       status: "new",
       zone: "packaging",
       x: 1160, y: 730, w: 80, h: 36,
@@ -442,7 +457,10 @@ export const line = {
       id: "inletDrumFeeder2",
       type: "drumFeeder",
       name: "INLET DRUM FEEDER 2",
-      tag: "52.603.L01",
+      // Tag corrected 2026-08-12 (issue #44): this feeder (fed by the
+      // scalping screen, below) is 52.603.L00 — see inletDrumFeeder1's
+      // comment for the source of the correction.
+      tag: "52.603.L00",
       status: "new",
       zone: "packaging",
       x: 1290, y: 730, w: 80, h: 36,
@@ -452,39 +470,31 @@ export const line = {
       params: [{ id: "rate", label: "feed rate", min: 2, max: 20, value: 12, unit: "t/h" }],
     },
     {
-      id: "liftConveyor",
+      id: "pendulumConveyor",
       type: "conveyor",
-      name: "LIFT TO TOP CONVEYOR",
+      name: "PENDULUM CONVEYOR",
+      // Merged 2026-08-12 (issue #44): the former "lift conveyor" and "top
+      // transport conveyor" are one machine, 52.604.E00, a Simatek E200
+      // pendulum conveyor. Real geometry is a Z path (floor run, vertical
+      // climb, ceiling run); the body here still only draws the ceiling
+      // run, where the topology (three pneumatically selected outlets)
+      // actually lives — the Z-shaped symbol is deliberately left for a
+      // future ticket, per issue #44's own scope (data only, no engine or
+      // presentation-layer work). The floor run and climb are implied by
+      // the infeed connections' via points below.
       tag: "52.604.E00",
       status: "new",
       zone: "packaging",
-      x: 1170, y: 800, w: 220, h: 40,
-      ports: { inputs: ["in1", "in2"], outputs: ["out"] },
-      anchors: { in1: { x: 30, y: 0 }, in2: { x: 160, y: 0 }, out: { x: 215, y: 8 } },
-      instruments: ["LSH"],
-      labelAt: { x: 0, y: 64 },
-    },
-    {
-      id: "topConveyor",
-      type: "conveyor",
-      name: "TOP TRANSPORT CONVEYOR",
-      // 52.605.X00 was the drawing-era guess for this machine; the FD
-      // (2026-08-05) reassigns that tag to the Concetti auto sampler
-      // instead (see concettiSampler below) and never names a top
-      // conveyor at all. Left as a placeholder pending the engineer
-      // question in docs/PLC_FUNCTIONAL_DESCRIPTION.md §8.3: is this a
-      // separate machine, or the upper horizontal run of 52.604.E00?
-      tag: "TBC-21",
-      status: "new",
-      zone: "packaging",
       x: 1440, y: 140, w: 1750, h: 26,
-      ports: { inputs: ["in"], outputs: ["outBuffer", "outBinSeg", "outConcetti"] },
+      ports: { inputs: ["in1", "in2"], outputs: ["outBuffer", "outBinSeg", "outConcetti"] },
       anchors: {
-        in: { x: 10, y: 20 },
+        in1: { x: 10, y: 8 },
+        in2: { x: 10, y: 20 },
         outBuffer: { x: 240, y: 26 },
         outBinSeg: { x: 1120, y: 26 },
         outConcetti: { x: 1745, y: 26 },
       },
+      instruments: ["LSH"],
       labelAt: { x: 560, y: -14 },
       params: [{ id: "speed", label: "speed", min: 0, max: 100, value: 100, unit: "%" }],
     },
@@ -508,40 +518,42 @@ export const line = {
       labelAt: { x: -190, y: 30 },
     },
     {
-      id: "packagingElevator",
-      type: "elevator",
-      name: "BUCKET ELEVATOR · PACKAGING",
-      tag: "52.702.U00",
-      status: "new",
-      zone: "packaging",
-      x: 1690, y: 196, w: 570, h: 240,
-      geom: { colX: 264, duct: 36 },
-      ports: { inputs: ["in"], outputs: ["out"] },
-      anchors: { in: { x: 25, y: 204 }, out: { x: 526, y: 44 } },
-      instruments: ["ST"],
-      labelAt: { x: 30, y: 296 },
-      params: [{ id: "speed", label: "speed", min: 0, max: 100, value: 100, unit: "%" }],
-    },
-    {
       id: "grainBreak",
       type: "grainBreak",
       name: "GRAIN BREAK",
+      // Re-sited 2026-08-12 (issue #44): its old parent, the phantom
+      // packaging bucket elevator (52.702.U00), does not exist — see
+      // pendulumConveyor's comment above. The engineer confirmed the
+      // grain break itself exists, as an unpowered cascade chute; the FD
+      // never mentions it, consistent with that (nothing to trip or
+      // command). Re-sited onto pendulumConveyor's discharge into the
+      // outload buffer bin, the one place upstream of the bin a cascade
+      // chute plausibly sits, but its exact position was never confirmed
+      // — this is a placement of convenience, not a plant fact. See the
+      // docs/OPEN_QUESTIONS.md row flagging this for engineer follow-up.
       tag: "TBC-20",
       status: "new",
       zone: "packaging",
-      x: 2192, y: 270, w: 48, h: 36,
+      x: 1656, y: 190, w: 48, h: 36,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 24, y: 0 }, out: { x: 24, y: 36 } },
-      labelAt: { x: -150, y: 8 },
+      labelAt: { x: -140, y: 44 },
     },
     {
       id: "outloadDiverter",
       type: "diverter",
       name: "DIVERTER",
-      tag: "52.613.V00",
+      // Retagged 2026-08-12 (issue #44): this is the outload diverter
+      // valve, 52.612.V00. 52.613.V00 (its old tag here) is metal bin 1's
+      // own inlet slide gate, a distinct downstream device not yet
+      // modelled as its own machine. Repositioned below the outload
+      // buffer bin: with the phantom elevator gone, the bin discharges
+      // straight into this diverter by gravity — no lift carries it back
+      // up to the old position.
+      tag: "52.612.V00",
       status: "new",
       zone: "packaging",
-      x: 2200, y: 330, w: 32, h: 32,
+      x: 1699, y: 400, w: 32, h: 32,
       ports: { inputs: ["in"], outputs: ["out1", "out2"] },
       anchors: { in: { x: 16, y: 0 }, out1: { x: 8, y: 24 }, out2: { x: 32, y: 16 } },
       smallLabel: true,
@@ -554,7 +566,10 @@ export const line = {
       tag: "52.613.H00",
       status: "new",
       zone: "packaging",
-      x: 2120, y: 410, w: 160, h: 172,
+      // Repositioned 2026-08-12 (issue #44), moved under the relocated
+      // diverter above now that no elevator carries material out to the
+      // old position — see outloadDiverter's comment.
+      x: 1585, y: 460, w: 160, h: 172,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 80, y: 0 }, out: { x: 80, y: 162 } },
       fill: 0.35,
@@ -568,7 +583,7 @@ export const line = {
       tag: "STUB.DISCH1",
       status: "stub",
       zone: "packaging",
-      x: 2196, y: 650, w: 8, h: 8,
+      x: 1661, y: 700, w: 8, h: 8,
       ports: { inputs: ["in"], outputs: [] },
       anchors: { in: { x: 4, y: 4 } },
     },
@@ -579,7 +594,8 @@ export const line = {
       tag: "52.613.H01",
       status: "new",
       zone: "packaging",
-      x: 2350, y: 410, w: 160, h: 172,
+      // Repositioned 2026-08-12 (issue #44), see metalBin1's comment.
+      x: 1765, y: 460, w: 160, h: 172,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 80, y: 0 }, out: { x: 80, y: 162 } },
       fill: 0.12,
@@ -593,7 +609,7 @@ export const line = {
       tag: "STUB.DISCH2",
       status: "stub",
       zone: "packaging",
-      x: 2426, y: 650, w: 8, h: 8,
+      x: 1841, y: 700, w: 8, h: 8,
       ports: { inputs: ["in"], outputs: [] },
       anchors: { in: { x: 4, y: 4 } },
     },
@@ -610,20 +626,11 @@ export const line = {
       smallLabel: true,
       labelAt: { x: -180, y: 40 },
     },
-    {
-      id: "binSegment",
-      type: "bin",
-      name: "BIN SEGMENT",
-      tag: "TBC-11",
-      status: "new",
-      zone: "packaging",
-      x: 2500, y: 280, w: 120, h: 130,
-      ports: { inputs: ["in"], outputs: ["out"] },
-      anchors: { in: { x: 60, y: 0 }, out: { x: 60, y: 130 } },
-      fill: 0.7,
-      instruments: ["LT"],
-      labelAt: { x: -15, y: -16 },
-    },
+    // binSegment ("BIN SEGMENT", TBC-11) deleted 2026-08-12 (issue #44):
+    // the "bin segment" of the original drawing reading is the outload
+    // buffer bin 52.610.H00 (already modelled as outloadBufferBin, on the
+    // branch-B outload metal bin path), not a separate vessel on this
+    // Flexicon branch. binSegSampler now feeds flexiconPreBin directly.
     {
       id: "flexiconPreBin",
       type: "bin",
@@ -793,30 +800,32 @@ export const line = {
     { from: { machine: "scalpingScreen", port: "waste" }, to: { machine: "discardBin", port: "in" }, kind: "waste" },
     // treating -> packaging (the cross-zone product run)
     { from: { machine: "scalpingScreen", port: "out" }, to: { machine: "inletDrumFeeder2", port: "in" }, kind: "product", via: [{ x: 1310, y: 715 }] },
-    // packaging infeed
+    // packaging infeed. The two via points on each connection sketch the
+    // pendulum conveyor's own floor run + climb (see its comment above):
+    // down to floor level, across to the climb point, up into the
+    // ceiling run.
     { from: { machine: "proBoxStation", port: "out" }, to: { machine: "inletDrumFeeder1", port: "in" }, kind: "product" },
-    { from: { machine: "inletDrumFeeder1", port: "out" }, to: { machine: "liftConveyor", port: "in1" }, kind: "product" },
-    { from: { machine: "inletDrumFeeder2", port: "out" }, to: { machine: "liftConveyor", port: "in2" }, kind: "product" },
-    { from: { machine: "liftConveyor", port: "out" }, to: { machine: "topConveyor", port: "in" }, kind: "product", via: [{ x: 1440, y: 808 }, { x: 1440, y: 166 }] },
-    // branch B: outload metal bins
-    { from: { machine: "topConveyor", port: "outBuffer" }, to: { machine: "outloadBufferBin", port: "in" }, kind: "product" },
-    { from: { machine: "outloadBufferBin", port: "out" }, to: { machine: "packagingElevator", port: "in" }, kind: "product" },
-    { from: { machine: "packagingElevator", port: "out" }, to: { machine: "grainBreak", port: "in" }, kind: "product" },
-    { from: { machine: "grainBreak", port: "out" }, to: { machine: "outloadDiverter", port: "in" }, kind: "product" },
+    { from: { machine: "inletDrumFeeder1", port: "out" }, to: { machine: "pendulumConveyor", port: "in1" }, kind: "product", via: [{ x: 1200, y: 800 }, { x: 1440, y: 800 }, { x: 1440, y: 148 }] },
+    { from: { machine: "inletDrumFeeder2", port: "out" }, to: { machine: "pendulumConveyor", port: "in2" }, kind: "product", via: [{ x: 1330, y: 800 }, { x: 1440, y: 800 }, { x: 1440, y: 160 }] },
+    // branch B: outload metal bins. No lift here (issue #44): the phantom
+    // packaging bucket elevator is gone, so the buffer bin discharges
+    // straight into the diverter by gravity.
+    { from: { machine: "pendulumConveyor", port: "outBuffer" }, to: { machine: "grainBreak", port: "in" }, kind: "product" },
+    { from: { machine: "grainBreak", port: "out" }, to: { machine: "outloadBufferBin", port: "in" }, kind: "product" },
+    { from: { machine: "outloadBufferBin", port: "out" }, to: { machine: "outloadDiverter", port: "in" }, kind: "product" },
     { from: { machine: "outloadDiverter", port: "out1" }, to: { machine: "metalBin1", port: "in" }, kind: "product" },
-    { from: { machine: "outloadDiverter", port: "out2" }, to: { machine: "metalBin2", port: "in" }, kind: "product", tbc: true, inactive: true, via: [{ x: 2430, y: 372 }] },
+    { from: { machine: "outloadDiverter", port: "out2" }, to: { machine: "metalBin2", port: "in" }, kind: "product", tbc: true, inactive: true, via: [{ x: 1845, y: 416 }] },
     { from: { machine: "metalBin1", port: "out" }, to: { machine: "dischargeStub1", port: "in" }, kind: "product", tbc: true },
     { from: { machine: "metalBin2", port: "out" }, to: { machine: "dischargeStub2", port: "in" }, kind: "product", tbc: true },
     // branch C: big bag
-    { from: { machine: "topConveyor", port: "outBinSeg" }, to: { machine: "binSegSampler", port: "in" }, kind: "product" },
-    { from: { machine: "binSegSampler", port: "out" }, to: { machine: "binSegment", port: "in" }, kind: "product" },
-    { from: { machine: "binSegment", port: "out" }, to: { machine: "flexiconPreBin", port: "in" }, kind: "product" },
+    { from: { machine: "pendulumConveyor", port: "outBinSeg" }, to: { machine: "binSegSampler", port: "in" }, kind: "product" },
+    { from: { machine: "binSegSampler", port: "out" }, to: { machine: "flexiconPreBin", port: "in" }, kind: "product" },
     { from: { machine: "flexiconPreBin", port: "out" }, to: { machine: "vibratingConveyor", port: "in" }, kind: "product" },
     { from: { machine: "vibratingConveyor", port: "out" }, to: { machine: "flexiconFillingHead", port: "in" }, kind: "product", via: [{ x: 2630, y: 605 }] },
     { from: { machine: "flexiconFillingHead", port: "out" }, to: { machine: "rollerScale", port: "in" }, kind: "product" },
     { from: { machine: "rollerScale", port: "out" }, to: { machine: "bigBagStub", port: "in" }, kind: "product" },
     // branch A: Concetti
-    { from: { machine: "topConveyor", port: "outConcetti" }, to: { machine: "concettiSampler", port: "in" }, kind: "product", via: [{ x: 3190, y: 180 }] },
+    { from: { machine: "pendulumConveyor", port: "outConcetti" }, to: { machine: "concettiSampler", port: "in" }, kind: "product", via: [{ x: 3190, y: 180 }] },
     { from: { machine: "concettiSampler", port: "out" }, to: { machine: "concettiPreBin", port: "in" }, kind: "product" },
     // bagging
     { from: { machine: "concettiPreBin", port: "out" }, to: { machine: "concettiScale", port: "in" }, kind: "product" },
