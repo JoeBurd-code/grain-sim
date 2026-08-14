@@ -56,12 +56,14 @@ const DESTINATIONS = [
   { id: "metalBin2", label: "METAL BIN 2" },
 ];
 
-const METAL_BIN_MACHINE_ID = { metalBin1: "metalBin1", metalBin2: "metalBin2" };
+// The two metal-bin destination ids double as their own machine ids
+// (lineData.js), so EMPTY BIN needs only a membership check, not a lookup.
+const METAL_BIN_DESTINATIONS = new Set(["metalBin1", "metalBin2"]);
 
 export default function PlantControls({
   onResetTrips, source, onSetSource, destination, onSetDestination, onEmptyBin,
 }) {
-  const emptyableBinId = METAL_BIN_MACHINE_ID[destination];
+  const emptyableBinId = METAL_BIN_DESTINATIONS.has(destination) ? destination : null;
   return (
     <div style={clusterStyle}>
       <span style={labelStyle}>PLANT</span>
