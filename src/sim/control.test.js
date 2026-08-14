@@ -717,6 +717,33 @@ describe("arming (armedWhen)", () => {
     expect(sim.machines.get("conveyor").throttleTarget).toBe(0); // the trip's own command still stands
   });
 
+  // Code-review finding on issue #47's own first landing: `fireAt` is an
+  // absolute simulated-time deadline. Disarming mid-countdown (before it
+  // ever fires) used to just freeze the rule in "armed" with that deadline
+  // still sitting in the past by the time it was re-armed later, so the
+  // very next tick after re-arming would fire immediately instead of
+  // waiting a fresh signalDelaySec — see disarmThresholdStopTrip's own
+  // comment in control.js.
+  it("disarming before the delay has elapsed cancels the pending timer, so re-arming later waits a fresh full delay rather than firing instantly", () => {
+    const sim = makeArmedStopTripSim(0.95, "metalBin1"); // armed from t=0, fireAt ~= 5.05
+    stepConveyor(sim, 0.05, 40); // 2s in, still short of the 5s delay
+    expect(sim.control[0].phase).toBe("armed");
+
+    BEHAVIORS.router.selectPort(sim.machines.get("router"), "metalBin2"); // disarm mid-countdown
+    stepConveyor(sim, 0.05, 160); // 8s more (10s total) — well past where the frozen fireAt would have fired
+    expect(sim.control[0].phase).toBe("running"); // cancelled, not just frozen mid-"armed"
+    expect(sim.machines.get("conveyor").throttleTarget).toBe(1); // never actually commanded
+
+    BEHAVIORS.router.selectPort(sim.machines.get("router"), "metalBin1"); // re-arm
+    stepConveyor(sim, 0.05, 80); // 4s — short of a *fresh* 5s delay
+    expect(sim.control[0].phase).toBe("armed"); // still counting down, not already fired
+    expect(sim.machines.get("conveyor").throttleTarget).toBe(1);
+
+    stepConveyor(sim, 0.05, 40); // past the fresh 5s (9s since re-arming) — fires and settles (near-instant ramp)
+    expect(sim.control[0].phase).toBe("stopped");
+    expect(sim.machines.get("conveyor").throttleTarget).toBe(0);
+  });
+
   it("a rule with no armedWhen at all is always armed, unchanged from every rule authored before issue #47", () => {
     const sim = makeSim(0.9); // the plain thresholdTrip fixture at the top of this file, no armedWhen
     step(sim, 0.05, 200);

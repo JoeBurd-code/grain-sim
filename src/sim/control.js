@@ -503,6 +503,28 @@ function stepThresholdStopTrip(rule, sim) {
     rule.phase = "running";
   }
 }
+// Disarm (issue #47, code-review finding): `fireAt` is an absolute
+// simulated-time deadline, computed once on entering "armed" and never
+// revisited while stepControl's own isArmed gate keeps skipping this rule's
+// step() — so a rule disarmed mid-countdown and re-armed later would find
+// `sim.t >= fireAt` already true the instant it's re-evaluated, firing on
+// the very next tick instead of waiting a fresh signalDelaySec. "armed" is
+// the one phase this matters for: nothing observable has happened yet (no
+// command issued, nothing logged), so cancelling the pending timer back to
+// "running" here is silent and harmless — unlike "stopping"/"stopped",
+// which represent a command already issued and must survive being
+// disarmed unchanged (see this kind's own resetThresholdStopTrip below,
+// and the "becoming disarmed mid-trip" test in engine.test.js). Every
+// other rule kind has no `disarm` entry in CONTROL_KINDS below and needs
+// none: none of them uses `armedWhen` today, and stepControl's own call is
+// optional-chained, so a kind with nothing pending to cancel is untouched.
+function disarmThresholdStopTrip(rule) {
+  if (rule.phase === "armed") {
+    rule.phase = "running";
+    rule.fireAt = null;
+  }
+}
+
 // Reset (issue #45's own latch convention, applied to this new kind): only
 // "stopped" is eligible, gated on the same high set point that armed it —
 // same shape as resetThresholdTrip.
@@ -585,7 +607,10 @@ const CONTROL_KINDS = {
   twoStageThrottle: { init: initTwoStageThrottle, step: stepTwoStageThrottle, reset: resetTwoStageThrottle },
   holdNextBatch: { init: initHoldNextBatch, step: stepHoldNextBatch, reset: resetHoldNextBatch },
   autoStartOnRunning: { init: initAutoStartOnRunning, step: stepAutoStartOnRunning, reset: resetAutoStartOnRunning },
-  thresholdStopTrip: { init: initThresholdStopTrip, step: stepThresholdStopTrip, reset: resetThresholdStopTrip },
+  thresholdStopTrip: {
+    init: initThresholdStopTrip, step: stepThresholdStopTrip, reset: resetThresholdStopTrip,
+    disarm: disarmThresholdStopTrip,
+  },
   autoStopOnNotRunning: { init: initAutoStopOnNotRunning, step: stepAutoStopOnNotRunning, reset: resetAutoStopOnNotRunning },
 };
 
@@ -645,9 +670,22 @@ export function initControl(line) {
 // than tracking a level the real PLC isn't scanning against either — the
 // FD's own "if selected" wording describes the interlock not evaluating at
 // all, not evaluating-but-suppressing its action.
+//
+// `disarm` (code-review finding on issue #47's own first landing): called
+// every tick a rule is disarmed, not just on the falling edge — cheap and
+// idempotent for every kind that implements it (see e.g.
+// disarmThresholdStopTrip's own `if (rule.phase === "armed")` guard), so no
+// separate "was this armed last tick" bookkeeping is needed here. Optional
+// on CONTROL_KINDS: only a kind with a pending, not-yet-committed timer
+// that `armedWhen` could freeze needs one at all (see disarmThresholdStopTrip's
+// own comment for why that specific staleness is a real bug, not a
+// theoretical one).
 export function stepControl(sim) {
   for (const rule of sim.control) {
-    if (!isArmed(rule, sim)) continue;
+    if (!isArmed(rule, sim)) {
+      CONTROL_KINDS[rule.kind].disarm?.(rule, sim);
+      continue;
+    }
     CONTROL_KINDS[rule.kind].step(rule, sim);
   }
 }

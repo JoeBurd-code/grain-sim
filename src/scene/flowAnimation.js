@@ -121,17 +121,20 @@ function nominalOutRate(machineId, port, ctx) {
 // to "all of it, on whichever port is asked" (see the `multi` branch
 // below), which is wrong for any future multiOutput kind that isn't
 // registered — same trade every other per-kind table in this file makes.
+// A router (or routedTransportDelay) sends the whole of its live flow
+// through exactly one port at a time — the one its own snapshot reports as
+// `selected` — so every other declared port reads as genuinely idle rather
+// than fractionally flowing. Both router-family kinds share this one
+// function rather than each getting their own identical entry below.
+const routerPortShare = (port, live) => (port === live?.selected ? 1 : 0);
+
 const LIVE_PORT_SHARE_BY_KIND = {
   splitter: (port, live, sim) => {
     const wasteFraction = live?.wasteFraction ?? sim.wasteFraction ?? 0;
     return port === "waste" ? wasteFraction : 1 - wasteFraction;
   },
-  // A router (or routedTransportDelay) sends the whole of its live flow
-  // through exactly one port at a time — the one its own snapshot reports
-  // as `selected` — so every other declared port reads as genuinely idle
-  // rather than fractionally flowing.
-  router: (port, live) => (port === live?.selected ? 1 : 0),
-  routedTransportDelay: (port, live) => (port === live?.selected ? 1 : 0),
+  router: routerPortShare,
+  routedTransportDelay: routerPortShare,
 };
 
 // Live outflow of `machineId` through `port`, in m3/s, derived from the one
