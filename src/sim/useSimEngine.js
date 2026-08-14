@@ -10,6 +10,7 @@ import {
   setInterlockSlowDelay as engineSetInterlockSlowDelay, setInterlockStopDelay as engineSetInterlockStopDelay,
   setBatchSize, setBatchCycleSec, setSplitterWasteFraction, getCombinedEvents,
   setSource as setSourceSim, getSource,
+  setDestination as setDestinationSim, getDestination,
 } from "./engine";
 import { BEHAVIORS } from "./behaviors";
 import { createPlotHistory, setSeriesPlotted, recordSample } from "./plotHistory";
@@ -42,8 +43,9 @@ function publishSnap(sim) {
   // `source` (issue #46): which packaging feeder the plant-control cluster's
   // selector currently has open, derived fresh off the machines themselves
   // (engine.js's getSource) rather than tracked separately, so it can never
-  // drift from what's actually running.
-  return { t: sim.t, machines, events: getCombinedEvents(sim), source: getSource(sim) };
+  // drift from what's actually running. `destination` (issue #47) is the
+  // same pattern for the two routers the destination selector commands.
+  return { t: sim.t, machines, events: getCombinedEvents(sim), source: getSource(sim), destination: getDestination(sim) };
 }
 
 export function useSimEngine(line) {
@@ -233,13 +235,22 @@ export function useSimEngine(line) {
     publish();
   }, [sim, publish]);
 
+  // Plant control (issue #47): the destination selector, same shape as
+  // setSource above. Switching mid-run is a deliberate presenter
+  // affordance — the engine itself (setDestination, engine.js) is what
+  // makes it conserve, not anything here.
+  const setDestination = useCallback((destination) => {
+    setDestinationSim(sim, destination);
+    publish();
+  }, [sim, publish]);
+
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
   return {
     snap, running, start, pause, stepOnce, restart, resetTrips, speed, setSpeed, setRate, setFeedRate, setLevel,
     setInterlockHigh, setInterlockLow, setInterlockDelay, setElevatorSpeed: setElevatorSpeedFraction,
     setInterlockSlow, setInterlockStop, setInterlockSlowDelay, setInterlockStopDelay,
-    setBatchSize: setBatchSizeM3, setBatchCycleTime, setWasteFraction, setSource,
+    setBatchSize: setBatchSizeM3, setBatchCycleTime, setWasteFraction, setSource, setDestination,
     history, togglePlotSeries,
   };
 }

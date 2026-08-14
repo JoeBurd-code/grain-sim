@@ -250,6 +250,60 @@ describe("splitter (issue #26)", () => {
   });
 });
 
+describe("router (issue #47)", () => {
+  function initState({ ports = ["a", "b"], defaultPort } = {}) {
+    return BEHAVIORS.router.init({ sim: { defaultPort }, ports: { outputs: ports } });
+  }
+
+  it("defaults to its first declared output port", () => {
+    const state = initState({ ports: ["a", "b"] });
+    expect(state.selected).toBe("a");
+  });
+
+  it("routes the whole of its inflow to the selected port, nothing to the others", () => {
+    const state = initState();
+    const out = BEHAVIORS.router.apply(state, 0.05, 1, 1, { a: Infinity, b: Infinity }, { a: false, b: false });
+    expect(out.a).toBeCloseTo(1);
+    expect(out.b).toBeUndefined();
+  });
+
+  it("selectPort changes which port receives inflow from the next apply onward", () => {
+    const state = initState();
+    BEHAVIORS.router.selectPort(state, "b");
+    const out = BEHAVIORS.router.apply(state, 0.05, 1, 1, { a: Infinity, b: Infinity }, { a: false, b: false });
+    expect(out.b).toBeCloseTo(1);
+    expect(out.a).toBeUndefined();
+  });
+
+  it("capacityAvailable is bounded only by the selected port's own downstream", () => {
+    const state = initState();
+    expect(BEHAVIORS.router.capacityAvailable(state, 0.05, { a: 0.02, b: Infinity })).toBeCloseTo(0.02);
+    BEHAVIORS.router.selectPort(state, "b");
+    expect(BEHAVIORS.router.capacityAvailable(state, 0.05, { a: 0.02, b: Infinity })).toBe(Infinity);
+  });
+
+  it("holds no material: nothing accepted this tick beyond what the selected port's downstream allows", () => {
+    const state = initState();
+    const out = BEHAVIORS.router.apply(state, 0.05, 1, 0.3, { a: 0.3, b: Infinity }, { a: true, b: false });
+    expect(out.a).toBeCloseTo(0.3);
+  });
+
+  it("reports delivered only for a selected port with nothing sim-enabled downstream", () => {
+    const state = initState();
+    BEHAVIORS.router.apply(state, 0.05, 1, 1, { a: Infinity, b: Infinity }, { a: false, b: false });
+    expect(BEHAVIORS.router.conserve(state)).toEqual({ delivered: 1 });
+  });
+
+  it("reports 'flowing' true only on a tick where material actually passed through the selected port", () => {
+    const state = initState();
+    expect(BEHAVIORS.router.snapshot(state).flowing).toBe(false);
+    BEHAVIORS.router.apply(state, 0.05, 1, 1, { a: Infinity, b: Infinity }, { a: false, b: false });
+    expect(BEHAVIORS.router.snapshot(state).flowing).toBe(true);
+    BEHAVIORS.router.apply(state, 0.05, 0, 0, { a: Infinity, b: Infinity }, { a: false, b: false });
+    expect(BEHAVIORS.router.snapshot(state).flowing).toBe(false);
+  });
+});
+
 describe("terminalSink (issue #26)", () => {
   it("never backpressures", () => {
     const state = BEHAVIORS.terminalSink.init({ sim: { displayCapacityM3: 0.3 } });
@@ -515,6 +569,101 @@ describe("transportDelay (issue #21)", () => {
       BEHAVIORS.transportDelay.apply(state, 0.05, 0, 1);
       expect(BEHAVIORS.transportDelay.snapshot(state).chainSpeedMPerMin).toBeCloseTo(15);
     });
+  });
+});
+
+describe("routedTransportDelay (issue #47)", () => {
+  const B = BEHAVIORS.routedTransportDelay;
+  function initState({ distanceM = 1, speedMPerMin = 60, ceilingM3PerSec = 10, ports = ["a", "b"], defaultPort } = {}) {
+    return B.init({ sim: { distanceM, speedMPerMin, ceilingM3PerSec, defaultPort }, ports: { outputs: ports } });
+  }
+
+  it("defaults to its first declared output port", () => {
+    expect(initState().selected).toBe("a");
+  });
+
+  it("tags each accepted packet with the port selected at the moment it entered, not whatever is selected later", () => {
+    // 1 m/s chain, 1 m distance -> 1s transit; ceiling caps discharge at
+    // 1 m3 per 1s tick so the two backlogged units drain one at a time,
+    // strictly FIFO.
+    const state = initState({ distanceM: 1, speedMPerMin: 60, ceilingM3PerSec: 1 });
+    const hasDownstream = { a: true, b: true };
+    const shut = { a: 0, b: 0 };
+    B.apply(state, 1, 1, 1, shut, hasDownstream); // 1 m3 tagged "a", transits and jams at the shut discharge
+    B.selectPort(state, "b");
+    B.apply(state, 1, 1, 1, shut, hasDownstream); // 1 m3 tagged "b", same
+    expect(state.backlog).toBeCloseTo(2);
+
+    const open = { a: Infinity, b: Infinity };
+    const out1 = B.apply(state, 1, 0, 1, open, hasDownstream);
+    expect(out1.a).toBeCloseTo(1); // FIFO: the earlier, "a"-tagged packet drains first
+    expect(out1.b ?? 0).toBeCloseTo(0);
+
+    const out2 = B.apply(state, 1, 0, 1, open, hasDownstream);
+    expect(out2.b).toBeCloseTo(1); // then the later, "b"-tagged packet — still routed to b
+    expect(out2.a ?? 0).toBeCloseTo(0);
+  });
+
+  it("switching mid-run conserves: everything fed before and after the switch is eventually accounted for by port", () => {
+    const state = initState({ distanceM: 1, speedMPerMin: 60, ceilingM3PerSec: 100 });
+    for (let i = 0; i < 30; i++) { // 0.3 m3 tagged "a" (0.01 m3/tick, well under any cap)
+      const cap = B.capacityAvailable(state, 0.01);
+      B.apply(state, 0.01, 0.01, cap);
+    }
+    B.selectPort(state, "b");
+    for (let i = 0; i < 30; i++) { // 0.3 m3 tagged "b"
+      const cap = B.capacityAvailable(state, 0.01);
+      B.apply(state, 0.01, 0.01, cap);
+    }
+    let deliveredA = 0, deliveredB = 0;
+    for (let i = 0; i < 300; i++) {
+      const cap = B.capacityAvailable(state, 0.01);
+      const out = B.apply(state, 0.01, 0, cap, { a: Infinity, b: Infinity }, { a: true, b: true });
+      deliveredA += out.a ?? 0;
+      deliveredB += out.b ?? 0;
+    }
+    expect(deliveredA).toBeCloseTo(0.3);
+    expect(deliveredB).toBeCloseTo(0.3);
+  });
+
+  it("a jam on the selected port's own downstream blocks new infeed, same as plain transportDelay", () => {
+    const state = initState({ distanceM: 1, speedMPerMin: 60, ceilingM3PerSec: 10 });
+    B.apply(state, 1, 3, 3, { a: 0, b: Infinity }, { a: true, b: true }); // full transit, discharge refused
+    expect(state.backlog).toBeGreaterThan(0);
+    expect(B.capacityAvailable(state, 1)).toBe(0);
+  });
+
+  it("command (the interlock throttle) and selectPort (destination) act independently, neither overwriting the other", () => {
+    const state = initState();
+    B.command(state, 0, 2); // interlock stops the chain over 2s
+    B.selectPort(state, "b");
+    expect(state.selected).toBe("b");
+    expect(state.throttleTarget).toBe(0);
+  });
+
+  it("isSettled/confirmedRunning mirror plain transportDelay's own semantics", () => {
+    const state = initState();
+    expect(B.confirmedRunning(state)).toBe(true); // full speed, settled, at t=0
+    B.command(state, 0, 1);
+    B.apply(state, 0.05, 0, 1);
+    expect(B.isSettled(state)).toBe(false);
+    for (let i = 0; i < 40; i++) B.apply(state, 0.05, 0, 1);
+    expect(B.isSettled(state)).toBe(true);
+    expect(B.confirmedRunning(state)).toBe(false);
+  });
+
+  it("conserves volume through fill, mid-run switch and discharge", () => {
+    const state = initState({ distanceM: 1, speedMPerMin: 60, ceilingM3PerSec: 100 });
+    let fed = 0;
+    for (let i = 0; i < 50; i++) {
+      const cap = B.capacityAvailable(state, 0.02);
+      const accepted = Math.min(1, cap);
+      fed += accepted;
+      B.apply(state, 0.02, 1, cap);
+      if (i === 20) B.selectPort(state, "b");
+    }
+    const c = B.conserve(state);
+    expect(fed).toBeCloseTo(c.inTransit + c.delivered, 6);
   });
 });
 

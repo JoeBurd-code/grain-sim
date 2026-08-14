@@ -61,6 +61,7 @@ const INSTRUMENT_FIELDS = {
   thresholdTrip: { LSH: "highSetpoint", LSL: "lowSetpoint" },
   twoStageThrottle: { LSH: "stopSetpoint", LSL: "lowSetpoint" },
   holdNextBatch: { LSH: "highSetpoint", LSL: "lowSetpoint" },
+  thresholdStopTrip: { LSH: "highSetpoint", LSL: "lowSetpoint" },
 };
 
 // Pure: which of a rule's instruments are tripped right now, given the
@@ -449,17 +450,165 @@ function stepAutoStartOnRunning(rule, sim) {
 // nothing to reset.
 function resetAutoStartOnRunning() {}
 
+// Threshold stop trip (issue #47 — the two metal bins' own high-level
+// trips): the same single-threshold latched shape as thresholdTrip above,
+// but commands a transport-delay-family actuator's speed fraction to 0 (the
+// same `command(actuator, fraction, rampTimeSec)` shape twoStageThrottle
+// already uses) rather than a source's open/close — thresholdTrip's own
+// `command(actuator, "close", ...)` call is source-specific and can't drive
+// the packaging conveyor. The FD classifies this as a genuine **Trip**
+// ("stops the device immediately, no shutdown procedure" — §5), unlike the
+// treater pre-bin's own graduated VFD ramp (an engineer-described addition
+// with no FD backing), so the line data authors this with a near-zero ramp
+// time rather than a multi-second one.
+//   running -> [level >= highSetpoint] -> armed -> [delay elapses, command
+//   stop] -> stopping -> [settles] -> stopped
+// Latches exactly like thresholdTrip: only resetThresholdStopTrip below
+// exits "stopped", and only once the level has actually cleared.
+function initThresholdStopTrip(cfg) {
+  return {
+    kind: "thresholdStopTrip",
+    id: cfg.id,
+    sensorId: cfg.sensor.machine,
+    actuatorId: cfg.action.machine,
+    highSetpoint: cfg.highSetpoint,
+    lowSetpoint: cfg.lowSetpoint,
+    signalDelaySec: cfg.signalDelaySec,
+    rampTimeSec: cfg.action.rampTimeSec,
+    phase: "running",
+    fireAt: null,
+    log: [],
+  };
+}
+function stepThresholdStopTrip(rule, sim) {
+  const level = readLevel(sim.machines, rule.sensorId);
+  stepRuleInstruments(rule, level, sim);
+  const { actuator, behavior } = resolveActuator(rule, sim);
+
+  if (rule.phase === "running" && level >= rule.highSetpoint) {
+    rule.phase = "armed";
+    rule.fireAt = sim.t + rule.signalDelaySec;
+  }
+
+  if (rule.phase === "armed" && sim.t >= rule.fireAt) {
+    behavior.command(actuator, 0, rule.rampTimeSec);
+    logEvent(rule, sim.t, `conveyor commanded to stop (ramping over ${rule.rampTimeSec}s)`);
+    rule.phase = "stopping";
+    rule.fireAt = null;
+  }
+
+  if (rule.phase === "stopping" && behavior.isSettled(actuator)) {
+    rule.phase = "stopped";
+  } else if (rule.phase === "recovering" && behavior.isSettled(actuator)) {
+    rule.phase = "running";
+  }
+}
+// Reset (issue #45's own latch convention, applied to this new kind): only
+// "stopped" is eligible, gated on the same high set point that armed it —
+// same shape as resetThresholdTrip.
+function resetThresholdStopTrip(rule, sim) {
+  if (rule.phase !== "stopped") return;
+  const level = readLevel(sim.machines, rule.sensorId);
+  if (level >= rule.highSetpoint) {
+    logEvent(rule, sim.t, `reset commanded — high set point still tripped at ${pct(level)}, remains latched`);
+    return;
+  }
+  const { actuator, behavior } = resolveActuator(rule, sim);
+  behavior.command(actuator, 1, rule.rampTimeSec);
+  logEvent(rule, sim.t, `reset — conveyor commanded back to full speed (ramping over ${rule.rampTimeSec}s)`);
+  rule.phase = "recovering";
+}
+
+// Auto-stop on not running (issue #47 — the FD's own reverse-direction PI
+// "52.604.E00 not running" on both packaging drum feeders, §5, 1 s delay):
+// the mirror image of autoStartOnRunning above, and deliberately unlike
+// every trip kind in this file — the FD classifies this as a plain Process
+// Interlock ("prevents start"), not a Trip, so it is not latched: it
+// toggles the feeder's run permit back on the instant the conveyor is
+// confirmed running again, exactly the way the real PI would, with no
+// operator reset in between. Commands `runPermit` (behaviors.js), never
+// `enabled` — the source selector (setSource, engine.js) owns `enabled`
+// exclusively, and layering this rule onto the same field would have the
+// two silently fight over which feeder is actually meant to run.
+//   running -> [conveyor not confirmedRunning] -> armed -> [delay elapses,
+//   runPermit false] -> stopped -> [conveyor confirmedRunning again] -> running
+function initAutoStopOnNotRunning(cfg) {
+  return {
+    kind: "autoStopOnNotRunning",
+    id: cfg.id,
+    sensorId: cfg.sensor.machine,
+    actuatorId: cfg.action.machine,
+    signalDelaySec: cfg.signalDelaySec,
+    phase: "running",
+    fireAt: null,
+    log: [],
+  };
+}
+function stepAutoStopOnNotRunning(rule, sim) {
+  const running = readConfirmedRunning(sim.machines, rule.sensorId);
+  const { actuator, behavior } = resolveActuator(rule, sim);
+
+  if (running) {
+    if (rule.phase !== "running") {
+      behavior.setRunPermit(actuator, true);
+      logEvent(rule, sim.t, `conveyor confirmed running — feeder re-enabled`);
+    }
+    rule.phase = "running";
+    rule.fireAt = null;
+    return;
+  }
+
+  if (rule.phase === "running") {
+    rule.phase = "armed";
+    rule.fireAt = sim.t + rule.signalDelaySec;
+  }
+  if (rule.phase === "armed" && sim.t >= rule.fireAt) {
+    behavior.setRunPermit(actuator, false);
+    logEvent(rule, sim.t, `conveyor not running — feeder stopped`);
+    rule.phase = "stopped";
+    rule.fireAt = null;
+  }
+}
+// Reset: a no-op, same reasoning as resetAutoStartOnRunning — a plain PI
+// self-clears the instant its own condition clears (see stepAutoStopOnNotRunning's
+// own `running` branch), so there is nothing here for a SCADA reset to do.
+function resetAutoStopOnNotRunning() {}
+
 // One dispatch table entry per rule kind (issue #45's own instruction:
 // latching belongs in the control layer once, so every kind inherits the
 // reset mechanism through this registry rather than resetTrips branching on
-// kind itself). Three kinds do real work in their `reset`; the fourth's is
-// a deliberate no-op, not a missing case.
+// kind itself). Most kinds do real work in their `reset`; two (the pair of
+// plain PIs, autoStartOnRunning and autoStopOnNotRunning) are a deliberate
+// no-op, not a missing case.
 const CONTROL_KINDS = {
   thresholdTrip: { init: initThresholdTrip, step: stepThresholdTrip, reset: resetThresholdTrip },
   twoStageThrottle: { init: initTwoStageThrottle, step: stepTwoStageThrottle, reset: resetTwoStageThrottle },
   holdNextBatch: { init: initHoldNextBatch, step: stepHoldNextBatch, reset: resetHoldNextBatch },
   autoStartOnRunning: { init: initAutoStartOnRunning, step: stepAutoStartOnRunning, reset: resetAutoStartOnRunning },
+  thresholdStopTrip: { init: initThresholdStopTrip, step: stepThresholdStopTrip, reset: resetThresholdStopTrip },
+  autoStopOnNotRunning: { init: initAutoStopOnNotRunning, step: stepAutoStopOnNotRunning, reset: resetAutoStopOnNotRunning },
 };
+
+// Arming (issue #47): the FD qualifies four of the packaging conveyor's own
+// destination interlocks "if selected" (§5) — a full Concetti pre-bin must
+// not trip anything while the line is running to the Flexicon. This is a
+// property of the *rule* (an optional `armedWhen` on its line-data config),
+// evaluated fresh against one or more named router-family machines' current
+// `selected` port every tick, not a branch written inside any one rule
+// kind's own step function — so any future interlock can opt in the same
+// way, on any router or routedTransportDelay node, with no CONTROL_KINDS
+// change. `armedWhen` is always a list of `{ machine, port }` conditions,
+// ALL of which must currently hold — a metal bin's own trip needs this: it
+// is only truly "selected" when *both* the conveyor's own outlet is the
+// shared outload port *and* the diverter downstream of it points at that
+// specific bin, since a presenter staging a bin's level via its own slider
+// while routed to Concetti must never trip the (unrelated) conveyor. A rule
+// with no `armedWhen` at all (every interlock that predates this) is always
+// armed, unchanged.
+function isArmed(rule, sim) {
+  if (!rule.armedWhen) return true;
+  return rule.armedWhen.every(({ machine, port }) => sim.machines.get(machine)?.selected === port);
+}
 
 // Issue #29: one flat, chronological event list spanning every rule's log,
 // each entry tagged with the id and display name of the sensor machine it
@@ -479,11 +628,26 @@ export function combineEventLogs(control, machineNames) {
 }
 
 export function initControl(line) {
-  return (line.interlocks ?? []).map((cfg) => CONTROL_KINDS[cfg.kind ?? "thresholdTrip"].init(cfg));
+  return (line.interlocks ?? []).map((cfg) => {
+    const rule = CONTROL_KINDS[cfg.kind ?? "thresholdTrip"].init(cfg);
+    // Carried onto the runtime rule unchanged (issue #47) rather than read
+    // fresh off `cfg` each tick, matching every other config field this
+    // file already copies into the rule at init time.
+    if (cfg.armedWhen) rule.armedWhen = cfg.armedWhen;
+    return rule;
+  });
 }
 
+// A disarmed rule neither trips nor logs (issue #47's own acceptance
+// criterion, read literally): skipping `step` entirely also skips
+// stepRuleInstruments, so a disarmed rule's own LSH/LSL dot and "set point
+// reached" log line freeze at whatever they last read while armed, rather
+// than tracking a level the real PLC isn't scanning against either — the
+// FD's own "if selected" wording describes the interlock not evaluating at
+// all, not evaluating-but-suppressing its action.
 export function stepControl(sim) {
   for (const rule of sim.control) {
+    if (!isArmed(rule, sim)) continue;
     CONTROL_KINDS[rule.kind].step(rule, sim);
   }
 }

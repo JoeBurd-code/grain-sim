@@ -111,32 +111,58 @@ function nominalOutRate(machineId, port, ctx) {
   return value;
 }
 
+// Per-kind live-flow port share (issue #47): how much of a multiOutput
+// machine's one combined `flowRateM3PerSec` figure (issue #28) actually
+// went through `port` this tick, as a 0..1 fraction of the total — the
+// same "one lookup table per kind" shape NOMINAL_RATE_BY_KIND above
+// already uses, needed because a fan-out kind (splitter) and a
+// one-port-at-a-time kind (router, routedTransportDelay) split their own
+// total in fundamentally different ways. A kind not listed here falls back
+// to "all of it, on whichever port is asked" (see the `multi` branch
+// below), which is wrong for any future multiOutput kind that isn't
+// registered — same trade every other per-kind table in this file makes.
+const LIVE_PORT_SHARE_BY_KIND = {
+  splitter: (port, live, sim) => {
+    const wasteFraction = live?.wasteFraction ?? sim.wasteFraction ?? 0;
+    return port === "waste" ? wasteFraction : 1 - wasteFraction;
+  },
+  // A router (or routedTransportDelay) sends the whole of its live flow
+  // through exactly one port at a time — the one its own snapshot reports
+  // as `selected` — so every other declared port reads as genuinely idle
+  // rather than fractionally flowing.
+  router: (port, live) => (port === live?.selected ? 1 : 0),
+  routedTransportDelay: (port, live) => (port === live?.selected ? 1 : 0),
+};
+
 // Live outflow of `machineId` through `port`, in m3/s, derived from the one
 // combined figure engine.js publishes (issue #28) plus, for a multiOutput
-// splitter, the same live wasteFraction split used above. The engine never
-// publishes a per-port figure — issue #28 is deliberately one number per
-// machine, generic across every behaviour kind, not one per kind — so this
-// is the split applied on the read side rather than new engine surface.
+// kind, the per-kind port share above. The engine never publishes a
+// per-port figure — issue #28 is deliberately one number per machine,
+// generic across every behaviour kind, not one per kind — so this is the
+// split applied on the read side rather than new engine surface.
 //
-// Known limitation: `applySplitter` (behaviors.js) actually caps each port's
-// flow against *that port's own* downstreamCap independently, so under
-// genuinely asymmetric backpressure (one branch blocked, the other free) the
-// real per-port split can diverge from wasteFraction — this reconstruction
-// would then show motion on the blocked branch too. Not reachable on the
-// line as currently authored (the splitter's only instance, the scalping
-// screen, feeds a terminalSink on one port and an un-engined, so
-// uncapped, machine on the other — see isModelledEdge — so nothing today
-// ever throttles one port without the other). Left as a documented
-// approximation rather than new per-port engine surface, matching issue
-// #28's own choice to publish one combined figure per machine.
+// Known limitation (splitter only): `applySplitter` (behaviors.js) actually
+// caps each port's flow against *that port's own* downstreamCap
+// independently, so under genuinely asymmetric backpressure (one branch
+// blocked, the other free) the real per-port split can diverge from
+// wasteFraction — this reconstruction would then show motion on the
+// blocked branch too. Not reachable on the line as currently authored (the
+// splitter's only instance, the scalping screen, feeds a terminalSink on
+// one port and an un-engined, so uncapped, machine on the other — see
+// isModelledEdge — so nothing today ever throttles one port without the
+// other). Left as a documented approximation rather than new per-port
+// engine surface, matching issue #28's own choice to publish one combined
+// figure per machine. Router-family kinds have no such gap: their whole
+// flow already goes through exactly one port, so `selected` alone is exact.
 function liveOutRate(machineId, port, ctx) {
   const machine = ctx.machinesById.get(machineId);
   const live = ctx.simSnap?.get(machineId);
   const total = live?.flowRateM3PerSec ?? 0;
-  const multi = BEHAVIORS[machine?.sim?.kind]?.multiOutput === true;
+  const kind = machine?.sim?.kind;
+  const multi = BEHAVIORS[kind]?.multiOutput === true;
   if (!multi) return total;
-  const wasteFraction = live?.wasteFraction ?? machine.sim.wasteFraction ?? 0;
-  return port === "waste" ? total * wasteFraction : total * (1 - wasteFraction);
+  const share = LIVE_PORT_SHARE_BY_KIND[kind]?.(port, live, machine.sim) ?? 1;
+  return total * share;
 }
 
 // Public seam: every line connection's index -> its live flow as a fraction

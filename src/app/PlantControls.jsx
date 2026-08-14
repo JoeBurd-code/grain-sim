@@ -9,6 +9,13 @@
 // The source selector (issue #46) is its second: one click each, same as
 // RESET TRIPS, per the parent spec's "every new control is a setter on the
 // existing engine surface" instruction — no popup, no per-machine hunt.
+//
+// The destination selector and the bin-empty control (issue #47) are its
+// third and fourth: same one-click shape, same cluster — the acceptance
+// criteria are explicit that both live here, not in a per-machine popup.
+// EMPTY BIN only renders while the current destination is actually a metal
+// bin (the other two destinations have nothing this control could act on),
+// so the cluster never shows a button with nothing to do.
 import { C, FONT_MONO } from "../scene/theme";
 
 const clusterStyle = {
@@ -38,7 +45,23 @@ const SOURCES = [
   { id: "proBox", label: "PRO BOX" },
 ];
 
-export default function PlantControls({ onResetTrips, source, onSetSource }) {
+// Four positions, one control (issue #47): the metal bin choice is part of
+// choosing the destination, per the FD's own sequence pre-check ("select
+// treated outlet metal bin no. when that destination is chosen") — not a
+// separate dial alongside these four.
+const DESTINATIONS = [
+  { id: "concetti", label: "CONCETTI" },
+  { id: "flexicon", label: "FLEXICON" },
+  { id: "metalBin1", label: "METAL BIN 1" },
+  { id: "metalBin2", label: "METAL BIN 2" },
+];
+
+const METAL_BIN_MACHINE_ID = { metalBin1: "metalBin1", metalBin2: "metalBin2" };
+
+export default function PlantControls({
+  onResetTrips, source, onSetSource, destination, onSetDestination, onEmptyBin,
+}) {
+  const emptyableBinId = METAL_BIN_MACHINE_ID[destination];
   return (
     <div style={clusterStyle}>
       <span style={labelStyle}>PLANT</span>
@@ -52,6 +75,21 @@ export default function PlantControls({ onResetTrips, source, onSetSource }) {
           {s.label}
         </button>
       ))}
+      <span style={{ ...labelStyle, marginLeft: 4 }}>DESTINATION</span>
+      {DESTINATIONS.map((d) => (
+        <button
+          key={d.id}
+          style={destination === d.id ? activeBtnStyle : btnStyle}
+          onClick={() => onSetDestination(d.id)}
+        >
+          {d.label}
+        </button>
+      ))}
+      {emptyableBinId && (
+        <button style={btnStyle} onClick={() => onEmptyBin(emptyableBinId)}>
+          EMPTY BIN
+        </button>
+      )}
       <button style={btnStyle} onClick={onResetTrips}>
         ⚠ RESET TRIPS
       </button>

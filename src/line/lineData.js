@@ -551,14 +551,18 @@ export const line = {
       },
       instruments: ["LSH"],
       labelAt: { x: 560, y: -14 },
-      // Issue #46: reuses transportDelay unchanged (issue #21) — one
-      // machine, one queue, both inlet drum feeders' inflow summed into it
-      // by the engine same as any other multi-input node. Only the
-      // `outBuffer` outlet is sim-enabled this ticket (the other two are
-      // still un-engined, so the reverse pass never routes to them — see
-      // engine.js's buildDownstreamMap); the pneumatic outlet selector that
-      // will make all three real at once is the next ticket's `router`
-      // behaviour (issue #43's own decision record).
+      // Issue #47: now `routedTransportDelay` (behaviors.js) — the router
+      // concept combined with real transport lag, so material discharges
+      // through whichever of the three outlets the destination selector
+      // (setDestination, engine.js) currently has open, with everything
+      // already on the chain still travelling to whichever outlet it was
+      // accepted for. Defaults to `outBuffer` (its own first declared
+      // output port, per routedTransportDelay's own fallback), the same
+      // branch issue #46 built and every engine test predating this ticket
+      // already assumes, so no prior test needed to change. All three
+      // outlets are genuinely wired now (see the connections below) —
+      // issue #46's own "only outBuffer is sim-enabled this ticket" is
+      // superseded.
       //
       // Transit is derived from the sheet 52-13 spec block (PDF text-layer
       // exact, REAL_LINE_SPECS.md §8), not tuned: `distanceM` is the
@@ -583,10 +587,11 @@ export const line = {
       // same disputed number here. See docs/OPEN_QUESTIONS.md.
       // `speed` reuses the elevator VFD's own bind (issue #21): live,
       // re-pacing every packet already in transit, not just new material —
-      // same generic transportDelay control treatingElevator's dial uses.
+      // same generic transportDelay control treatingElevator's dial uses,
+      // now shared by routedTransportDelay too (engine.js's setElevatorSpeed).
       params: [{ id: "speed", label: "speed", min: 0, max: 100, value: 100, unit: "%", bind: "elevatorSpeed", readBind: "elevatorSpeedActual" }],
       sim: {
-        kind: "transportDelay",
+        kind: "routedTransportDelay",
         distanceM: 7.084 + 9.157 + 14.846,
         speedMPerMin: 10.08,
         ceilingM3PerSec: tPerHourToM3PerSec(20.84),
@@ -671,6 +676,12 @@ export const line = {
       anchors: { in: { x: 16, y: 0 }, out1: { x: 8, y: 24 }, out2: { x: 32, y: 16 } },
       smallLabel: true,
       labelAt: { x: 44, y: -4 },
+      // Issue #47: a `router` (behaviors.js) — holds no material, sends the
+      // whole of its inflow to whichever metal bin the destination selector
+      // currently has chosen (setDestination, engine.js), never both at
+      // once. Defaults to `out1`/metal bin 1, its own first declared output
+      // port, matching the destination selector's own default.
+      sim: { kind: "router" },
     },
     {
       id: "metalBin1",
@@ -686,8 +697,30 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 80, y: 0 }, out: { x: 80, y: 162 } },
       fill: 0.35,
-      instruments: ["LT"],
+      instruments: ["LT", "LSH"],
       labelAt: { x: 0, y: 198 },
+      // Issue #47: an accumulator (issue #18's behaviour, configured a
+      // fifth time), with a live level-jump slider for staging a near-full
+      // trip demo, the same pattern every other bin on the line already
+      // uses. Working volume has no confirmed source — the FD names an LT0
+      // level transmitter but no capacity (PLC_FUNCTIONAL_DESCRIPTION.md
+      // §12) — so 6 m3 is a demo-paced assumption, larger than the outload
+      // buffer bin upstream of it since these are the line's own terminal
+      // storage awaiting a truck, not an in-process buffer; see
+      // docs/OPEN_QUESTIONS.md. Discharge is deliberately not modelled: no
+      // document covers truck loadout gate logic, so this bin only ever
+      // fills — `dischargeStub1` below isn't sim-enabled, so the
+      // accumulator's own reverse-pass discharge cap is always 0, and
+      // emptying it is the presenter's own bin-empty affordance
+      // (PlantControls.jsx, reusing the same setLevel(0) the level-jump
+      // slider itself calls).
+      params: [{ id: "level", label: "fill level", min: 0, max: 100, value: 35, unit: "%", bind: "levelJump" }],
+      sim: {
+        kind: "accumulator",
+        capacityM3: 6,
+        initialLevelFraction: 0.35,
+        provenance: { capacityM3: "assumed", initialLevelFraction: "assumed" },
+      },
     },
     {
       id: "dischargeStub1",
@@ -712,8 +745,18 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 80, y: 0 }, out: { x: 80, y: 162 } },
       fill: 0.12,
-      instruments: ["LT"],
+      instruments: ["LT", "LSH"],
       labelAt: { x: 0, y: 198 },
+      // Issue #47: same accumulator configuration as metalBin1, sixth
+      // reuse of issue #18's behaviour — see metalBin1's own comment for
+      // the working-volume and no-modelled-discharge reasoning.
+      params: [{ id: "level", label: "fill level", min: 0, max: 100, value: 12, unit: "%", bind: "levelJump" }],
+      sim: {
+        kind: "accumulator",
+        capacityM3: 6,
+        initialLevelFraction: 0.12,
+        provenance: { capacityM3: "assumed", initialLevelFraction: "assumed" },
+      },
     },
     {
       id: "dischargeStub2",
@@ -927,7 +970,7 @@ export const line = {
     { from: { machine: "grainBreak", port: "out" }, to: { machine: "outloadBufferBin", port: "in" }, kind: "product" },
     { from: { machine: "outloadBufferBin", port: "out" }, to: { machine: "outloadDiverter", port: "in" }, kind: "product" },
     { from: { machine: "outloadDiverter", port: "out1" }, to: { machine: "metalBin1", port: "in" }, kind: "product" },
-    { from: { machine: "outloadDiverter", port: "out2" }, to: { machine: "metalBin2", port: "in" }, kind: "product", tbc: true, inactive: true, via: [{ x: 1845, y: 416 }] },
+    { from: { machine: "outloadDiverter", port: "out2" }, to: { machine: "metalBin2", port: "in" }, kind: "product", via: [{ x: 1845, y: 416 }] },
     { from: { machine: "metalBin1", port: "out" }, to: { machine: "dischargeStub1", port: "in" }, kind: "product", tbc: true },
     { from: { machine: "metalBin2", port: "out" }, to: { machine: "dischargeStub2", port: "in" }, kind: "product", tbc: true },
     // branch C: big bag
@@ -1072,6 +1115,86 @@ export const line = {
         highSetpoint: "assumed", lowSetpoint: "assumed",
         signalDelaySec: "confirmed",
       },
+    },
+    // Issue #47: the outload branch's own cascade. The FD's cause-and-effect
+    // matrix qualifies all four destination interlocks on 52.604.E00 "if
+    // selected" (PLC_FUNCTIONAL_DESCRIPTION.md §5); only the two metal bins
+    // have a real sensor behind them this ticket (the Flexicon and Concetti
+    // pre-bins aren't sim-enabled yet), so this is two of the four rows the
+    // FD's own table lists, not a partial reading of it.
+    {
+      id: "metalBin1HighTrip",
+      kind: "thresholdStopTrip",
+      sensor: { machine: "metalBin1" },
+      // "Metal bins high `52.613.H00/H01.LT0` -> Bucket elevator
+      // `52.604.E00` 'if selected' ... 5 s -> drum feeders" (PLC_FD §5).
+      // Classified a genuine **Trip** ("stops the device immediately, no
+      // shutdown procedure" — FD §5's own severity table), unlike the
+      // treater pre-bin's own engineer-described graduated VFD ramp — so
+      // rampTimeSec is near-zero rather than multi-second. highSetpoint/
+      // lowSetpoint follow the same assumed 85%/35% every other bin on the
+      // line uses (no FD number given, working volume itself unconfirmed —
+      // see metalBin1's own comment and docs/OPEN_QUESTIONS.md).
+      // `armedWhen` (issue #47's own arming mechanism, control.js) requires
+      // both routers: the conveyor's own selected outlet must be the shared
+      // outload port, *and* the diverter downstream of it must point at
+      // this specific bin — either alone is not "this bin is the selected
+      // destination".
+      highSetpoint: 0.85,
+      lowSetpoint: 0.35,
+      signalDelaySec: 5,
+      action: { machine: "pendulumConveyor", rampTimeSec: 0.5 },
+      armedWhen: [
+        { machine: "pendulumConveyor", port: "outBuffer" },
+        { machine: "outloadDiverter", port: "out1" },
+      ],
+      provenance: {
+        highSetpoint: "assumed", lowSetpoint: "assumed",
+        signalDelaySec: "confirmed", rampTimeSec: "assumed",
+      },
+    },
+    {
+      id: "metalBin2HighTrip",
+      kind: "thresholdStopTrip",
+      sensor: { machine: "metalBin2" },
+      // Same rule as metalBin1HighTrip above, mirrored onto the other bin —
+      // see its own comment for the full reasoning.
+      highSetpoint: 0.85,
+      lowSetpoint: 0.35,
+      signalDelaySec: 5,
+      action: { machine: "pendulumConveyor", rampTimeSec: 0.5 },
+      armedWhen: [
+        { machine: "pendulumConveyor", port: "outBuffer" },
+        { machine: "outloadDiverter", port: "out2" },
+      ],
+      provenance: {
+        highSetpoint: "assumed", lowSetpoint: "assumed",
+        signalDelaySec: "confirmed", rampTimeSec: "assumed",
+      },
+    },
+    {
+      id: "conveyorRunningInterlockFeeder1",
+      kind: "autoStopOnNotRunning",
+      sensor: { machine: "pendulumConveyor" },
+      // "Inlet drum feeders `52.603.L00/L01` | `52.604.E00` running"
+      // (PLC_FD §5's reverse-direction interlock table) — a plain Process
+      // Interlock, not a Trip, so it is not latched (see
+      // autoStopOnNotRunning's own control.js comment): it releases the
+      // instant the conveyor is confirmed running again, no reset needed.
+      // 1 s delay is the FD's own figure for this exact interlock.
+      signalDelaySec: 1,
+      action: { machine: "inletDrumFeeder1" },
+      provenance: { signalDelaySec: "confirmed" },
+    },
+    {
+      id: "conveyorRunningInterlockFeeder2",
+      kind: "autoStopOnNotRunning",
+      sensor: { machine: "pendulumConveyor" },
+      // Same interlock, mirrored onto the other packaging drum feeder — see
+      // conveyorRunningInterlockFeeder1's own comment.
+      signalDelaySec: 1,
+      action: { machine: "inletDrumFeeder2" },
+      provenance: { signalDelaySec: "confirmed" },
     },
   ],
 };

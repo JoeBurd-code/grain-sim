@@ -134,18 +134,33 @@ function snapshotAccumulator(state) {
 // presenter deliberately pausing the feeder at 0 also leaves `rate` at 0,
 // and that pause must not look like "never started" to the interlock).
 function initMeteredFeeder(m) {
-  return { kind: "meteredFeeder", rate: m.sim.rateM3PerSec, drawn: 0, manualOverride: false, enabled: m.sim.enabled ?? true };
+  return {
+    kind: "meteredFeeder", rate: m.sim.rateM3PerSec, drawn: 0, manualOverride: false,
+    enabled: m.sim.enabled ?? true,
+    // `runPermit` (issue #47 — the packaging conveyor's own "not running"
+    // process interlock) is a *second*, independent on/off gate alongside
+    // `enabled`: the source selector (setSource, engine.js) owns `enabled`
+    // exclusively, and the conveyor's auto-stop interlock
+    // (autoStopOnNotRunning, control.js) owns this one exclusively. Keeping
+    // them separate fields means either writer can flip its own gate
+    // without fighting the other's — e.g. the presenter switching source
+    // away from a feeder the conveyor interlock has independently stopped
+    // never has one write silently clobber the other's intent.
+    runPermit: true,
+  };
 }
 // Reverse pass: how much this feeder can pull in this tick — its own
 // metering rate, further bounded by whatever its own downstream can accept.
-// `enabled` (issue #46 — the packaging source selector) gates intake to
-// zero outright, independent of `rate`: unlike commandMeteredFeeder, this
-// never overwrites the presenter's own dial, so switching source and back
-// restores whatever rate was last set rather than losing it. Defaults to
-// true so a feeder no selector ever commands (treatDrumFeeder) is
-// unaffected.
+// `enabled` (issue #46 — the packaging source selector) and `runPermit`
+// (issue #47 — the conveyor's own "not running" interlock) each gate intake
+// to zero outright, independent of `rate` and of each other: unlike
+// commandMeteredFeeder, neither overwrites the presenter's own dial, so
+// switching source and back, or the conveyor tripping and recovering,
+// restores whatever rate was last set rather than losing it. Both default
+// to true so a feeder neither selector nor interlock ever commands
+// (treatDrumFeeder) is unaffected.
 function capacityAvailableMeteredFeeder(state, dt, downstreamCap) {
-  if (!state.enabled) return 0;
+  if (!state.enabled || !state.runPermit) return 0;
   return Math.min(state.rate * dt, downstreamCap);
 }
 function applyMeteredFeeder(state, dt, inflow, cap) {
@@ -164,7 +179,7 @@ function commandMeteredFeeder(state, rateM3PerSec) {
 // above. Published separately from flowRateM3PerSec (issue #28), which also
 // reflects downstream backpressure, not just this commanded rate.
 function snapshotMeteredFeeder(state) {
-  return { rate: state.rate, enabled: state.enabled };
+  return { rate: state.rate, enabled: state.enabled, runPermit: state.runPermit };
 }
 // The source selector's command (issue #46): gates intake on/off without
 // touching `rate`, so the presenter's own dial survives being deselected
@@ -174,6 +189,14 @@ function snapshotMeteredFeeder(state) {
 // manualOverride interaction to worry about.
 function setEnabledMeteredFeeder(state, enabled) {
   state.enabled = enabled;
+}
+// The conveyor's own "not running" interlock command (issue #47,
+// autoStopOnNotRunning in control.js): gates intake on/off exactly like
+// setEnabledMeteredFeeder above, but through the independent `runPermit`
+// field, so this interlock and the source selector never overwrite each
+// other's gate — see `runPermit`'s own comment on initMeteredFeeder.
+function setRunPermitMeteredFeeder(state, permitted) {
+  state.runPermit = permitted;
 }
 
 const EPS = 1e-9;
@@ -379,6 +402,153 @@ function isSettledTransportDelay(state) {
 // docs/OPEN_QUESTIONS.md.
 function isConfirmedRunningTransportDelay(state) {
   return isSettledTransportDelay(state) && chainSpeedMPerSec(state) > 0;
+}
+
+// Routed transport delay (issue #47): the packaging conveyor 52.604.E00
+// combines transportDelay's own carrying-run physics with the router
+// concept (see `router` below) — one FIFO chain, but each packet remembers
+// which outlet it was destined for at the moment it entered, so a mid-run
+// destination switch (the presenter's own affordance, off-spec per the FD —
+// the real plant only selects at sequence start) never reroutes material
+// already in transit: everything already on the chain keeps travelling to
+// the outlet it was accepted for, and only newly-accepted material follows
+// the new selection. This is *why* it can't just be a plain `transportDelay`
+// feeding a downstream `router` node — a router downstream of the queue
+// would have no memory of which destination was selected when each packet
+// actually entered, and would reroute in-flight material the instant the
+// selector changes.
+//
+// Reuses transportDelay's own timing helpers (slewToward via
+// chainSpeedMPerSec, queueVolume) unchanged rather than duplicating them —
+// only the discharge side genuinely differs. Kept as its own registered
+// kind rather than folding into `transportDelay` itself (behaviors.js's
+// other machines, e.g. treatingElevator, stay untouched and untested by
+// this) since every existing transportDelay call site assumes a single
+// scalar downstream/backlog, and this is the only machine on the line that
+// needs more than one discharge port.
+function initRoutedTransportDelay(m) {
+  return {
+    kind: "routedTransportDelay",
+    distanceM: m.sim.distanceM,
+    speedMPerMin: m.sim.speedMPerMin,
+    ceilingM3PerSec: m.sim.ceilingM3PerSec,
+    speedFraction: 1,
+    throttleFraction: 1,
+    throttleTarget: 1,
+    throttleRampPerSec: Infinity,
+    // Defaults to the machine's own first declared output port so a line
+    // that never calls the destination selector (every test predating issue
+    // #47) keeps routing to exactly the port it always implicitly used.
+    selected: m.sim.defaultPort ?? m.ports.outputs[0],
+    queue: [],       // [{ progress, vol, port }] material past the infeed, still travelling
+    backlogEntries: [], // [{ vol, port }] FIFO, finished transit, not yet discharged
+    backlog: 0,      // total backlog volume across every port — kept in lockstep with
+                      // backlogEntries so external readers (tests, the popup) see the
+                      // exact same scalar plain transportDelay machines publish
+    delivered: 0,
+  };
+}
+function totalBacklogVolume(state) {
+  return state.backlogEntries.reduce((a, e) => a + e.vol, 0);
+}
+function capacityAvailableRoutedTransportDelay(state, dt) {
+  // A backed-up discharge (on *any* port) blocks new infeed too, the same
+  // simplified stand-in for the chain physically filling up that plain
+  // transportDelay uses — the single physical chain can't accept new
+  // material at the infeed while anything is still jammed at the discharge
+  // end, regardless of which outlet the jam is destined for.
+  if (state.backlog > EPS) return 0;
+  return state.ceilingM3PerSec * state.throttleFraction * dt;
+}
+function applyRoutedTransportDelay(state, dt, inflow, cap, downstreamCap = {}, hasDownstream = {}) {
+  const accepted = Math.min(inflow, cap);
+  if (accepted > 0) state.queue.push({ progress: 0, vol: accepted, port: state.selected });
+
+  state.throttleFraction = slewToward(state.throttleFraction, state.throttleTarget, state.throttleRampPerSec, dt);
+  const v = chainSpeedMPerSec(state);
+  const progressStep = state.distanceM > 0 ? (v * dt) / state.distanceM : 0;
+  const still = [];
+  for (const pkt of state.queue) {
+    const progress = pkt.progress + progressStep;
+    if (progress >= 1) state.backlogEntries.push({ vol: pkt.vol, port: pkt.port });
+    else still.push({ progress, vol: pkt.vol, port: pkt.port });
+  }
+  state.queue = still;
+
+  // Discharge is strictly FIFO across ports, not per-port parallel: the
+  // conveyor has exactly one physical discharge point, so material queued
+  // ahead of a still-blocked entry can't "skip ahead" onto a different,
+  // currently-unblocked outlet — a literal single-file jam, the same
+  // physical picture the backlog-blocks-infeed rule above already assumes.
+  let dischargeBudget = state.ceilingM3PerSec * dt;
+  const outflow = {};
+  const remaining = [];
+  let stalled = false;
+  for (const entry of state.backlogEntries) {
+    if (stalled || dischargeBudget <= EPS) {
+      remaining.push(entry);
+      continue;
+    }
+    const portCap = hasDownstream[entry.port] ? downstreamCap[entry.port] ?? 0 : Infinity;
+    const out = Math.min(entry.vol, dischargeBudget, portCap);
+    outflow[entry.port] = (outflow[entry.port] ?? 0) + out;
+    dischargeBudget -= out;
+    if (!hasDownstream[entry.port]) state.delivered += out;
+    if (out < entry.vol - EPS) {
+      remaining.push({ vol: entry.vol - out, port: entry.port });
+      stalled = true;
+    }
+  }
+  state.backlogEntries = remaining;
+  state.backlog = totalBacklogVolume(state);
+  return outflow;
+}
+function conserveRoutedTransportDelay(state) {
+  const inTransit = queueVolume(state) + state.backlog;
+  return { inTransit, delivered: state.delivered };
+}
+function snapshotRoutedTransportDelay(state) {
+  const inTransitVol = queueVolume(state);
+  const hasMaterial = state.queue.length > 0 || state.backlog > 0;
+  const leadingProgress = hasMaterial
+    ? Math.max(state.backlog > 0 ? 1 : 0, 0, ...state.queue.map((p) => p.progress))
+    : 0;
+  const trailingProgress = state.queue.length > 0 ? Math.min(...state.queue.map((p) => p.progress)) : leadingProgress;
+  const v = chainSpeedMPerSec(state);
+  return {
+    inTransitVol, backlogVol: state.backlog,
+    leadingProgress, trailingProgress,
+    transitTimeSec: v > 0 ? state.distanceM / v : Infinity,
+    speedFraction: state.speedFraction,
+    throttleFraction: state.throttleFraction,
+    chainSpeedMPerMin: v * 60,
+    selected: state.selected,
+  };
+}
+// Interlock throttle command (issue #22's own shape, e.g. the metal bins'
+// high-level trip): identical semantics to plain transportDelay's own
+// commandTransportDelay — a target speed fraction, ramped over
+// `rampTimeSec` — kept as a separate function only because it operates on
+// this kind's own state shape, not because the behaviour differs.
+function commandRoutedTransportDelay(state, targetFraction, rampTimeSec) {
+  state.throttleTarget = targetFraction;
+  state.throttleRampPerSec = rampTimeSec > 0 ? 1 / rampTimeSec : Infinity;
+}
+function isSettledRoutedTransportDelay(state) {
+  return state.throttleFraction === state.throttleTarget;
+}
+function isConfirmedRunningRoutedTransportDelay(state) {
+  return isSettledRoutedTransportDelay(state) && chainSpeedMPerSec(state) > 0;
+}
+// Destination selection (issue #47): which named output port newly-accepted
+// material is tagged with, from this tick's infeed onward — see the queue's
+// own per-packet `port` field above for why this alone is what makes a
+// mid-run switch conserve without special-casing. Distinct from `command`
+// above (the interlock's own speed-fraction throttle): one selects *where*
+// material goes, the other *whether* it moves at all, and both need to
+// coexist on this one machine without one overwriting the other's target.
+function selectPortRoutedTransportDelay(state, port) {
+  state.selected = port;
 }
 
 // Batch cycle (issue #24): the primitive behind any machine that takes a
@@ -616,6 +786,61 @@ function snapshotSplitter(state) {
   return { flowing: state.flowing, wasteFraction: state.wasteFraction };
 }
 
+// Router (issue #47): the Diverter concept from the glossary, deliberately
+// distinct from splitter above — a splitter divides one inflow across two
+// ports *simultaneously* by a fixed fraction; a router sends the *whole* of
+// its inflow to exactly one named port, chosen by command, with the other
+// declared ports carrying nothing until reselected. Holds no material of
+// its own, like splitter and passThrough. The outload diverter (52.612.V00,
+// choosing between the two treated metal bins) uses this kind directly; the
+// packaging conveyor (52.604.E00) needs the same one-port-at-a-time
+// selection but combined with real transport lag, so it uses
+// `routedTransportDelay` above instead, which shares this kind's own
+// `selectPort` shape rather than duplicating it.
+function initRouter(m) {
+  return {
+    kind: "router",
+    selected: m.sim.defaultPort ?? m.ports.outputs[0],
+    delivered: 0,
+    flowing: false,
+  };
+}
+// Reverse pass: this router can only ever accept as much as its currently
+// selected port's own downstream can take — the other, unselected ports
+// contribute nothing to what it may accept this tick, since nothing will
+// flow there regardless of how much headroom they have.
+function capacityAvailableRouter(state, dt, downstreamCap) {
+  return downstreamCap[state.selected] ?? Infinity;
+}
+function applyRouter(state, dt, inflow, cap, downstreamCap, hasDownstream) {
+  const accepted = Math.min(inflow, cap);
+  const outflow = {};
+  const selected = state.selected;
+  const flow = hasDownstream[selected] ? Math.min(accepted, downstreamCap[selected]) : accepted;
+  outflow[selected] = flow;
+  if (!hasDownstream[selected]) state.delivered += flow;
+  state.flowing = flow > EPS;
+  return outflow;
+}
+// Holds nothing of its own; whatever it has routed onward that nothing
+// sim-enabled downstream already accounts for is its only contribution —
+// tracked at apply-time above, exactly as splitter's own conserve does.
+function conserveRouter(state) {
+  return { delivered: state.delivered };
+}
+// No fill level to show (holds no material) — `flowing` is the same
+// presenter-facing stand-in splitter's own snapshot uses.
+function snapshotRouter(state) {
+  return { selected: state.selected, flowing: state.flowing };
+}
+// Destination selection: which single port the whole of this tick's inflow
+// routes to from the next tick onward. Shares its name and shape with
+// `selectPortRoutedTransportDelay` above so the engine's own destination
+// setter (setDestination, engine.js) can call either kind uniformly.
+function selectPortRouter(state, port) {
+  state.selected = port;
+}
+
 // Terminal sink (issue #26): the end of a modelled flow, holding an
 // unbounded running total of everything it has ever received — the discard
 // scalpings bin's whole job, and per the parent spec (issue #15) the shape
@@ -665,13 +890,20 @@ export const BEHAVIORS = {
   meteredFeeder: {
     init: initMeteredFeeder, capacityAvailable: capacityAvailableMeteredFeeder, apply: applyMeteredFeeder,
     conserve: conserveMeteredFeeder, snapshot: snapshotMeteredFeeder, command: commandMeteredFeeder,
-    setEnabled: setEnabledMeteredFeeder,
+    setEnabled: setEnabledMeteredFeeder, setRunPermit: setRunPermitMeteredFeeder,
   },
   transportDelay: {
     init: initTransportDelay, capacityAvailable: capacityAvailableTransportDelay, apply: applyTransportDelay,
     conserve: conserveTransportDelay, snapshot: snapshotTransportDelay,
     command: commandTransportDelay, isSettled: isSettledTransportDelay,
     confirmedRunning: isConfirmedRunningTransportDelay,
+  },
+  routedTransportDelay: {
+    init: initRoutedTransportDelay, capacityAvailable: capacityAvailableRoutedTransportDelay, apply: applyRoutedTransportDelay,
+    conserve: conserveRoutedTransportDelay, snapshot: snapshotRoutedTransportDelay,
+    command: commandRoutedTransportDelay, isSettled: isSettledRoutedTransportDelay,
+    confirmedRunning: isConfirmedRunningRoutedTransportDelay, selectPort: selectPortRoutedTransportDelay,
+    multiOutput: true,
   },
   batchCycle: {
     init: initBatchCycle, capacityAvailable: capacityAvailableBatchCycle, apply: applyBatchCycle,
@@ -680,6 +912,11 @@ export const BEHAVIORS = {
   splitter: {
     init: initSplitter, capacityAvailable: capacityAvailableSplitter, apply: applySplitter,
     conserve: conserveSplitter, snapshot: snapshotSplitter, multiOutput: true,
+  },
+  router: {
+    init: initRouter, capacityAvailable: capacityAvailableRouter, apply: applyRouter,
+    conserve: conserveRouter, snapshot: snapshotRouter, selectPort: selectPortRouter,
+    multiOutput: true,
   },
   terminalSink: {
     init: initTerminalSink, capacityAvailable: capacityAvailableTerminalSink, apply: applyTerminalSink,

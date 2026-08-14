@@ -50,23 +50,25 @@ describe("computeConnectionFlowRatios", () => {
     expect(ratios.has(indexOfConnection("scalpingScreen", "discardBin"))).toBe(true);
     expect(ratios.has(indexOfConnection("scalpingScreen", "inletDrumFeeder2"))).toBe(true);
 
-    // Not modelled: the metal remover's negligible reject stream, the
-    // chemical dose, and (issue #46) the packaging conveyor's other two
-    // outlets — real declared ports, but not yet real edges: its own single
-    // discharge (outBuffer, into the now-live outload buffer bin branch)
-    // is the one sibling with a sim-enabled destination, so the other two
-    // (still-un-engined Concetti/Flexicon branches) are correctly excluded
-    // even though all three share the "product" kind — see isModelledEdge.
+    // Not modelled: the metal remover's negligible reject stream and the
+    // chemical dose — neither destination is sim-enabled, and neither
+    // source is a multiOutput kind, so the single-sibling rule excludes them.
     expect(ratios.has(indexOfConnection("treatMetalRemover", "metalRejectStub1"))).toBe(false);
     expect(ratios.has(indexOfConnection("chemStub", "batchTreater"))).toBe(false);
-    expect(ratios.has(indexOfConnection("pendulumConveyor", "binSegSampler"))).toBe(false);
-    expect(ratios.has(indexOfConnection("pendulumConveyor", "concettiSampler"))).toBe(false);
 
-    // Modelled (issue #46): the Pro Box is now a live source, and the
-    // packaging conveyor's one real discharge into the outload buffer bin
-    // branch.
+    // Modelled (issue #46 + #47): the Pro Box is now a live source, and the
+    // packaging conveyor is now a genuine multiOutput (routedTransportDelay)
+    // machine — isModelledEdge's own `multi` branch (see its own comment)
+    // treats every product/waste edge off a multiOutput source as modelled
+    // regardless of whether that particular destination is sim-enabled yet,
+    // the same rule the splitter's own two ports have always used. All
+    // three of the conveyor's declared outlets read as modelled now, even
+    // though the Concetti/Flexicon branches beyond binSegSampler/
+    // concettiSampler still aren't built.
     expect(ratios.has(indexOfConnection("proBoxStation", "inletDrumFeeder1"))).toBe(true);
     expect(ratios.has(indexOfConnection("pendulumConveyor", "grainBreak"))).toBe(true);
+    expect(ratios.has(indexOfConnection("pendulumConveyor", "binSegSampler"))).toBe(true);
+    expect(ratios.has(indexOfConnection("pendulumConveyor", "concettiSampler"))).toBe(true);
   });
 
   it("reports a ratio near 1 once flow through a connection settles at its own nominal rate", () => {
@@ -137,5 +139,26 @@ describe("computeConnectionFlowRatios", () => {
     const wasteRatio = ratios.get(indexOfConnection(SCREEN_ID, "discardBin"));
     expect(productRatio).toBeGreaterThan(0);
     expect(wasteRatio).toBeCloseTo(productRatio, 6);
+  });
+
+  // Issue #47: a router-family kind (routedTransportDelay here — the
+  // packaging conveyor) sends its whole live flow through exactly one port
+  // at a time, unlike a splitter's simultaneous fan-out — LIVE_PORT_SHARE_BY_KIND's
+  // own `router`/`routedTransportDelay` entries are what makes the other,
+  // unselected outlets read as genuinely idle instead of fractionally
+  // flowing.
+  it("gives only the conveyor's currently selected outlet a nonzero ratio, never the other declared ports", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15));
+    for (let i = 0; i < Math.round(210 / DT); i++) stepSim(sim, DT); // past the ~185s transit lag, default destination (metal bin 1)
+
+    const ratios = computeConnectionFlowRatios(line, snapshotOf(sim));
+    const selectedRatio = ratios.get(indexOfConnection("pendulumConveyor", "grainBreak"));
+    const otherRatio1 = ratios.get(indexOfConnection("pendulumConveyor", "binSegSampler"));
+    const otherRatio2 = ratios.get(indexOfConnection("pendulumConveyor", "concettiSampler"));
+    expect(selectedRatio).toBeGreaterThan(0);
+    expect(otherRatio1).toBe(0);
+    expect(otherRatio2).toBe(0);
   });
 });

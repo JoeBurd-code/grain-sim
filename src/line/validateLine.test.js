@@ -186,4 +186,63 @@ describe("validateLine", () => {
     const result = validateLine(line);
     expect(result.ok).toBe(true);
   });
+
+  // Issue #47: a router (or routedTransportDelay) machine's declared output
+  // ports are its own selectable destinations — a port with nowhere to go,
+  // or a default naming a port that doesn't exist, is a real authoring bug.
+  function makeRouterLine() {
+    const line = makeValidLine();
+    line.machines.push({
+      id: "diverter",
+      type: "diverter",
+      name: "DIVERTER",
+      tag: "TEST.DIV",
+      status: "new",
+      zone: "packaging",
+      x: 200, y: 200,
+      ports: { inputs: ["in"], outputs: ["out1", "out2"] },
+      anchors: { in: { x: 0, y: 0 }, out1: { x: 0, y: 0 }, out2: { x: 0, y: 0 } },
+      sim: { kind: "router" },
+    });
+    line.machines.push({
+      id: "binA",
+      type: "bin",
+      name: "BIN A",
+      tag: "TEST.BINA",
+      status: "new",
+      zone: "packaging",
+      x: 300, y: 200,
+      ports: { inputs: ["in"], outputs: [] },
+      anchors: { in: { x: 0, y: 0 } },
+    });
+    line.connections.push(
+      { from: { machine: "bufferBin", port: "out" }, to: { machine: "diverter", port: "in" }, kind: "product" },
+      { from: { machine: "diverter", port: "out1" }, to: { machine: "binA", port: "in" }, kind: "product" },
+      { from: { machine: "diverter", port: "out2" }, to: { machine: "binA", port: "in" }, kind: "product" },
+    );
+    return line;
+  }
+
+  it("accepts a router whose every declared output port is connected", () => {
+    const result = validateLine(makeRouterLine());
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects a router with a declared output port that no connection routes anywhere", () => {
+    const line = makeRouterLine();
+    line.machines.find((m) => m.id === "diverter").ports.outputs.push("out3"); // declared, never wired
+    const result = validateLine(line);
+    expect(result.ok).toBe(false);
+    expect(result.errors.join("\n")).toContain("out3");
+    expect(result.errors.join("\n")).toContain("diverter");
+  });
+
+  it("rejects a router whose defaultPort names a port it never declares", () => {
+    const line = makeRouterLine();
+    line.machines.find((m) => m.id === "diverter").sim.defaultPort = "outGhost";
+    const result = validateLine(line);
+    expect(result.ok).toBe(false);
+    expect(result.errors.join("\n")).toContain("outGhost");
+    expect(result.errors.join("\n")).toContain("diverter");
+  });
 });
