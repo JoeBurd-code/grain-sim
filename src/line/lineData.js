@@ -432,7 +432,11 @@ export const line = {
       tag: "52.608.H00",
       status: "new",
       zone: "packaging",
-      x: 1140, y: 600, w: 120, h: 80,
+      // x re-centred 2026-08-14 so the (horizontally-centred) `out` anchor
+      // lines up directly above inletDrumFeeder1's `in` anchor, now that the
+      // two feeders' positions have been swapped (see inletDrumFeeder1's own
+      // comment) — a straight drop, no via point needed.
+      x: 1270, y: 600, w: 120, h: 80,
       ports: { inputs: [], outputs: ["out"] },
       anchors: { out: { x: 60, y: 80 } },
       labelAt: { x: 0, y: -14 },
