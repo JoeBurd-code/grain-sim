@@ -961,6 +961,10 @@ export const line = {
       anchors: { in: { x: 30, y: 0 }, out: { x: 30, y: 36 } },
       smallLabel: true,
       labelAt: { x: 75, y: 22 },
+      // Issue #49: pass-through, no holdup — same reasoning binSegSampler's
+      // own passThrough already rests on (REAL_LINE_SPECS.md §6: "Pass-
+      // through, no holdup. Sample taken ~every 3 hours").
+      sim: { kind: "passThrough" },
     },
     // concettiMetalRemover removed 2026-08-05: the FD names exactly one
     // metal remover on the whole line (52.501.F00, treating side) and
@@ -981,7 +985,26 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 90 } },
       fill: 0.5,
+      instruments: ["LT", "LSH", "LSL"],
       labelAt: { x: 110, y: 30 },
+      params: [
+        { id: "level", label: "fill level", min: 0, max: 100, value: 50, unit: "%", bind: "levelJump" },
+        { id: "highSetpoint", label: "LSH set point", min: 50, max: 100, value: 85, unit: "%", bind: "interlockHighSetpoint" },
+        { id: "lowSetpoint", label: "LSL set point", min: 0, max: 50, value: 35, unit: "%", bind: "interlockLowSetpoint" },
+        { id: "signalDelay", label: "signal delay", min: 0, max: 15, value: 5, unit: "s", bind: "interlockSignalDelay" },
+      ],
+      // Issue #49: reuses the accumulator behaviour unchanged (issue #18),
+      // an eighth configuration. Working volume has a drawing reading but a
+      // LOW-confidence one — sheet 52-14 gives ~0.72 m3 with a "(?)" against
+      // it (REAL_LINE_SPECS.md §7) — so it's used as the assumed value
+      // rather than trusted as confirmed, same treatment the parent issue
+      // asks for explicitly. See docs/OPEN_QUESTIONS.md.
+      sim: {
+        kind: "accumulator",
+        capacityM3: 0.72,
+        initialLevelFraction: 0.5,
+        provenance: { capacityM3: "assumed", initialLevelFraction: "assumed" },
+      },
     },
     {
       id: "concettiScale",
@@ -994,7 +1017,30 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 46 } },
       labelAt: { x: -220, y: 30 },
-      params: [{ id: "rate", label: "bagging rate", min: 0, max: 15, value: 12, unit: "t/h" }],
+      // Issue #49: the branch's second genuinely new configuration, reusing
+      // batchCycle (issue #24) a fourth time — the parent spec's own reuse
+      // claim landing in full — takes a charge, holds it for a cycle,
+      // discharges a completed bag. The Concetti package sits past the
+      // PLC's own scope (PLC_FUNCTIONAL_DESCRIPTION.md §12), so bag size is
+      // unstated; 50 kg is assumed as a plausible small-bag rating for
+      // treated seed, distinct from the Flexicon head's 1 t big-bag charge.
+      // Cycle time is *derived* from that assumed bag size against the
+      // worksheet's own unconfirmed ~12 t/h sustained rate (REAL_LINE_SPECS.md
+      // §7), not independently assumed — 50 kg / 12 t/h = 15 s. Bag-change
+      // dead time is explicitly out of scope for this ticket, the same as
+      // the Flexicon head: batchCycle's own discharge-to-charging
+      // transition is already immediate, so no code change is needed for
+      // continuous cycling. See docs/OPEN_QUESTIONS.md.
+      params: [
+        { id: "batchSize", label: "bag size", min: 10, max: 100, value: 50, unit: "kg", bind: "batchSize" },
+        { id: "cycleTime", label: "fill time", min: 5, max: 60, value: 15, unit: "s", bind: "batchCycleTime" },
+      ],
+      sim: {
+        kind: "batchCycle",
+        chargeM3: 0.05 / BULK_DENSITY_T_PER_M3,
+        phases: [{ name: "fill", durationSec: 15 }],
+        provenance: { chargeM3: "assumed", "phases[0].durationSec": "derived" },
+      },
     },
     {
       id: "concettiFiller",
@@ -1007,6 +1053,11 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 50, y: 0 }, out: { x: 50, y: 70 } },
       labelAt: { x: 115, y: 35 },
+      // Issue #49: pass-through, no holdup — a weighed charge off the scale
+      // rides straight through the sewing head to palletising, per the
+      // parent issue's own description; nothing further for the sim to
+      // model beyond the bag volume already carried through.
+      sim: { kind: "passThrough" },
     },
     {
       id: "palletising",
@@ -1019,6 +1070,11 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 70, y: 0 }, out: { x: 70, y: 80 } },
       labelAt: { x: -260, y: 40 },
+      // Issue #49: pass-through, no holdup — the discrete pallet-building
+      // machinery downstream of the sewn bag is out of scope (see the
+      // parent spec's own Out of Scope section); product is counted as it
+      // is bagged, at the terminus below, not as it is stacked.
+      sim: { kind: "passThrough" },
     },
     {
       id: "palletStub",
@@ -1030,6 +1086,23 @@ export const line = {
       x: 3186, y: 790, w: 8, h: 8,
       ports: { inputs: ["in"], outputs: [] },
       anchors: { in: { x: 4, y: 4 } },
+      // Issue #49: the branch's own terminus, reusing terminalSink (issue
+      // #26) with its optional bag-counting field (issue #48's own
+      // `bagSizeM3`, behaviors.js) so this terminus also reports a running
+      // bag count alongside its volume total. `bagSizeM3` matches
+      // concettiScale's own assumed 50 kg charge exactly, since a bag
+      // arriving here is by construction one whole charge off that
+      // machine's discharge pulse. `displayCapacityM3` is presenter-facing
+      // only (same convention as discardBin's and bigBagStub's own), scaled
+      // to ten bags — a much smaller absolute volume than bigBagStub's own
+      // 10 m3 since these are small bags, not big bags — so the fill bar
+      // visibly rises over a demo run.
+      sim: {
+        kind: "terminalSink",
+        displayCapacityM3: (0.05 / BULK_DENSITY_T_PER_M3) * 10,
+        bagSizeM3: 0.05 / BULK_DENSITY_T_PER_M3,
+        provenance: { displayCapacityM3: "assumed", bagSizeM3: "assumed" },
+      },
     },
   ],
 
@@ -1214,8 +1287,10 @@ export const line = {
     // selected" (PLC_FUNCTIONAL_DESCRIPTION.md §5); only the two metal bins
     // have a real sensor behind them this ticket (the Flexicon and Concetti
     // pre-bins aren't sim-enabled yet), so this is two of the four rows the
-    // FD's own table lists, not a partial reading of it. Issue #48 below
-    // lands the Flexicon row, the third of the four.
+    // FD's own table lists, not a partial reading of it. Issue #48 lands
+    // the Flexicon row (flexiconPreBinHighTrip below), the third of the
+    // four; issue #49 lands the fourth and last (concettiPreBinHighTrip),
+    // completing the cascade the parent spec names as its central argument.
     {
       id: "metalBin1HighTrip",
       kind: "thresholdStopTrip",
@@ -1284,6 +1359,36 @@ export const line = {
       signalDelaySec: 5,
       action: { machine: "pendulumConveyor", rampTimeSec: 0.5 },
       armedWhen: [{ machine: "pendulumConveyor", port: "outBinSeg" }],
+      provenance: {
+        highSetpoint: "assumed", lowSetpoint: "assumed",
+        signalDelaySec: "confirmed", rampTimeSec: "assumed",
+      },
+    },
+    {
+      id: "concettiPreBinHighTrip",
+      kind: "thresholdStopTrip",
+      sensor: { machine: "concettiPreBin" },
+      // Issue #49, the FD's fourth and last destination-interlock row:
+      // "Concetti pre-bin high `52.705.H00.LSH0` -> Bucket elevator
+      // `52.604.E00` 'if selected' ... 5 s -> drum feeders"
+      // (PLC_FUNCTIONAL_DESCRIPTION.md §5, line 269) — same shape and same
+      // actuator as every other destination trip on this conveyor
+      // (metalBin1HighTrip/metalBin2HighTrip/flexiconPreBinHighTrip above),
+      // reused unchanged. This is the demonstration the parent spec names
+      // as the whole project's central argument: a bag machine at one end
+      // of the building trips this conveyor, which trips both inlet drum
+      // feeders one second later (conveyorRunningInterlockFeeder1/2 below),
+      // which starves the scalping screen, backs up the treater after-bin
+      // (afterBinHoldTreater), and stops the batch treater — one cascade
+      // spanning the entire line. `armedWhen` needs only one condition, the
+      // same reasoning flexiconPreBinHighTrip's own comment gives: this
+      // branch has no diverter downstream of the conveyor, just the one
+      // outlet, `outConcetti`.
+      highSetpoint: 0.85,
+      lowSetpoint: 0.35,
+      signalDelaySec: 5,
+      action: { machine: "pendulumConveyor", rampTimeSec: 0.5 },
+      armedWhen: [{ machine: "pendulumConveyor", port: "outConcetti" }],
       provenance: {
         highSetpoint: "assumed", lowSetpoint: "assumed",
         signalDelaySec: "confirmed", rampTimeSec: "assumed",
