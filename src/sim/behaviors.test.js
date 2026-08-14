@@ -335,6 +335,26 @@ describe("terminalSink (issue #26)", () => {
     BEHAVIORS.terminalSink.apply(state, 0.05, 1, Infinity); // well past the display capacity
     expect(BEHAVIORS.terminalSink.snapshot(state).fill).toBe(1); // saturates, never exceeds 1
   });
+
+  it("with no bagSizeM3 configured (discardBin's own shape), publishes no bagCount at all", () => {
+    const state = BEHAVIORS.terminalSink.init({ sim: { displayCapacityM3: 0.3 } });
+    BEHAVIORS.terminalSink.apply(state, 0.05, 4.5, Infinity);
+    expect(BEHAVIORS.terminalSink.snapshot(state).bagCount).toBeUndefined();
+  });
+
+  it("issue #48: counts whole bags as the running total crosses each bagSizeM3 multiple", () => {
+    const state = BEHAVIORS.terminalSink.init({ sim: { displayCapacityM3: 5, bagSizeM3: 1.4 } });
+    expect(BEHAVIORS.terminalSink.snapshot(state).bagCount).toBe(0);
+
+    BEHAVIORS.terminalSink.apply(state, 0.05, 1, Infinity); // short of one full bag
+    expect(BEHAVIORS.terminalSink.snapshot(state).bagCount).toBe(0);
+
+    BEHAVIORS.terminalSink.apply(state, 0.05, 0.4, Infinity); // total now 1.4, exactly one bag
+    expect(BEHAVIORS.terminalSink.snapshot(state).bagCount).toBe(1);
+
+    BEHAVIORS.terminalSink.apply(state, 0.05, 2.8, Infinity); // total now 4.2, exactly three bags
+    expect(BEHAVIORS.terminalSink.snapshot(state).bagCount).toBe(3);
+  });
 });
 
 describe("transportDelay (issue #21)", () => {

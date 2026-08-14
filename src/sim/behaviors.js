@@ -847,8 +847,18 @@ function selectPortRouter(state, port) {
 // every other terminal destination on the line will eventually share. Never
 // backpressures and never spills, so whatever feeds it can always treat this
 // branch as unconstrained.
+// `bagSizeM3` (issue #48, optional) turns a terminal sink into a discrete
+// counter as well as a volume total — the Flexicon terminus's own "how many
+// bags left this tick" is a number a stakeholder reads without translation,
+// unlike the plain waste volume every other terminalSink (discardBin) only
+// ever reports. Left undefined for every terminus that doesn't configure it,
+// so discardBin's own shape is untouched.
 function initTerminalSink(m) {
-  return { kind: "terminalSink", total: 0, displayCapacityM3: m.sim.displayCapacityM3 };
+  return {
+    kind: "terminalSink", total: 0,
+    displayCapacityM3: m.sim.displayCapacityM3,
+    bagSizeM3: m.sim.bagSizeM3,
+  };
 }
 function capacityAvailableTerminalSink() {
   return Infinity;
@@ -870,9 +880,18 @@ function conserveTerminalSink(state) {
 // same demo-pacing spirit as an assumed starting fill level elsewhere on the
 // line. Saturates at 1 rather than wrapping, since there's no confirmed
 // empty-when-full behaviour to animate.
+//
+// `bagCount` (issue #48) is derived from the running total divided by the
+// configured bag size, floored to whole bags — robust to however the volume
+// actually arrived (one atomic pulse off the filling head's own batchCycle
+// discharge in the ordinary case, or fragmented across ticks under
+// backpressure), rather than trying to detect discrete arrivals. Omitted
+// entirely when this terminus has no `bagSizeM3` configured.
 function snapshotTerminalSink(state) {
   const cap = state.displayCapacityM3;
-  return { fill: cap > 0 ? Math.min(1, state.total / cap) : 0 };
+  const snap = { fill: cap > 0 ? Math.min(1, state.total / cap) : 0 };
+  if (state.bagSizeM3) snap.bagCount = Math.floor(state.total / state.bagSizeM3 + EPS);
+  return snap;
 }
 
 export const BEHAVIORS = {
