@@ -55,6 +55,10 @@ the limits of what it protects are in `docs/DEPLOY_ACCESS.md`.
 
 Before using Claude in Chrome or Playwright to drive the app and verify a change, stop and ask first: offer the user the choice to check it themselves, or get their explicit go-ahead to proceed. Don't open a browser unprompted. This applies to any UI-facing change checked against the running dev server; it doesn't apply to `npm test` / `npm run lint`, which need no confirmation.
 
+## Surfacing work for the user to look at
+
+The user reviews finished work on the live Vercel deployment (`grain-sim.vercel.app`), not the local dev server — they never look at `npm run dev` themselves, even though a running dev server may be used mid-session for the agent's own verification. So whenever it's the user's turn to actually look at something — they say they want to check it themselves rather than have a browser tool drive it, or a task (an issue implementation, a UI-facing fix) has just finished — commit (if not already) and push to `main` so Vercel deploys it. Don't wait to be asked to push, and don't just describe the change in text and stop. This repo has no PR flow — issues are closed by committing and pushing straight to `main`, so pushing here is the normal completion step, not a special escalation.
+
 ## Agent skills
 
 ### Issue tracker
