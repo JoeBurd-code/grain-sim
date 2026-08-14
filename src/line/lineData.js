@@ -436,6 +436,22 @@ export const line = {
       ports: { inputs: [], outputs: ["out"] },
       anchors: { out: { x: 60, y: 80 } },
       labelAt: { x: 0, y: -14 },
+      // Issue #46: a live source, same shape as upstreamStub — returns
+      // already-treated stored seed to be re-bagged, confirmed to bypass the
+      // entire treating half [CONFIRMED FD 2026-08-05, REAL_LINE_SPECS.md
+      // §12 item 4]. Only ~1 day/month in real use, per the same item — a
+      // duty-cycle fact, not a rate; no engineer figure exists for the rate
+      // itself, so this reuses the drum feeders' own confirmed 2-20 t/h
+      // range as a plausible demo default. Whether it actually feeds
+      // anything is gated by the source selector (setSource, engine.js),
+      // which enables/disables inletDrumFeeder1 downstream — this valve can
+      // sit open with nothing flowing.
+      params: [{ id: "rate", label: "source rate", min: 0, max: 20, value: 12, unit: "t/h", bind: "sourceRate", readBind: "sourceRateActual" }],
+      sim: {
+        kind: "source",
+        rateM3PerSec: tPerHourToM3PerSec(12),
+        provenance: { rateM3PerSec: "assumed" },
+      },
     },
     {
       id: "inletDrumFeeder1",
@@ -452,7 +468,21 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 36 } },
       labelAt: { x: -160, y: 24 },
-      params: [{ id: "rate", label: "feed rate", min: 2, max: 20, value: 12, unit: "t/h" }],
+      // Issue #46: the Pro Box's own feeder. Reuses meteredFeeder unchanged
+      // (issue #20), same confirmed 2-20 t/h range as the treating-side
+      // feeder. Starts disabled: the source selector (setSource, engine.js)
+      // defaults to the treating line, per the FD's "only one drum feeder
+      // runs at a time; they never run together" [CONFIRMED 2026-06-30,
+      // REAL_LINE_SPECS.md §6 flow item 3] — `enabled: false` is the
+      // selector's own gate (src/sim/behaviors.js), separate from `rate`,
+      // so this feeder's own dial is preserved for whenever it's selected.
+      params: [{ id: "rate", label: "feed rate", min: 2, max: 20, value: 12, unit: "t/h", bind: "feederRate", readBind: "feederRateActual" }],
+      sim: {
+        kind: "meteredFeeder",
+        rateM3PerSec: tPerHourToM3PerSec(12),
+        enabled: false,
+        provenance: { rateM3PerSec: "assumed" },
+      },
     },
     {
       id: "inletDrumFeeder2",
@@ -468,7 +498,20 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 36 } },
       labelAt: { x: 90, y: 24 },
-      params: [{ id: "rate", label: "feed rate", min: 2, max: 20, value: 12, unit: "t/h" }],
+      // Issue #46: the treating line's own feeder, downstream of the
+      // scalping screen. `enabled` defaults true — the source selector
+      // starts on the treating line — so selecting the Pro Box instead
+      // (setSource, engine.js) is what leaves the whole treating zone idle:
+      // this feeder's intake goes to zero, the scalping screen backs up
+      // into the treater after-bin exactly like any other full downstream,
+      // and the cascade runs backward through the zone on its own, with no
+      // special-cased "idle" state anywhere.
+      params: [{ id: "rate", label: "feed rate", min: 2, max: 20, value: 12, unit: "t/h", bind: "feederRate", readBind: "feederRateActual" }],
+      sim: {
+        kind: "meteredFeeder",
+        rateM3PerSec: tPerHourToM3PerSec(12),
+        provenance: { rateM3PerSec: "assumed" },
+      },
     },
     {
       id: "pendulumConveyor",
@@ -497,7 +540,47 @@ export const line = {
       },
       instruments: ["LSH"],
       labelAt: { x: 560, y: -14 },
-      params: [{ id: "speed", label: "speed", min: 0, max: 100, value: 100, unit: "%" }],
+      // Issue #46: reuses transportDelay unchanged (issue #21) — one
+      // machine, one queue, both inlet drum feeders' inflow summed into it
+      // by the engine same as any other multi-input node. Only the
+      // `outBuffer` outlet is sim-enabled this ticket (the other two are
+      // still un-engined, so the reverse pass never routes to them — see
+      // engine.js's buildDownstreamMap); the pneumatic outlet selector that
+      // will make all three real at once is the next ticket's `router`
+      // behaviour (issue #43's own decision record).
+      //
+      // Transit is derived from the sheet 52-13 spec block (PDF text-layer
+      // exact, REAL_LINE_SPECS.md §8), not tuned: `distanceM` is the
+      // carrying-side path only — lower horizontal (7.084 m) + vertical
+      // rise (9.157 m) + upper horizontal (14.846 m) = 31.087 m ≈ 31.1 m —
+      // unlike the treating elevator (`treatingElevator` above), whose own
+      // `distanceM` is rise alone (8.731 m): that machine was built from a
+      // low-confidence screenshot reading with no horizontal runs captured,
+      // while this one's spec block gives all three run lengths at the same
+      // PDF-text confidence. The inconsistency between the two machines'
+      // derivation method is itself recorded, not silently reconciled — see
+      // docs/OPEN_QUESTIONS.md. At the confirmed 10.08 m/min chain speed,
+      // 31.087 m gives ≈185 s of transport lag, the longest on the line.
+      //
+      // `ceilingM3PerSec` comes from this conveyor's own confirmed
+      // operating-output table (sheet 52-13, 100% speed, 70% filling
+      // degree: 20.84 t/h) rather than a nameplate guess or the raw
+      // bucket-pass-rate geometry — the latter is exactly what the §8
+      // factor-of-two anomaly disputes (bucket pitch 120 m / 196 buckets
+      // gives ~16.5 buckets/min against the table's own implied ~33.6), so
+      // deriving the ceiling from the table sidesteps re-importing that
+      // same disputed number here. See docs/OPEN_QUESTIONS.md.
+      // `speed` reuses the elevator VFD's own bind (issue #21): live,
+      // re-pacing every packet already in transit, not just new material —
+      // same generic transportDelay control treatingElevator's dial uses.
+      params: [{ id: "speed", label: "speed", min: 0, max: 100, value: 100, unit: "%", bind: "elevatorSpeed", readBind: "elevatorSpeedActual" }],
+      sim: {
+        kind: "transportDelay",
+        distanceM: 7.084 + 9.157 + 14.846,
+        speedMPerMin: 10.08,
+        ceilingM3PerSec: tPerHourToM3PerSec(20.84),
+        provenance: { distanceM: "derived", speedMPerMin: "confirmed", ceilingM3PerSec: "confirmed" },
+      },
     },
     {
       id: "outloadBufferBin",
@@ -517,6 +600,19 @@ export const line = {
       fill: 0.62,
       instruments: ["LSH", "LSL"],
       labelAt: { x: -190, y: 30 },
+      // Issue #46: the same accumulator behaviour as every other bin on the
+      // line (issue #18), configured a fourth time. 4.51 m3 / 3.25 t working
+      // volume [CONFIRMED, PLC_FUNCTIONAL_DESCRIPTION.md §8.3 / §8.4 mimic
+      // label — the "bin segment" figure from the original drawing reading
+      // belongs here, see this machine's tag-correction comment above]. The
+      // 62% start level matches the `fill` already authored above; assumed,
+      // same low-sensitivity reasoning as every other bin's start level.
+      sim: {
+        kind: "accumulator",
+        capacityM3: 4.51,
+        initialLevelFraction: 0.62,
+        provenance: { capacityM3: "confirmed", initialLevelFraction: "assumed" },
+      },
     },
     {
       id: "grainBreak",
@@ -539,6 +635,11 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 24, y: 0 }, out: { x: 24, y: 36 } },
       labelAt: { x: -140, y: 44 },
+      // Issue #46: pass-through, no holdup — the engineer confirmed this
+      // exists as an unpowered cascade chute (see the tag comment above),
+      // the same reasoning treatMetalRemover's own passThrough already
+      // rests on.
+      sim: { kind: "passThrough" },
     },
     {
       id: "outloadDiverter",

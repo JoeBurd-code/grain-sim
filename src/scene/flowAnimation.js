@@ -55,11 +55,27 @@ const NOMINAL_RATE_BY_KIND = {
 // published outflow, readable regardless of whether anything sim-enabled
 // sits downstream of it yet (e.g. the scalping screen's product edge into
 // the still-un-engined packaging zone, issue #15's build frontier).
-function isModelledEdge(machinesById, c) {
+//
+// Issue #46: a non-multiOutput machine can still *declare* more than one
+// product-kind port (the packaging conveyor has three — its pneumatic
+// outlet selection is real equipment, per the parent spec, issue #43 —
+// even though it isn't a `router` yet and only carries one real discharge
+// today). buildDownstreamMap resolves that ambiguity by only ever wiring a
+// connection whose destination is sim-enabled; this mirrors the same rule —
+// once any sibling connection from this machine reaches a sim-enabled
+// destination, that's the one real edge, and any other same-machine
+// product connection is not modelled, even though it shares the kind. Until
+// then (nothing downstream built at all yet), every sibling still reads as
+// reaching into the frontier, exactly as the single-port case always has.
+function isModelledEdge(line, machinesById, c) {
   const from = machinesById.get(c.from.machine);
   if (!from?.sim) return false;
   const multi = BEHAVIORS[from.sim.kind]?.multiOutput === true;
-  return multi ? c.kind === "product" || c.kind === "waste" : c.kind === "product";
+  if (multi) return c.kind === "product" || c.kind === "waste";
+  if (c.kind !== "product") return false;
+  const siblings = line.connections.filter((sc) => sc.from.machine === c.from.machine && sc.kind === "product");
+  const realSibling = siblings.find((sc) => machinesById.get(sc.to.machine)?.sim);
+  return realSibling ? realSibling === c : true;
 }
 
 // The nominal rate flowing INTO `machineId`, in m3/s: the sum of every
@@ -70,7 +86,7 @@ function isModelledEdge(machinesById, c) {
 function nominalInflow(machineId, ctx) {
   let total;
   for (const c of ctx.line.connections) {
-    if (c.to.machine !== machineId || !isModelledEdge(ctx.machinesById, c)) continue;
+    if (c.to.machine !== machineId || !isModelledEdge(ctx.line, ctx.machinesById, c)) continue;
     const v = nominalOutRate(c.from.machine, c.from.port, ctx);
     if (v == null) continue;
     total = (total ?? 0) + v;
@@ -136,7 +152,7 @@ export function computeConnectionFlowRatios(line, simSnap) {
   const ctx = { line, machinesById: new Map(line.machines.map((m) => [m.id, m])), simSnap, memo: new Map() };
   const ratios = new Map();
   line.connections.forEach((c, i) => {
-    if (!isModelledEdge(ctx.machinesById, c)) return;
+    if (!isModelledEdge(ctx.line, ctx.machinesById, c)) return;
     const nominal = nominalOutRate(c.from.machine, c.from.port, ctx);
     if (!(nominal > 0)) {
       ratios.set(i, 0);
