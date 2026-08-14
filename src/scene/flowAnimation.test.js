@@ -51,10 +51,22 @@ describe("computeConnectionFlowRatios", () => {
     expect(ratios.has(indexOfConnection("scalpingScreen", "inletDrumFeeder2"))).toBe(true);
 
     // Not modelled: the metal remover's negligible reject stream, the
-    // chemical dose, and anything past the un-engined packaging zone.
+    // chemical dose, and (issue #46) the packaging conveyor's other two
+    // outlets — real declared ports, but not yet real edges: its own single
+    // discharge (outBuffer, into the now-live outload buffer bin branch)
+    // is the one sibling with a sim-enabled destination, so the other two
+    // (still-un-engined Concetti/Flexicon branches) are correctly excluded
+    // even though all three share the "product" kind — see isModelledEdge.
     expect(ratios.has(indexOfConnection("treatMetalRemover", "metalRejectStub1"))).toBe(false);
     expect(ratios.has(indexOfConnection("chemStub", "batchTreater"))).toBe(false);
-    expect(ratios.has(indexOfConnection("proBoxStation", "inletDrumFeeder1"))).toBe(false);
+    expect(ratios.has(indexOfConnection("pendulumConveyor", "binSegSampler"))).toBe(false);
+    expect(ratios.has(indexOfConnection("pendulumConveyor", "concettiSampler"))).toBe(false);
+
+    // Modelled (issue #46): the Pro Box is now a live source, and the
+    // packaging conveyor's one real discharge into the outload buffer bin
+    // branch.
+    expect(ratios.has(indexOfConnection("proBoxStation", "inletDrumFeeder1"))).toBe(true);
+    expect(ratios.has(indexOfConnection("pendulumConveyor", "grainBreak"))).toBe(true);
   });
 
   it("reports a ratio near 1 once flow through a connection settles at its own nominal rate", () => {

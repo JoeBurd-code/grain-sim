@@ -9,6 +9,7 @@ import {
   setInterlockSlowSetpoint, setInterlockStopSetpoint,
   setInterlockSlowDelay as engineSetInterlockSlowDelay, setInterlockStopDelay as engineSetInterlockStopDelay,
   setBatchSize, setBatchCycleSec, setSplitterWasteFraction, getCombinedEvents,
+  setSource as setSourceSim, getSource,
 } from "./engine";
 import { BEHAVIORS } from "./behaviors";
 import { createPlotHistory, setSeriesPlotted, recordSample } from "./plotHistory";
@@ -38,7 +39,11 @@ function publishSnap(sim) {
   // their source machine, for the combined event panel and (later) the
   // graph's event markers, from the single source of truth in engine.js's
   // getCombinedEvents / control.js's combineEventLogs.
-  return { t: sim.t, machines, events: getCombinedEvents(sim) };
+  // `source` (issue #46): which packaging feeder the plant-control cluster's
+  // selector currently has open, derived fresh off the machines themselves
+  // (engine.js's getSource) rather than tracked separately, so it can never
+  // drift from what's actually running.
+  return { t: sim.t, machines, events: getCombinedEvents(sim), source: getSource(sim) };
 }
 
 export function useSimEngine(line) {
@@ -219,13 +224,22 @@ export function useSimEngine(line) {
     publish();
   }, [sim, publish]);
 
+  // Plant control (issue #46): the source selector, one click in the header
+  // like resetTrips above — takes effect immediately, whether paused or
+  // running, and publishes right away so the selector's own highlighted
+  // button never lags a throttled tick.
+  const setSource = useCallback((source) => {
+    setSourceSim(sim, source);
+    publish();
+  }, [sim, publish]);
+
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
   return {
     snap, running, start, pause, stepOnce, restart, resetTrips, speed, setSpeed, setRate, setFeedRate, setLevel,
     setInterlockHigh, setInterlockLow, setInterlockDelay, setElevatorSpeed: setElevatorSpeedFraction,
     setInterlockSlow, setInterlockStop, setInterlockSlowDelay, setInterlockStopDelay,
-    setBatchSize: setBatchSizeM3, setBatchCycleTime, setWasteFraction,
+    setBatchSize: setBatchSizeM3, setBatchCycleTime, setWasteFraction, setSource,
     history, togglePlotSeries,
   };
 }

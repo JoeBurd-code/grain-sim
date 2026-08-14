@@ -159,7 +159,7 @@ export default function MeetingApp() {
           speed={engine.speed}
           onSpeedChange={engine.setSpeed}
         />
-        <PlantControls onResetTrips={engine.resetTrips} />
+        <PlantControls onResetTrips={engine.resetTrips} source={engine.snap.source} onSetSource={engine.setSource} />
         <div style={{ display: "flex", gap: 6, flex: "none" }}>
           {line.zones.map((z) => (
             <button key={z.id} className="zonebtn" style={zoneBtnStyle} onClick={() => fitTo(zoneBounds(line, z.id))}>

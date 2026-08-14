@@ -4,7 +4,7 @@ import {
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, getInterlockState,
   getCombinedEvents, setElevatorSpeed,
   setInterlockSlowSetpoint, setInterlockStopSetpoint, setInterlockSlowDelay, setInterlockStopDelay,
-  setBatchSize, setBatchCycleSec, setSplitterWasteFraction,
+  setBatchSize, setBatchCycleSec, setSplitterWasteFraction, setSource, getSource,
 } from "./engine";
 import { assertConserved, conservationTotals } from "./conservation";
 import { tPerHourToM3PerSec } from "./units";
@@ -25,6 +25,28 @@ const DISCARD_BIN_ID = "discardBin";
 function interlockRule(sim) {
   return getInterlockState(sim, BUFFER_BIN_ID);
 }
+
+// Issue #46: the scalping screen's product output now carries on into a
+// real, live packaging chain (inletDrumFeeder2 -> pendulumConveyor ->
+// grainBreak -> outloadBufferBin) instead of terminating as "delivered" at
+// the un-engined build frontier. The outload buffer bin has no discharge
+// modelled yet (its own downstream, the outload diverter, is still un-sim-
+// enabled until the destination-selector ticket) — so it fills once, for
+// good, and backpressures the entire treating zone behind it, exactly per
+// this ticket's own acceptance criteria. The many long-running,
+// steady-state tests below predate packaging and are about the treating
+// zone specifically (the feeder/elevator/pre-bin/after-bin/treater
+// interplay) — same reasoning as `lineWithoutBatchTreater` further down —
+// so they isolate that zone by stripping just the one new sim block that
+// actually changes their behaviour, `inletDrumFeeder2`, restoring exactly
+// the pre-#46 "delivered" sink at the screen's own product port. The real,
+// full-line packaging behaviour (including the backpressure this strips
+// away here) gets its own dedicated coverage in the issue #46 describe
+// block below, against the real `line`.
+const lineWithoutPackaging = {
+  ...line,
+  machines: line.machines.map((m) => (m.id === "inletDrumFeeder2" ? { ...m, sim: undefined } : m)),
+};
 
 describe("createSim / stepSim (real Treater Line 2 data)", () => {
   it("creates a sim and steps it by a fixed timestep", () => {
@@ -105,7 +127,7 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
   });
 
   it("conserves volume through fill and overflow (fed = stored + inTransit + delivered + spilled)", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutPackaging); // isolates the treating zone's own bins (see fixture comment)
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     for (let i = 0; i < 20000; i++) {
       stepSim(sim, DT);
@@ -117,10 +139,16 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
     // Since issue #22, the pre-bin is also a sim-enabled accumulator, and
     // since issue #25 so is the after-bin — both contribute their own
     // stored volume to the total (since issue #42 that's genuinely moving:
-    // the feeder auto-starts once the elevator is confirmed running).
+    // the feeder auto-starts once the elevator is confirmed running). The
+    // outload buffer bin (issue #46) is a sim-enabled accumulator too, and
+    // stays present even under lineWithoutPackaging (only inletDrumFeeder2's
+    // own sim block is stripped there) — it just never receives anything
+    // under this fixture, so its contribution here is exactly its own
+    // authored initial stock, frozen for the whole run.
     const preBin = getMachineState(sim, PRE_BIN_ID);
     const afterBin = getMachineState(sim, AFTER_BIN_ID);
-    expect(totals.stored).toBeCloseTo(bin.stored + preBin.stored + afterBin.stored);
+    const outloadBufferBin = getMachineState(sim, "outloadBufferBin");
+    expect(totals.stored).toBeCloseTo(bin.stored + preBin.stored + afterBin.stored + outloadBufferBin.stored);
   });
 
   it("throws when a line declares an unregistered sim.kind", () => {
@@ -1357,7 +1385,7 @@ describe("engine publishes each machine's live outflow rate generically (issue #
 // 40s hold time, however far into the run it's sampled.
 describe("the treating zone keeps cycling indefinitely under steady supply, never stalling mid-charge (issue #40)", () => {
   it("the batch treater completes hundreds of charge/discharge cycles without ever stalling mid-charge, at issue #40's own reproduction rate", () => {
-    const sim = createSim(line); // default source rate (12 t/h, the line's real sustained rate); only the feeder needs live-starting, per its own "starts at 0" comment
+    const sim = createSim(lineWithoutPackaging); // default source rate (12 t/h, the line's real sustained rate); only the feeder needs live-starting, per its own "starts at 0" comment
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15)); // issue #40's exact reproduction value
     const treater = getMachineState(sim, TREATER_ID);
 
@@ -1395,7 +1423,7 @@ describe("the treating zone keeps cycling indefinitely under steady supply, neve
   // that only breaks at, say, 5 t/h still gets caught here.
   it("never overshoots a charge or produces an unbounded stall gap, at any feeder rate across the confirmed 2-20 t/h range", () => {
     for (const rate of [2, 5, 8, 11, 12, 12.5, 15, 18, 20]) {
-      const sim = createSim(line);
+      const sim = createSim(lineWithoutPackaging);
       setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(rate));
       const treater = getMachineState(sim, TREATER_ID);
       // Below the source's own 12 t/h ceiling, gathering a full charge from
@@ -1445,7 +1473,7 @@ describe("the treating zone keeps cycling indefinitely under steady supply, neve
   // two-stage interlock (issue #22) join in too, all inside one continuous
   // run.
   it("more than one interlocked machine logs events well past the initial startup transient, not just once each at the very start", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutPackaging);
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(8)); // below the 12 t/h source: the buffer bin genuinely fills and cycles
     for (let i = 0; i < Math.round(3000 / DT); i++) stepSim(sim, DT);
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(18)); // presenter catches the line back up: now the pre-bin runs hot instead
@@ -1467,7 +1495,7 @@ describe("the treating zone keeps cycling indefinitely under steady supply, neve
   // play. So the after-bin never once tripping in the tests above is by
   // design, not a residual gap issue #40 left unfixed.
   it("the after-bin's interlock never trips under any in-range supply — by design, not a residual stall", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutPackaging);
     const treater = getMachineState(sim, TREATER_ID);
     const afterBin = getMachineState(sim, AFTER_BIN_ID);
     expect(treater.chargeM3 / afterBin.capacity).toBeLessThan(afterBinInterlock(sim).highSetpoint);
@@ -1487,7 +1515,7 @@ describe("the treating zone keeps cycling indefinitely under steady supply, neve
   // machine the ticket names directly: LSH never trips (reused from the test
   // above), yet LSL still crosses repeatedly and logs every time.
   it("the after-bin's LSL crosses repeatedly under normal supply, and each crossing is logged, even though the phase never trips (issue #41)", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutPackaging);
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15)); // same rate as the never-trips test above
     for (let i = 0; i < Math.round(6000 / DT); i++) stepSim(sim, DT);
 
@@ -1546,6 +1574,183 @@ describe("resetSim (presenter reset, no page reload needed)", () => {
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(12));
     for (let i = 0; i < 100; i++) stepSim(sim, DT);
     expect(getMachineState(sim, SOURCE_ID).fed).toBeGreaterThan(0);
+    expect(() => assertConserved(sim)).not.toThrow();
+  });
+});
+
+// Issue #46: the Pro Box becomes a live source, a source selector picks
+// which single inlet drum feeder runs, and the packaging conveyor carries
+// product with a real, geometry-derived transport lag into the outload
+// buffer bin — the first packaging machines to carry real product.
+const PRO_BOX_ID = "proBoxStation";
+const PRO_BOX_FEEDER_ID = "inletDrumFeeder1";
+const TREATING_FEEDER_ID = "inletDrumFeeder2";
+const CONVEYOR_ID = "pendulumConveyor";
+const GRAIN_BREAK_ID = "grainBreak";
+const OUTLOAD_BIN_ID = "outloadBufferBin";
+
+describe("Pro Box source and the source selector (issue #46)", () => {
+  it("the Pro Box is a live source with a presenter-settable rate, same as the treating-line stub", () => {
+    const sim = createSim(line);
+    setSource(sim, "proBox");
+    setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(12));
+    for (let i = 0; i < 100; i++) stepSim(sim, DT);
+    const proBox = getMachineState(sim, PRO_BOX_ID);
+    expect(proBox.kind).toBe("source");
+    expect(proBox.fed).toBeCloseTo(tPerHourToM3PerSec(12) * DT * 100);
+  });
+
+  it("defaults to the treating line, matching the line's own authored feeder enable/disable state", () => {
+    const sim = createSim(line);
+    expect(getSource(sim)).toBe("treatingLine");
+    expect(getMachineState(sim, TREATING_FEEDER_ID).enabled).toBe(true);
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).enabled).toBe(false);
+  });
+
+  it("selecting the Pro Box arms only its own feeder, and selecting the treating line arms only the other", () => {
+    const sim = createSim(line);
+    setSource(sim, "proBox");
+    expect(getSource(sim)).toBe("proBox");
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).enabled).toBe(true);
+    expect(getMachineState(sim, TREATING_FEEDER_ID).enabled).toBe(false);
+
+    setSource(sim, "treatingLine");
+    expect(getSource(sim)).toBe("treatingLine");
+    expect(getMachineState(sim, TREATING_FEEDER_ID).enabled).toBe(true);
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).enabled).toBe(false);
+  });
+
+  it("rejects an unknown source", () => {
+    const sim = createSim(line);
+    expect(() => setSource(sim, "somewhereElse")).toThrow(/unknown source/);
+  });
+
+  it("exactly one drum feeder ever draws product, whichever source is selected", () => {
+    const sim = createSim(line);
+    setSource(sim, "proBox");
+    setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(15));
+    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).flowRateM3PerSec).toBeGreaterThan(0);
+    expect(getMachineState(sim, TREATING_FEEDER_ID).flowRateM3PerSec).toBe(0);
+  });
+
+  it("a presenter's own feed-rate dial survives being deselected and reselected", () => {
+    const sim = createSim(line);
+    setFeederRate(sim, PRO_BOX_FEEDER_ID, tPerHourToM3PerSec(7)); // dialled in while still deselected
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).rate).toBeCloseTo(tPerHourToM3PerSec(7));
+
+    setSource(sim, "proBox");
+    setSource(sim, "treatingLine"); // deselected again
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).rate).toBeCloseTo(tPerHourToM3PerSec(7)); // not zeroed
+
+    setSource(sim, "proBox");
+    setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
+    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).flowRateM3PerSec).toBeCloseTo(tPerHourToM3PerSec(7), 4); // the dial, not the line default
+  });
+
+  // Per this ticket's own acceptance criterion: selecting the Pro Box leaves
+  // the treating zone idle. No special-cased "idle" state exists anywhere —
+  // this is exactly the same afterBinHoldTreater interlock (issue #25) the
+  // treating-zone-only tests above prove never trips under any in-range
+  // supply *while the treating line is selected*: deselecting
+  // inletDrumFeeder2 removes the scalping screen's only real discharge, the
+  // after-bin backs up behind it, and the interlock trips on its own.
+  it("selecting the Pro Box backs up the scalping screen and eventually holds the batch treater, idling the treating zone", () => {
+    const sim = createSim(line);
+    setSource(sim, "proBox");
+    setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15)); // treating zone's own feeder still well-supplied internally
+    for (let i = 0; i < Math.round(6000 / DT); i++) stepSim(sim, DT);
+    expect(afterBinInterlock(sim).phase).toBe("held"); // tripped, unlike the treating-line-selected case
+    expect(() => assertConserved(sim)).not.toThrow();
+  }, 20000);
+});
+
+describe("the packaging conveyor carries product to the outload buffer bin (issue #46)", () => {
+  it("derives its transport lag from the sheet 52-13 geometry (carrying-side path / chain speed), not a tuned constant", () => {
+    const sim = createSim(line);
+    const snap = BEHAVIORS.transportDelay.snapshot(getMachineState(sim, CONVEYOR_ID));
+    expect(snap.transitTimeSec).toBeCloseTo(185, 0); // (7.084 + 9.157 + 14.846) m / (10.08 m/min)
+  });
+
+  it("nothing reaches the outload buffer bin until the full derived transit lag has elapsed", () => {
+    const sim = createSim(line);
+    setSource(sim, "proBox");
+    setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
+    const startStored = getMachineState(sim, OUTLOAD_BIN_ID).stored;
+
+    for (let i = 0; i < Math.round(170 / DT); i++) stepSim(sim, DT); // short of the ~185s lag
+    expect(getMachineState(sim, OUTLOAD_BIN_ID).stored).toBeCloseTo(startStored);
+    expect(getMachineState(sim, GRAIN_BREAK_ID).flowRateM3PerSec).toBe(0);
+
+    for (let i = 0; i < Math.round(30 / DT); i++) stepSim(sim, DT); // now past it
+    expect(getMachineState(sim, OUTLOAD_BIN_ID).stored).toBeGreaterThan(startStored);
+  });
+
+  it("speed is a live control, re-pacing material already in transit, not just new material", () => {
+    const sim = createSim(line);
+    setSource(sim, "proBox");
+    setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(12));
+    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT); // some material already mid-transit
+    setElevatorSpeed(sim, CONVEYOR_ID, 0.5); // halved live, mid-run
+
+    for (let i = 0; i < Math.round(140 / DT); i++) stepSim(sim, DT); // past the original ~185s lag (60+140=200s)
+    expect(getMachineState(sim, CONVEYOR_ID).delivered).toBe(0); // re-paced, not just unaffected new material
+
+    for (let i = 0; i < Math.round(185 / DT); i++) stepSim(sim, DT); // the rest of the doubled delay
+    expect(getMachineState(sim, CONVEYOR_ID).delivered).toBeGreaterThan(0);
+  });
+
+  it("a full outload buffer bin backpressures into the conveyor rather than spilling", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 1); // start full
+    setSource(sim, "proBox");
+    setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
+    for (let i = 0; i < Math.round(300 / DT); i++) stepSim(sim, DT); // well past the transit lag
+
+    const bin = getMachineState(sim, OUTLOAD_BIN_ID);
+    expect(bin.stored).toBeCloseTo(bin.capacity);
+    expect(bin.spill).toBeCloseTo(0); // backpressure, not spill — same convention every other bin uses
+    expect(getMachineState(sim, CONVEYOR_ID).backlog).toBeGreaterThan(0); // the chain backs up at the head
+    expect(() => assertConserved(sim)).not.toThrow();
+  });
+
+  it("every new packaging machine publishes a live snapshot once its own upstream is running, not frozen decoration", () => {
+    const sim = createSim(line);
+    setSource(sim, "proBox");
+    setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(15));
+    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
+
+    for (const id of [PRO_BOX_ID, PRO_BOX_FEEDER_ID, TREATING_FEEDER_ID, CONVEYOR_ID, GRAIN_BREAK_ID, OUTLOAD_BIN_ID]) {
+      expect(getMachineState(sim, id).flowRateM3PerSec).toBeDefined();
+    }
+    expect(getMachineState(sim, PRO_BOX_ID).flowRateM3PerSec).toBeGreaterThan(0);
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).flowRateM3PerSec).toBeGreaterThan(0);
+
+    // The conveyor itself is mid-transit at 60s (well under its own ~185s
+    // lag), so its own *discharge* is legitimately still zero here — that's
+    // the lag working, not frozen decoration (proven by the dedicated lag
+    // test above). Run past it to see the discharge side come alive too.
+    for (let i = 0; i < Math.round(150 / DT); i++) stepSim(sim, DT);
+    expect(getMachineState(sim, CONVEYOR_ID).flowRateM3PerSec).toBeGreaterThan(0);
+    expect(getMachineState(sim, GRAIN_BREAK_ID).flowRateM3PerSec).toBeGreaterThan(0);
+    expect(getMachineState(sim, OUTLOAD_BIN_ID).stored).toBeGreaterThan(0.62 * 4.51 - 1e-6);
+  });
+
+  it("conserves volume across a mid-run source switch, the case most likely to leak", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15));
+    for (let i = 0; i < Math.round(300 / DT); i++) stepSim(sim, DT);
+
+    setSource(sim, "proBox");
+    setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(15));
+    for (let i = 0; i < Math.round(300 / DT); i++) stepSim(sim, DT);
+
+    setSource(sim, "treatingLine");
+    for (let i = 0; i < Math.round(300 / DT); i++) stepSim(sim, DT);
+
     expect(() => assertConserved(sim)).not.toThrow();
   });
 });

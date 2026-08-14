@@ -143,6 +143,33 @@ describe("meteredFeeder (issue #20)", () => {
     BEHAVIORS.meteredFeeder.apply(state, 0.05, 0.3, 0.5);
     expect(BEHAVIORS.meteredFeeder.conserve(state)).toEqual({ delivered: 0.3 });
   });
+
+  // Issue #46: the source selector's own gate — separate from `rate` so a
+  // presenter's dial survives being deselected and reselected.
+  it("defaults enabled, matching every feeder built before the selector existed", () => {
+    const state = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10 } });
+    expect(state.enabled).toBe(true);
+  });
+
+  it("honours an authored `enabled: false` at init, for a feeder that starts deselected", () => {
+    const state = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10, enabled: false } });
+    expect(state.enabled).toBe(false);
+  });
+
+  it("accepts nothing while disabled, regardless of rate or downstream headroom", () => {
+    const state = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10 } });
+    BEHAVIORS.meteredFeeder.setEnabled(state, false);
+    expect(BEHAVIORS.meteredFeeder.capacityAvailable(state, 0.05, Infinity)).toBe(0);
+  });
+
+  it("setEnabled leaves `rate` untouched, so re-enabling restores the presenter's own dial", () => {
+    const state = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10 } });
+    BEHAVIORS.meteredFeeder.setEnabled(state, false);
+    expect(state.rate).toBe(10);
+    BEHAVIORS.meteredFeeder.setEnabled(state, true);
+    expect(state.rate).toBe(10);
+    expect(BEHAVIORS.meteredFeeder.capacityAvailable(state, 0.05, Infinity)).toBeCloseTo(0.5);
+  });
 });
 
 describe("passThrough", () => {

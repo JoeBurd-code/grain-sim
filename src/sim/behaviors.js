@@ -134,11 +134,18 @@ function snapshotAccumulator(state) {
 // presenter deliberately pausing the feeder at 0 also leaves `rate` at 0,
 // and that pause must not look like "never started" to the interlock).
 function initMeteredFeeder(m) {
-  return { kind: "meteredFeeder", rate: m.sim.rateM3PerSec, drawn: 0, manualOverride: false };
+  return { kind: "meteredFeeder", rate: m.sim.rateM3PerSec, drawn: 0, manualOverride: false, enabled: m.sim.enabled ?? true };
 }
 // Reverse pass: how much this feeder can pull in this tick — its own
 // metering rate, further bounded by whatever its own downstream can accept.
+// `enabled` (issue #46 — the packaging source selector) gates intake to
+// zero outright, independent of `rate`: unlike commandMeteredFeeder, this
+// never overwrites the presenter's own dial, so switching source and back
+// restores whatever rate was last set rather than losing it. Defaults to
+// true so a feeder no selector ever commands (treatDrumFeeder) is
+// unaffected.
 function capacityAvailableMeteredFeeder(state, dt, downstreamCap) {
+  if (!state.enabled) return 0;
   return Math.min(state.rate * dt, downstreamCap);
 }
 function applyMeteredFeeder(state, dt, inflow, cap) {
@@ -157,7 +164,16 @@ function commandMeteredFeeder(state, rateM3PerSec) {
 // above. Published separately from flowRateM3PerSec (issue #28), which also
 // reflects downstream backpressure, not just this commanded rate.
 function snapshotMeteredFeeder(state) {
-  return { rate: state.rate };
+  return { rate: state.rate, enabled: state.enabled };
+}
+// The source selector's command (issue #46): gates intake on/off without
+// touching `rate`, so the presenter's own dial survives being deselected
+// and reselected. The control layer is not the caller here — this is a
+// direct presenter action (setSource, engine.js), same category as
+// setFeederRate — so unlike commandMeteredFeeder there is no interlock/
+// manualOverride interaction to worry about.
+function setEnabledMeteredFeeder(state, enabled) {
+  state.enabled = enabled;
 }
 
 const EPS = 1e-9;
@@ -649,6 +665,7 @@ export const BEHAVIORS = {
   meteredFeeder: {
     init: initMeteredFeeder, capacityAvailable: capacityAvailableMeteredFeeder, apply: applyMeteredFeeder,
     conserve: conserveMeteredFeeder, snapshot: snapshotMeteredFeeder, command: commandMeteredFeeder,
+    setEnabled: setEnabledMeteredFeeder,
   },
   transportDelay: {
     init: initTransportDelay, capacityAvailable: capacityAvailableTransportDelay, apply: applyTransportDelay,

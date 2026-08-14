@@ -361,3 +361,46 @@ export function setSplitterWasteFraction(sim, id, fraction) {
   }
   state.wasteFraction = Math.max(0, Math.min(1, fraction));
 }
+
+// Plant control (issue #46 — the source selector): which drum feeder is
+// allowed to run, since only one ever does. The single place both setSource
+// and getSource below name the two machines, so the mapping is authored
+// once. Which position is the *default* is not decided here at all — it's
+// whichever feeder's own `sim.enabled` the line data authors as true
+// (lineData.js), the same convention every other machine's t=0 state
+// already uses; a fabricated line missing one or both packaging feeders
+// (most existing engine tests) is unaffected, since neither function
+// requires them to exist.
+const PACKAGING_FEEDERS = { treatingLine: "inletDrumFeeder2", proBox: "inletDrumFeeder1" };
+
+// Commands the selected feeder's intake open and the other one shut, via
+// each feeder's own `enabled` gate (behaviors.js) rather than its `rate` —
+// so a presenter's own feed-rate dial on either feeder survives being
+// deselected and reselected, instead of being zeroed and forgotten.
+// Deselecting the treating-side feeder is what leaves the treating zone
+// idle (see inletDrumFeeder2's own lineData.js comment): the scalping
+// screen backs up into the treater after-bin exactly like any other full
+// downstream, with no special-cased "idle" state anywhere in this function.
+export function setSource(sim, source) {
+  if (!(source in PACKAGING_FEEDERS)) {
+    throw new Error(`unknown source "${source}"`);
+  }
+  for (const [key, id] of Object.entries(PACKAGING_FEEDERS)) {
+    const state = sim.machines.get(id);
+    if (state?.kind === "meteredFeeder") {
+      BEHAVIORS.meteredFeeder.setEnabled(state, key === source);
+    }
+  }
+}
+
+// Read access (issue #46): which source is currently selected, derived from
+// which packaging feeder is enabled rather than tracked as separate state —
+// there is exactly one fact here, and the feeders' own `enabled` flags
+// already carry it. Returns null for a fabricated line with neither
+// packaging feeder, or the unreachable case of both/neither enabled.
+export function getSource(sim) {
+  const enabled = Object.entries(PACKAGING_FEEDERS).filter(
+    ([, id]) => sim.machines.get(id)?.enabled === true
+  );
+  return enabled.length === 1 ? enabled[0][0] : null;
+}
