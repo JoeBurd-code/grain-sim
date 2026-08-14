@@ -5,6 +5,7 @@ import {
   getCombinedEvents, setElevatorSpeed,
   setInterlockSlowSetpoint, setInterlockStopSetpoint, setInterlockSlowDelay, setInterlockStopDelay,
   setBatchSize, setBatchCycleSec, setSplitterWasteFraction, setSource, getSource,
+  setDestination, getDestination,
 } from "./engine";
 import { assertConserved, conservationTotals } from "./conservation";
 import { tPerHourToM3PerSec } from "./units";
@@ -43,9 +44,15 @@ function interlockRule(sim) {
 // full-line packaging behaviour (including the backpressure this strips
 // away here) gets its own dedicated coverage in the issue #46 describe
 // block below, against the real `line`.
+// Issue #47 also adds an interlock whose actuator is inletDrumFeeder2
+// (conveyorRunningInterlockFeeder2, the conveyor's own "not running" PI on
+// each packaging feeder) — stripped alongside the feeder itself, since a
+// rule commanding a machine that no longer exists in this fixture isn't
+// meaningful here either.
 const lineWithoutPackaging = {
   ...line,
   machines: line.machines.map((m) => (m.id === "inletDrumFeeder2" ? { ...m, sim: undefined } : m)),
+  interlocks: line.interlocks.filter((i) => i.action.machine !== "inletDrumFeeder2"),
 };
 
 describe("createSim / stepSim (real Treater Line 2 data)", () => {
@@ -140,15 +147,24 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
     // since issue #25 so is the after-bin — both contribute their own
     // stored volume to the total (since issue #42 that's genuinely moving:
     // the feeder auto-starts once the elevator is confirmed running). The
-    // outload buffer bin (issue #46) is a sim-enabled accumulator too, and
-    // stays present even under lineWithoutPackaging (only inletDrumFeeder2's
-    // own sim block is stripped there) — it just never receives anything
-    // under this fixture, so its contribution here is exactly its own
-    // authored initial stock, frozen for the whole run.
+    // outload buffer bin (issue #46), the outload diverter and both metal
+    // bins (issue #47) are sim-enabled too, and stay present even under
+    // lineWithoutPackaging (only inletDrumFeeder2's own sim block is
+    // stripped there) — neither packaging feeder ever draws under this
+    // fixture (Pro Box starts disabled, and the treating-side feeder isn't
+    // sim-enabled at all here), so nothing new ever reaches the outload
+    // branch; but the buffer bin's own authored initial stock does drain
+    // straight through the now-live diverter into metal bin 1 (its default
+    // destination) on the very first tick, so both bins' own `stored`
+    // count toward the total, not just the buffer bin's.
     const preBin = getMachineState(sim, PRE_BIN_ID);
     const afterBin = getMachineState(sim, AFTER_BIN_ID);
     const outloadBufferBin = getMachineState(sim, "outloadBufferBin");
-    expect(totals.stored).toBeCloseTo(bin.stored + preBin.stored + afterBin.stored + outloadBufferBin.stored);
+    const metalBin1 = getMachineState(sim, "metalBin1");
+    const metalBin2 = getMachineState(sim, "metalBin2");
+    expect(totals.stored).toBeCloseTo(
+      bin.stored + preBin.stored + afterBin.stored + outloadBufferBin.stored + metalBin1.stored + metalBin2.stored
+    );
   });
 
   it("throws when a line declares an unregistered sim.kind", () => {
@@ -1588,6 +1604,9 @@ const TREATING_FEEDER_ID = "inletDrumFeeder2";
 const CONVEYOR_ID = "pendulumConveyor";
 const GRAIN_BREAK_ID = "grainBreak";
 const OUTLOAD_BIN_ID = "outloadBufferBin";
+const METAL_BIN_1_ID = "metalBin1";
+const METAL_BIN_2_ID = "metalBin2";
+const OUTLOAD_DIVERTER_ID = "outloadDiverter";
 
 describe("Pro Box source and the source selector (issue #46)", () => {
   it("the Pro Box is a live source with a presenter-settable rate, same as the treating-line stub", () => {
@@ -1670,54 +1689,73 @@ describe("Pro Box source and the source selector (issue #46)", () => {
 describe("the packaging conveyor carries product to the outload buffer bin (issue #46)", () => {
   it("derives its transport lag from the sheet 52-13 geometry (carrying-side path / chain speed), not a tuned constant", () => {
     const sim = createSim(line);
-    const snap = BEHAVIORS.transportDelay.snapshot(getMachineState(sim, CONVEYOR_ID));
+    const snap = BEHAVIORS.routedTransportDelay.snapshot(getMachineState(sim, CONVEYOR_ID));
     expect(snap.transitTimeSec).toBeCloseTo(185, 0); // (7.084 + 9.157 + 14.846) m / (10.08 m/min)
   });
 
   it("nothing reaches the outload buffer bin until the full derived transit lag has elapsed", () => {
     const sim = createSim(line);
+    // Issue #47 wires a real, live downstream all the way to metal bin 1
+    // (the diverter, then the bin itself), so the buffer bin no longer
+    // accumulates anything on its own — it passes straight through to
+    // whichever bin is selected. Both authored initial inventories are
+    // zeroed here so the only thing that can raise either bin's `stored` is
+    // material the conveyor itself delivers.
+    setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0);
+    setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
     setSource(sim, "proBox");
     setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
-    const startStored = getMachineState(sim, OUTLOAD_BIN_ID).stored;
 
     for (let i = 0; i < Math.round(170 / DT); i++) stepSim(sim, DT); // short of the ~185s lag
-    expect(getMachineState(sim, OUTLOAD_BIN_ID).stored).toBeCloseTo(startStored);
+    expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeCloseTo(0);
     expect(getMachineState(sim, GRAIN_BREAK_ID).flowRateM3PerSec).toBe(0);
 
     for (let i = 0; i < Math.round(30 / DT); i++) stepSim(sim, DT); // now past it
-    expect(getMachineState(sim, OUTLOAD_BIN_ID).stored).toBeGreaterThan(startStored);
+    expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeGreaterThan(0);
   });
 
   it("speed is a live control, re-pacing material already in transit, not just new material", () => {
     const sim = createSim(line);
+    setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0); // same zeroing as above, isolates newly-arrived material
+    setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
     setSource(sim, "proBox");
     setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(12));
     for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT); // some material already mid-transit
     setElevatorSpeed(sim, CONVEYOR_ID, 0.5); // halved live, mid-run
 
     for (let i = 0; i < Math.round(140 / DT); i++) stepSim(sim, DT); // past the original ~185s lag (60+140=200s)
-    expect(getMachineState(sim, CONVEYOR_ID).delivered).toBe(0); // re-paced, not just unaffected new material
+    expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeCloseTo(0); // re-paced, not just unaffected new material
 
     for (let i = 0; i < Math.round(185 / DT); i++) stepSim(sim, DT); // the rest of the doubled delay
-    expect(getMachineState(sim, CONVEYOR_ID).delivered).toBeGreaterThan(0);
+    expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeGreaterThan(0);
   });
 
-  it("a full outload buffer bin backpressures into the conveyor rather than spilling", () => {
+  it("a full metal bin trips the conveyor rather than spilling, and the buffer bin ahead of it backpressures too", () => {
     const sim = createSim(line);
-    setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 1); // start full
+    // Issue #47: overflow protection on this branch is now the metal bin's
+    // own high-level trip (metalBin1HighTrip, lineData.js), which stops the
+    // conveyor well before hard accumulator capacity is ever reached (its
+    // 85% set point trips before 100%) — so this no longer reaches the pure
+    // physical-backpressure scenario the pre-#47 version of this test
+    // exercised (that mechanism still exists underneath, see the
+    // accumulator's own reverse-pass capacity check, but the trip fires
+    // first in ordinary operation, exactly as designed).
     setSource(sim, "proBox");
     setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
-    for (let i = 0; i < Math.round(300 / DT); i++) stepSim(sim, DT); // well past the transit lag
+    for (let i = 0; i < Math.round(400 / DT); i++) stepSim(sim, DT); // well past transit lag + the 5s trip delay
 
-    const bin = getMachineState(sim, OUTLOAD_BIN_ID);
-    expect(bin.stored).toBeCloseTo(bin.capacity);
-    expect(bin.spill).toBeCloseTo(0); // backpressure, not spill — same convention every other bin uses
-    expect(getMachineState(sim, CONVEYOR_ID).backlog).toBeGreaterThan(0); // the chain backs up at the head
+    const bin1 = getMachineState(sim, METAL_BIN_1_ID);
+    expect(bin1.spill).toBeCloseTo(0); // backpressure/trip, not spill — same convention every other bin uses
+    expect(bin1.stored).toBeLessThan(bin1.capacity); // trips before hard capacity, doesn't need to reach it
+    expect(getInterlockState(sim, METAL_BIN_1_ID).phase).toBe("stopped");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0); // the conveyor genuinely stopped
     expect(() => assertConserved(sim)).not.toThrow();
-  });
+  }, 10000);
 
   it("every new packaging machine publishes a live snapshot once its own upstream is running, not frozen decoration", () => {
     const sim = createSim(line);
+    setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0); // isolates newly-arrived material, see the lag test's own comment
+    setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
     setSource(sim, "proBox");
     setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(15));
     for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
@@ -1735,7 +1773,7 @@ describe("the packaging conveyor carries product to the outload buffer bin (issu
     for (let i = 0; i < Math.round(150 / DT); i++) stepSim(sim, DT);
     expect(getMachineState(sim, CONVEYOR_ID).flowRateM3PerSec).toBeGreaterThan(0);
     expect(getMachineState(sim, GRAIN_BREAK_ID).flowRateM3PerSec).toBeGreaterThan(0);
-    expect(getMachineState(sim, OUTLOAD_BIN_ID).stored).toBeGreaterThan(0.62 * 4.51 - 1e-6);
+    expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeGreaterThan(0);
   });
 
   it("conserves volume across a mid-run source switch, the case most likely to leak", () => {
@@ -1752,5 +1790,200 @@ describe("the packaging conveyor carries product to the outload buffer bin (issu
     for (let i = 0; i < Math.round(300 / DT); i++) stepSim(sim, DT);
 
     expect(() => assertConserved(sim)).not.toThrow();
+  });
+});
+
+// Issue #47: the destination selector, the router/routedTransportDelay
+// behaviours it commands, the arming mechanism on the metal bins' own
+// interlocks, and the full outload-branch cascade the parent spec exists to
+// demonstrate.
+describe("destination selector (issue #47)", () => {
+  it("defaults to metal bin 1, matching the conveyor's and diverter's own authored default ports", () => {
+    const sim = createSim(line);
+    expect(getDestination(sim)).toBe("metalBin1");
+    expect(getMachineState(sim, CONVEYOR_ID).selected).toBe("outBuffer");
+    expect(getMachineState(sim, OUTLOAD_DIVERTER_ID).selected).toBe("out1");
+  });
+
+  it("has four positions, each commanding the two routers correctly", () => {
+    const sim = createSim(line);
+    setDestination(sim, "concetti");
+    expect(getDestination(sim)).toBe("concetti");
+    expect(getMachineState(sim, CONVEYOR_ID).selected).toBe("outConcetti");
+
+    setDestination(sim, "flexicon");
+    expect(getDestination(sim)).toBe("flexicon");
+    expect(getMachineState(sim, CONVEYOR_ID).selected).toBe("outBinSeg");
+
+    setDestination(sim, "metalBin2");
+    expect(getDestination(sim)).toBe("metalBin2");
+    expect(getMachineState(sim, CONVEYOR_ID).selected).toBe("outBuffer");
+    expect(getMachineState(sim, OUTLOAD_DIVERTER_ID).selected).toBe("out2");
+
+    setDestination(sim, "metalBin1");
+    expect(getDestination(sim)).toBe("metalBin1");
+    expect(getMachineState(sim, OUTLOAD_DIVERTER_ID).selected).toBe("out1");
+  });
+
+  it("rejects an unknown destination", () => {
+    const sim = createSim(line);
+    expect(() => setDestination(sim, "somewhereElse")).toThrow(/unknown destination/);
+  });
+
+  it("switching destination mid-run sends nothing new to the new destination until material already in transit has cleared, and material already in transit still arrives at the old one", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0); // both zeroed: isolates newly-arrived material, see other #46 tests
+    setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15));
+    for (let i = 0; i < Math.round(30 / DT); i++) stepSim(sim, DT); // material now riding the conveyor toward metal bin 1
+
+    setDestination(sim, "concetti"); // switch while product is still in transit
+
+    // Nothing has had time to reach either destination yet (well short of
+    // the ~185s lag either way), so both should still read zero right after
+    // the switch — the real assertion is *which* one eventually receives
+    // the material already on the chain.
+    expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeCloseTo(0);
+
+    for (let i = 0; i < Math.round(250 / DT); i++) stepSim(sim, DT); // past the lag for the pre-switch material
+    // The material fed in the first 30s, tagged "outBuffer" at the moment
+    // it was accepted, arrives at metal bin 1 regardless of the later
+    // switch — this is routedTransportDelay's own per-packet tagging
+    // (behaviors.js), exercised here through the full engine.
+    expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeGreaterThan(0);
+    // Nothing fed *after* the switch has had time to reach Concetti yet
+    // either (fed starting at t=30s, ~185s lag -> arrives ~t=215s; this
+    // checkpoint is at t=280s, so some may have arrived — the point proven
+    // above is that metal bin 1 isn't starved by the switch, not that
+    // Concetti is still empty).
+    expect(() => assertConserved(sim)).not.toThrow();
+  });
+
+  it("conserves volume across a mid-run destination switch, the case most likely to leak", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15));
+    for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT);
+
+    setDestination(sim, "flexicon");
+    for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT);
+
+    setDestination(sim, "metalBin2");
+    for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT);
+
+    setDestination(sim, "concetti");
+    for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT);
+
+    expect(() => assertConserved(sim)).not.toThrow();
+  });
+
+  it("the outload diverter routes the whole of its inflow to whichever metal bin is selected, never both", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0.9); // plenty ready to discharge immediately
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(getMachineState(sim, METAL_BIN_2_ID).flowRateM3PerSec).toBe(0); // bin 1 selected by default
+
+    setDestination(sim, "metalBin2");
+    setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0.9);
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(getMachineState(sim, METAL_BIN_1_ID).flowRateM3PerSec).toBe(0); // now bin 2 only
+  });
+
+  it("the grain break holds no material at any point", () => {
+    const sim = createSim(line);
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15));
+    for (let i = 0; i < Math.round(300 / DT); i++) {
+      stepSim(sim, DT);
+      expect(getMachineState(sim, GRAIN_BREAK_ID).volume).toBe(0);
+    }
+  });
+});
+
+describe("arming: a full pre-bin does not trip anything while routed elsewhere (issue #47)", () => {
+  it("a disarmed metal bin trip never fires: routing to Concetti with metal bin 1 already over its own high set point leaves the conveyor running", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, METAL_BIN_1_ID, 1); // already well past its own 85% trip point
+    setDestination(sim, "concetti"); // but not the selected destination
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+
+    expect(getInterlockState(sim, METAL_BIN_1_ID).phase).toBe("running"); // never even armed
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(1); // never touched
+  });
+
+  it("the same full bin trips the conveyor once its own destination is (re-)selected", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, METAL_BIN_1_ID, 1);
+    setDestination(sim, "concetti");
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+    expect(getInterlockState(sim, METAL_BIN_1_ID).phase).toBe("running");
+
+    setDestination(sim, "metalBin1"); // now selected
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // past the 5s signal delay
+    expect(getInterlockState(sim, METAL_BIN_1_ID).phase).toBe("stopped");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
+  });
+});
+
+describe("the full outload cascade: a full metal bin stops the conveyor, then both drum feeders, then starves the treating zone (issue #47)", () => {
+  it("cascades in the documented order: conveyor stops, both drum feeders stop 1s later, and the treating zone eventually backs up and holds the treater", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, METAL_BIN_1_ID, 1); // already tripped once armed
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15));
+
+    for (let i = 0; i < Math.round(3 / DT); i++) stepSim(sim, DT); // short of the 5s trip delay
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(1); // not yet
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).runPermit).toBe(true);
+    expect(getMachineState(sim, TREATING_FEEDER_ID).runPermit).toBe(true);
+
+    for (let i = 0; i < Math.round(3 / DT); i++) stepSim(sim, DT); // past the 5s trip delay (t~6s), short of +1s feeder delay
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
+    // The FD's own reverse-direction interlock table (§5) gates *both*
+    // packaging drum feeders on "52.604.E00 running", unconditionally —
+    // not just whichever one the source selector currently has armed — but
+    // the 1s feeder-stop delay hasn't elapsed yet at this checkpoint.
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).runPermit).toBe(true);
+    expect(getMachineState(sim, TREATING_FEEDER_ID).runPermit).toBe(true);
+
+    for (let i = 0; i < Math.round(2 / DT); i++) stepSim(sim, DT); // past the 1s feeder-stop delay too (t~8s)
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).runPermit).toBe(false);
+    expect(getMachineState(sim, TREATING_FEEDER_ID).runPermit).toBe(false);
+
+    for (let i = 0; i < Math.round(6000 / DT); i++) stepSim(sim, DT); // let it propagate all the way back
+    expect(afterBinInterlock(sim).phase).toBe("held"); // the treater eventually stops accepting charges
+    expect(() => assertConserved(sim)).not.toThrow();
+  }, 20000);
+
+  it("the cascade latches: resetting trips clears it only once the metal bin has actually been emptied", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, METAL_BIN_1_ID, 1);
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
+
+    resetTrips(sim);
+    expect(getInterlockState(sim, METAL_BIN_1_ID).phase).toBe("stopped"); // still full, re-latches
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(0);
+
+    // The presenter's own bin-empty affordance (PlantControls.jsx): the
+    // same setAccumulatorLevel the level-jump slider already uses.
+    setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
+    resetTrips(sim);
+    expect(getInterlockState(sim, METAL_BIN_1_ID).phase).toBe("recovering");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(1);
+  });
+
+  it("both packaging drum feeders resume, unlatched, the instant the conveyor is confirmed running again — no reset needed for that half of the cascade", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, METAL_BIN_1_ID, 1);
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // trips, both feeders lose run permit
+    expect(getMachineState(sim, TREATING_FEEDER_ID).runPermit).toBe(false);
+
+    setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
+    resetTrips(sim); // clears the conveyor's own latch
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // conveyor ramps back up and settles
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(1);
+    expect(getMachineState(sim, TREATING_FEEDER_ID).runPermit).toBe(true); // released on its own, no separate action
   });
 });

@@ -509,6 +509,264 @@ describe("resetTrips (autoStartOnRunning) — issue #45", () => {
   });
 });
 
+// thresholdStopTrip (issue #47 — the metal bins' own high-level trips):
+// same fabricated-sim shape as the kinds above, except the actuator is a
+// routedTransportDelay machine (the packaging conveyor) rather than a
+// source, so the rule commands a speed fraction, not open/close.
+const STOP_TRIP_CFG = {
+  id: "testStopTrip",
+  kind: "thresholdStopTrip",
+  sensor: { machine: "bin" },
+  highSetpoint: 0.8,
+  lowSetpoint: 0.3,
+  signalDelaySec: 5,
+  action: { machine: "conveyor", rampTimeSec: 0 },
+};
+
+function makeStopTripSim(fillFraction) {
+  const capacity = 10;
+  const bin = { kind: "accumulator", capacity, stored: fillFraction * capacity, initialStored: 0, spill: 0 };
+  const conveyor = BEHAVIORS.routedTransportDelay.init({
+    sim: { distanceM: 10, speedMPerMin: 60, ceilingM3PerSec: 1 },
+    ports: { outputs: ["a"] },
+  });
+  const machines = new Map([["bin", bin], ["conveyor", conveyor]]);
+  const control = initControl({ interlocks: [STOP_TRIP_CFG] });
+  return { t: 0, machines, control };
+}
+
+// Mirrors the file's own top-level step() helper: the conveyor's own
+// apply() is what actually slews throttleFraction toward whatever
+// stepControl last commanded — stepControl only issues the command.
+function stepConveyor(sim, dt, n = 1) {
+  for (let i = 0; i < n; i++) {
+    BEHAVIORS.routedTransportDelay.apply(sim.machines.get("conveyor"), dt, 0, Infinity);
+    sim.t += dt;
+    stepControl(sim);
+  }
+}
+
+describe("initControl (thresholdStopTrip)", () => {
+  it("builds a thresholdStopTrip rule starting in the running phase", () => {
+    const sim = makeStopTripSim(0.5);
+    expect(sim.control).toHaveLength(1);
+    expect(sim.control[0].kind).toBe("thresholdStopTrip");
+    expect(sim.control[0].phase).toBe("running");
+  });
+});
+
+describe("stepControl (thresholdStopTrip)", () => {
+  it("does nothing while the level stays below the high set point", () => {
+    const sim = makeStopTripSim(0.5);
+    for (let i = 0; i < 200; i++) { sim.t += 0.05; stepControl(sim); }
+    expect(sim.control[0].phase).toBe("running");
+    expect(sim.machines.get("conveyor").throttleTarget).toBe(1);
+  });
+
+  it("commands the conveyor to a stop once the signal delay elapses, and it latches settled", () => {
+    const sim = makeStopTripSim(0.8);
+    stepConveyor(sim, 0.05, 200); // well past the 5s delay
+    expect(sim.control[0].phase).toBe("stopped");
+    expect(sim.machines.get("conveyor").throttleTarget).toBe(0);
+  });
+
+  it("stays stopped once the level falls back past the low set point — no automatic reopen", () => {
+    const sim = makeStopTripSim(0.8);
+    stepConveyor(sim, 0.05, 200);
+    sim.machines.get("bin").stored = 0.2 * 10;
+    stepConveyor(sim, 0.05, 200);
+    expect(sim.control[0].phase).toBe("stopped");
+  });
+});
+
+describe("resetTrips (thresholdStopTrip) — issue #45", () => {
+  it("re-latches while the level is still tripped, then recovers once it has actually cleared", () => {
+    const sim = makeStopTripSim(0.8);
+    stepConveyor(sim, 0.05, 200); // reach "stopped"
+
+    resetTrips(sim);
+    expect(sim.control[0].phase).toBe("stopped"); // still above highSetpoint, re-latches
+    expect(sim.control[0].log.at(-1).message).toMatch(/remains latched/);
+
+    sim.machines.get("bin").stored = 0.3 * 10;
+    resetTrips(sim);
+    expect(sim.control[0].phase).toBe("recovering");
+    expect(sim.machines.get("conveyor").throttleTarget).toBe(1);
+  });
+});
+
+// autoStopOnNotRunning (issue #47 — the FD's own reverse-direction PI
+// "conveyor not running" on both packaging drum feeders): the mirror of
+// autoStartOnRunning, driven off `confirmedRunning` rather than a level.
+function makeAutoStopSim() {
+  const cfg = {
+    id: "testAutoStop", kind: "autoStopOnNotRunning", sensor: { machine: "conveyor" },
+    signalDelaySec: 1, action: { machine: "feeder" },
+  };
+  const conveyor = BEHAVIORS.routedTransportDelay.init({
+    sim: { distanceM: 10, speedMPerMin: 60, ceilingM3PerSec: 1 },
+    ports: { outputs: ["a"] },
+  });
+  const feeder = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 1 } });
+  const machines = new Map([["conveyor", conveyor], ["feeder", feeder]]);
+  const control = initControl({ interlocks: [cfg] });
+  return { t: 0, machines, control };
+}
+
+describe("stepControl (autoStopOnNotRunning)", () => {
+  it("does nothing while the conveyor is confirmed running", () => {
+    const sim = makeAutoStopSim();
+    for (let i = 0; i < 60; i++) { sim.t += 0.05; stepControl(sim); }
+    expect(sim.control[0].phase).toBe("running");
+    expect(sim.machines.get("feeder").runPermit).toBe(true);
+  });
+
+  it("stops the feeder's run permit 1s after the conveyor stops being confirmed running", () => {
+    const sim = makeAutoStopSim();
+    const conveyor = sim.machines.get("conveyor");
+    BEHAVIORS.routedTransportDelay.command(conveyor, 0, 0); // instantly not running
+    for (let i = 0; i < 19; i++) { sim.t += 0.05; stepControl(sim); } // 0.95s, short of the 1s delay
+    expect(sim.machines.get("feeder").runPermit).toBe(true);
+
+    for (let i = 0; i < 5; i++) { sim.t += 0.05; stepControl(sim); } // past 1s
+    expect(sim.machines.get("feeder").runPermit).toBe(false);
+    expect(sim.control[0].phase).toBe("stopped");
+  });
+
+  it("re-enables the feeder the instant the conveyor is confirmed running again — no reset needed (a plain PI, not a trip)", () => {
+    const sim = makeAutoStopSim();
+    const conveyor = sim.machines.get("conveyor");
+    BEHAVIORS.routedTransportDelay.command(conveyor, 0, 0);
+    for (let i = 0; i < 40; i++) { sim.t += 0.05; stepControl(sim); } // stopped
+    expect(sim.machines.get("feeder").runPermit).toBe(false);
+
+    BEHAVIORS.routedTransportDelay.command(conveyor, 1, 0);
+    sim.t += 0.05; stepControl(sim);
+    expect(sim.machines.get("feeder").runPermit).toBe(true);
+    expect(sim.control[0].phase).toBe("running");
+  });
+
+  it("never touches the feeder's own `enabled` gate — that stays the source selector's alone", () => {
+    const sim = makeAutoStopSim();
+    sim.machines.get("feeder").enabled = false; // e.g. deselected by the source selector
+    const conveyor = sim.machines.get("conveyor");
+    BEHAVIORS.routedTransportDelay.command(conveyor, 0, 0);
+    for (let i = 0; i < 40; i++) { sim.t += 0.05; stepControl(sim); }
+    expect(sim.machines.get("feeder").enabled).toBe(false); // untouched
+    expect(sim.machines.get("feeder").runPermit).toBe(false); // this rule's own gate did move
+  });
+});
+
+describe("resetTrips (autoStopOnNotRunning) — issue #45", () => {
+  it("is a no-op: a plain PI has nothing for a SCADA reset to latch or unlatch", () => {
+    const sim = makeAutoStopSim();
+    const conveyor = sim.machines.get("conveyor");
+    BEHAVIORS.routedTransportDelay.command(conveyor, 0, 0);
+    for (let i = 0; i < 40; i++) { sim.t += 0.05; stepControl(sim); }
+    const logLenBefore = sim.control[0].log.length;
+    resetTrips(sim);
+    expect(sim.control[0].log).toHaveLength(logLenBefore);
+    expect(sim.machines.get("feeder").runPermit).toBe(false); // still gated by the live condition, not by reset
+  });
+});
+
+// Arming (issue #47): a rule's own `armedWhen` gates whether stepControl
+// evaluates it at all, generically, for any rule kind — exercised here
+// against thresholdStopTrip since that's the kind the real line actually
+// arms, but the mechanism itself (isArmed, control.js) doesn't know or care
+// which kind it's guarding.
+describe("arming (armedWhen)", () => {
+  function makeArmedStopTripSim(fillFraction, selectedPort) {
+    const capacity = 10;
+    const bin = { kind: "accumulator", capacity, stored: fillFraction * capacity, initialStored: 0, spill: 0 };
+    const conveyor = BEHAVIORS.routedTransportDelay.init({
+      sim: { distanceM: 10, speedMPerMin: 60, ceilingM3PerSec: 1 },
+      ports: { outputs: ["metalBin1", "metalBin2"] },
+    });
+    const router = BEHAVIORS.router.init({ sim: {}, ports: { outputs: ["metalBin1", "metalBin2"] } });
+    BEHAVIORS.router.selectPort(router, selectedPort);
+    const cfg = { ...STOP_TRIP_CFG, armedWhen: [{ machine: "router", port: "metalBin1" }] };
+    const machines = new Map([["bin", bin], ["conveyor", conveyor], ["router", router]]);
+    const control = initControl({ interlocks: [cfg] });
+    return { t: 0, machines, control };
+  }
+
+  it("a disarmed rule never trips, however high the level runs", () => {
+    const sim = makeArmedStopTripSim(0.95, "metalBin2"); // router points elsewhere
+    for (let i = 0; i < 400; i++) { sim.t += 0.05; stepControl(sim); }
+    expect(sim.control[0].phase).toBe("running"); // never even armed
+    expect(sim.control[0].log).toEqual([]); // and never logged
+    expect(sim.machines.get("conveyor").throttleTarget).toBe(1);
+  });
+
+  it("an armed rule trips exactly as an unarmed-concept thresholdStopTrip would", () => {
+    const sim = makeArmedStopTripSim(0.95, "metalBin1"); // router points at this rule's own port
+    stepConveyor(sim, 0.05, 200);
+    expect(sim.control[0].phase).toBe("stopped");
+    expect(sim.machines.get("conveyor").throttleTarget).toBe(0);
+  });
+
+  it("becoming disarmed mid-trip freezes the rule's own phase but does not touch what it already commanded", () => {
+    const sim = makeArmedStopTripSim(0.95, "metalBin1");
+    stepConveyor(sim, 0.05, 200); // trips and stops the conveyor
+    expect(sim.control[0].phase).toBe("stopped");
+
+    BEHAVIORS.router.selectPort(sim.machines.get("router"), "metalBin2"); // presenter switches away
+    stepConveyor(sim, 0.05, 200); // now disarmed
+    expect(sim.control[0].phase).toBe("stopped"); // frozen, not auto-cleared
+    expect(sim.machines.get("conveyor").throttleTarget).toBe(0); // the trip's own command still stands
+  });
+
+  it("a rule with no armedWhen at all is always armed, unchanged from every rule authored before issue #47", () => {
+    const sim = makeSim(0.9); // the plain thresholdTrip fixture at the top of this file, no armedWhen
+    step(sim, 0.05, 200);
+    expect(sim.control[0].phase).not.toBe("open"); // it tripped normally
+  });
+
+  it("armedWhen with multiple conditions requires all of them, matching a metal bin's real two-router arming", () => {
+    const capacity = 10;
+    const bin = { kind: "accumulator", capacity, stored: 0.95 * capacity, initialStored: 0, spill: 0 };
+    const conveyor = BEHAVIORS.routedTransportDelay.init({
+      sim: { distanceM: 10, speedMPerMin: 60, ceilingM3PerSec: 1 },
+      ports: { outputs: ["outBuffer", "outConcetti"] },
+    });
+    const diverter = BEHAVIORS.router.init({ sim: {}, ports: { outputs: ["out1", "out2"] } });
+    const cfg = {
+      ...STOP_TRIP_CFG,
+      armedWhen: [{ machine: "conveyor", port: "outBuffer" }, { machine: "diverter", port: "out1" }],
+    };
+    const machines = new Map([["bin", bin], ["conveyor", conveyor], ["diverter", diverter]]);
+    const control = initControl({ interlocks: [cfg] });
+    const sim = { t: 0, machines, control };
+
+    // conveyor routed to outBuffer (satisfies one condition), diverter still
+    // defaulted to out1 (satisfies the other) -> armed.
+    BEHAVIORS.routedTransportDelay.selectPort(conveyor, "outBuffer");
+    for (let i = 0; i < 200; i++) { sim.t += 0.05; stepControl(sim); } // armed, delay elapses, command fires
+    expect(sim.control[0].phase).toBe("stopping"); // both conditions hold: it did trip
+    expect(sim.machines.get("conveyor").throttleTarget).toBe(0);
+
+    // Now point the conveyor at Concetti instead: only one of the two
+    // conditions holds, so the rule must disarm even though the diverter
+    // itself still points at bin 1 (a presenter staging a bin's level while
+    // routed elsewhere must never trip the conveyor).
+    const sim2 = (() => {
+      const bin2 = { kind: "accumulator", capacity, stored: 0.95 * capacity, initialStored: 0, spill: 0 };
+      const conveyor2 = BEHAVIORS.routedTransportDelay.init({
+        sim: { distanceM: 10, speedMPerMin: 60, ceilingM3PerSec: 1 },
+        ports: { outputs: ["outBuffer", "outConcetti"] },
+      });
+      BEHAVIORS.routedTransportDelay.selectPort(conveyor2, "outConcetti");
+      const diverter2 = BEHAVIORS.router.init({ sim: {}, ports: { outputs: ["out1", "out2"] } });
+      const machines2 = new Map([["bin", bin2], ["conveyor", conveyor2], ["diverter", diverter2]]);
+      const control2 = initControl({ interlocks: [cfg] });
+      return { t: 0, machines: machines2, control: control2 };
+    })();
+    for (let i = 0; i < 200; i++) { sim2.t += 0.05; stepControl(sim2); }
+    expect(sim2.control[0].phase).toBe("running"); // never armed
+  });
+});
+
 describe("live parameter changes (holdNextBatch)", () => {
   it("a larger signal delay set on the rule takes effect on the next trip", () => {
     const sim = makeHoldNextBatchSim(0.5);

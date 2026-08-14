@@ -67,5 +67,26 @@ export function validateLine(line) {
     }
   }
 
+  // Issue #47: a router-family machine (any kind declaring `selectPort` —
+  // `router` and `routedTransportDelay`, behaviors.js) selects among its
+  // own declared output ports at runtime, by name, so a mis-authored route
+  // has nowhere else to fail loudly except here. Two distinct failure
+  // shapes: an authored default naming a port the machine never declared at
+  // all, and a declared port with no connection routing it anywhere —
+  // either leaves a selectable destination that can never actually deliver.
+  for (const m of line.machines) {
+    if (!BEHAVIORS[m.sim?.kind]?.selectPort) continue;
+    const outputPorts = m.ports.outputs;
+    if (m.sim.defaultPort && !outputPorts.includes(m.sim.defaultPort)) {
+      errors.push(`machine "${m.id}" declares router defaultPort "${m.sim.defaultPort}" not among its own output ports`);
+    }
+    for (const p of outputPorts) {
+      const wired = line.connections.some((c) => c.from.machine === m.id && c.from.port === p);
+      if (!wired) {
+        errors.push(`machine "${m.id}" declares router outlet port "${p}" with no connection routing it anywhere`);
+      }
+    }
+  }
+
   return { ok: errors.length === 0, errors };
 }

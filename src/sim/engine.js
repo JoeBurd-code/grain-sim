@@ -262,10 +262,13 @@ export function setFeederRate(sim, id, rateM3PerSec) {
 
 // Live control (issue #21, the VFD): takes effect on the very next apply(),
 // re-pacing every packet already in transit, not just newly accepted
-// material — a real chain has one speed for everything riding it.
+// material — a real chain has one speed for everything riding it. Accepts
+// either transport-delay kind (issue #47's own `routedTransportDelay`
+// shares this field verbatim) since both are "a chain with a live speed
+// dial" as far as this setter is concerned.
 export function setElevatorSpeed(sim, id, fraction) {
   const state = sim.machines.get(id);
-  if (!state || state.kind !== "transportDelay") {
+  if (!state || (state.kind !== "transportDelay" && state.kind !== "routedTransportDelay")) {
     throw new Error(`machine "${id}" is not a transport-delay machine`);
   }
   state.speedFraction = Math.max(0, Math.min(1, fraction));
@@ -403,4 +406,59 @@ export function getSource(sim) {
     ([, id]) => sim.machines.get(id)?.enabled === true
   );
   return enabled.length === 1 ? enabled[0][0] : null;
+}
+
+// Plant control (issue #47 — the destination selector): four positions, one
+// control, matching the Functional Description's own sequence pre-check
+// ("select treated outlet metal bin no. when that destination is chosen") —
+// the metal bin choice is part of choosing the destination, not a separate
+// dial. Two machines carry the actual selection: the packaging conveyor's
+// own outlet port (which of the three real destinations — outload, Flexicon,
+// Concetti), and the outload diverter's own port (which of the two metal
+// bins, only meaningful when the conveyor's own selection is the outload
+// port at all). Both machine ids are hardcoded here, the same convention
+// PACKAGING_FEEDERS above already uses for the source selector.
+const CONVEYOR_ID = "pendulumConveyor";
+const OUTLOAD_DIVERTER_ID = "outloadDiverter";
+const DESTINATIONS = {
+  concetti: { conveyorPort: "outConcetti" },
+  flexicon: { conveyorPort: "outBinSeg" },
+  metalBin1: { conveyorPort: "outBuffer", diverterPort: "out1" },
+  metalBin2: { conveyorPort: "outBuffer", diverterPort: "out2" },
+};
+
+// Switching destination mid-run is a deliberate presenter affordance, off-
+// spec (the real plant only selects at sequence start, docs/OPEN_QUESTIONS.md)
+// — and it's the strongest transport-lag demonstration on the line, since
+// the conveyor's own `routedTransportDelay` behaviour (behaviors.js) tags
+// each packet with the port selected at the moment it was accepted:
+// commanding a new `selectPort` here only changes what *newly* accepted
+// material is tagged with, never anything already in transit.
+export function setDestination(sim, destination) {
+  const cfg = DESTINATIONS[destination];
+  if (!cfg) throw new Error(`unknown destination "${destination}"`);
+  const conveyor = sim.machines.get(CONVEYOR_ID);
+  if (conveyor) BEHAVIORS[conveyor.kind].selectPort(conveyor, cfg.conveyorPort);
+  if (cfg.diverterPort) {
+    const diverter = sim.machines.get(OUTLOAD_DIVERTER_ID);
+    if (diverter) BEHAVIORS[diverter.kind].selectPort(diverter, cfg.diverterPort);
+  }
+}
+
+// Read access, derived the same way getSource is: the two routers' own
+// `selected` ports already carry the one fact this needs, so there's
+// nothing separate to track. A conveyor selection of the shared outload
+// port resolves to whichever metal bin the diverter itself currently
+// points at; any other conveyor selection maps straight back to its own
+// destination. Returns null for a fabricated line missing either machine.
+export function getDestination(sim) {
+  const conveyor = sim.machines.get(CONVEYOR_ID);
+  if (!conveyor) return null;
+  if (conveyor.selected === "outConcetti") return "concetti";
+  if (conveyor.selected === "outBinSeg") return "flexicon";
+  if (conveyor.selected === "outBuffer") {
+    const diverter = sim.machines.get(OUTLOAD_DIVERTER_ID);
+    return diverter?.selected === "out2" ? "metalBin2" : "metalBin1";
+  }
+  return null;
 }
