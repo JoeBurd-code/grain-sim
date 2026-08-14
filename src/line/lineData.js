@@ -464,10 +464,14 @@ export const line = {
       tag: "52.603.L01",
       status: "new",
       zone: "packaging",
-      x: 1160, y: 730, w: 80, h: 36,
+      // Positioned right of inletDrumFeeder2 (swapped 2026-08-14): with the
+      // Pro Box directly above, drawing this feeder to the right keeps its
+      // own infeed line from crossing the scalping screen's long incoming
+      // line into inletDrumFeeder2, which sits closer to the screen.
+      x: 1290, y: 730, w: 80, h: 36,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 36 } },
-      labelAt: { x: -160, y: 24 },
+      labelAt: { x: 90, y: 24 },
       // Issue #46: the Pro Box's own feeder. Reuses meteredFeeder unchanged
       // (issue #20), same confirmed 2-20 t/h range as the treating-side
       // feeder. Starts disabled: the source selector (setSource, engine.js)
@@ -494,10 +498,13 @@ export const line = {
       tag: "52.603.L00",
       status: "new",
       zone: "packaging",
-      x: 1290, y: 730, w: 80, h: 36,
+      // Positioned left of inletDrumFeeder1 (swapped 2026-08-14), closer to
+      // the scalping screen its own product actually comes from — see
+      // inletDrumFeeder1's comment above for why.
+      x: 1160, y: 730, w: 80, h: 36,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 36 } },
-      labelAt: { x: 90, y: 24 },
+      labelAt: { x: -160, y: 24 },
       // Issue #46: the treating line's own feeder, downstream of the
       // scalping screen. `enabled` defaults true — the source selector
       // starts on the treating line — so selecting the Pro Box instead
@@ -901,14 +908,14 @@ export const line = {
     { from: { machine: "treaterAfterBin", port: "out" }, to: { machine: "scalpingScreen", port: "in" }, kind: "product" },
     { from: { machine: "scalpingScreen", port: "waste" }, to: { machine: "discardBin", port: "in" }, kind: "waste" },
     // treating -> packaging (the cross-zone product run)
-    { from: { machine: "scalpingScreen", port: "out" }, to: { machine: "inletDrumFeeder2", port: "in" }, kind: "product", via: [{ x: 1310, y: 715 }] },
+    { from: { machine: "scalpingScreen", port: "out" }, to: { machine: "inletDrumFeeder2", port: "in" }, kind: "product", via: [{ x: 1200, y: 715 }] },
     // packaging infeed. The two via points on each connection sketch the
     // pendulum conveyor's own floor run + climb (see its comment above):
     // down to floor level, across to the climb point, up into the
     // ceiling run.
     { from: { machine: "proBoxStation", port: "out" }, to: { machine: "inletDrumFeeder1", port: "in" }, kind: "product" },
-    { from: { machine: "inletDrumFeeder1", port: "out" }, to: { machine: "pendulumConveyor", port: "in1" }, kind: "product", via: [{ x: 1200, y: 800 }, { x: 1440, y: 800 }, { x: 1440, y: 148 }] },
-    { from: { machine: "inletDrumFeeder2", port: "out" }, to: { machine: "pendulumConveyor", port: "in2" }, kind: "product", via: [{ x: 1330, y: 800 }, { x: 1440, y: 800 }, { x: 1440, y: 160 }] },
+    { from: { machine: "inletDrumFeeder1", port: "out" }, to: { machine: "pendulumConveyor", port: "in1" }, kind: "product", via: [{ x: 1330, y: 800 }, { x: 1440, y: 800 }, { x: 1440, y: 148 }] },
+    { from: { machine: "inletDrumFeeder2", port: "out" }, to: { machine: "pendulumConveyor", port: "in2" }, kind: "product", via: [{ x: 1200, y: 800 }, { x: 1440, y: 800 }, { x: 1440, y: 160 }] },
     // branch B: outload metal bins. No lift here (issue #44): the phantom
     // packaging bucket elevator is gone, so the buffer bin discharges
     // straight into the diverter by gravity.
