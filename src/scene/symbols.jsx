@@ -509,10 +509,21 @@ export function PalletiserSymbol({ machine: m }) {
   );
 }
 
-// Off-scene scope edge (source/sink), drawn as a labelled point.
-export function StubSymbol({ machine: m }) {
+// Off-scene scope edge (source/sink), drawn as a labelled point. A stub with
+// nothing sim-enabled behind it (every stub but bigBagStub today) still just
+// draws the label — `dynamic.bagCount` is only ever present once a stub's own
+// `sim.kind` publishes one (terminalSink's optional `bagSizeM3`, issue #48),
+// so this reads generically off whatever the snapshot happens to carry
+// rather than special-casing any one stub by id.
+export function StubSymbol({ machine: m, dynamic }) {
+  const count = dynamic?.bagCount;
   return (
     <g>
+      {count != null && (
+        <text x="0" y="-20" fontFamily={FONT_MONO} fontSize="8" fill={C.wheat}>
+          {count} bags
+        </text>
+      )}
       <text x="0" y="-10" fontFamily={FONT_MONO} fontSize="8" fill={C.muted}>
         {m.name}
       </text>

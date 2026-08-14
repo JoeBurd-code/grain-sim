@@ -1608,6 +1608,16 @@ const METAL_BIN_1_ID = "metalBin1";
 const METAL_BIN_2_ID = "metalBin2";
 const OUTLOAD_DIVERTER_ID = "outloadDiverter";
 
+// Issue #48: the Flexicon big-bag branch — sampler, pre-bin, metering
+// conveyor, filling head (batchCycle reused a third time) and the bag-
+// counting terminus.
+const BIN_SEG_SAMPLER_ID = "binSegSampler";
+const FLEXICON_PRE_BIN_ID = "flexiconPreBin";
+const VIBRATING_CONVEYOR_ID = "vibratingConveyor";
+const FILLING_HEAD_ID = "flexiconFillingHead";
+const ROLLER_SCALE_ID = "rollerScale";
+const BIG_BAG_ID = "bigBagStub";
+
 describe("Pro Box source and the source selector (issue #46)", () => {
   it("the Pro Box is a live source with a presenter-settable rate, same as the treating-line stub", () => {
     const sim = createSim(line);
@@ -1985,5 +1995,215 @@ describe("the full outload cascade: a full metal bin stops the conveyor, then bo
     for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // conveyor ramps back up and settles
     expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(1);
     expect(getMachineState(sim, TREATING_FEEDER_ID).runPermit).toBe(true); // released on its own, no separate action
+  });
+});
+
+// Issue #48: the Flexicon big-bag branch, end to end. Almost every machine
+// here is configuration of an existing behaviour (issue #22's own reuse
+// claim for the auto sampler/pass-through, issue #18's accumulator for the
+// pre-bin, issue #20's meteredFeeder for the vibrating conveyor, issue #26's
+// terminalSink for the terminus) — the one genuinely new piece is the
+// filling head reusing issue #24's batchCycle, and the pre-bin's own
+// high-level trip reusing issue #47's thresholdStopTrip/armedWhen shape
+// against a single-condition arming instead of two.
+describe("the Flexicon big-bag branch completes (issue #48)", () => {
+  it("selecting Flexicon routes product down this branch and nowhere else", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0);
+    setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
+    setAccumulatorLevel(sim, METAL_BIN_2_ID, 0);
+    setDestination(sim, "flexicon");
+    setSource(sim, "proBox");
+    setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
+    for (let i = 0; i < Math.round(220 / DT); i++) stepSim(sim, DT); // past the conveyor's own ~185s transit lag
+
+    expect(getMachineState(sim, FLEXICON_PRE_BIN_ID).stored).toBeGreaterThan(0);
+    expect(getMachineState(sim, OUTLOAD_BIN_ID).stored).toBeCloseTo(0);
+    expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeCloseTo(0);
+    expect(getMachineState(sim, METAL_BIN_2_ID).stored).toBeCloseTo(0);
+    expect(() => assertConserved(sim)).not.toThrow();
+  }, 10000);
+
+  it("the auto sampler holds no material at any point", () => {
+    const sim = createSim(line);
+    setDestination(sim, "flexicon");
+    setSource(sim, "proBox");
+    setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
+    for (let i = 0; i < Math.round(220 / DT); i++) {
+      stepSim(sim, DT);
+      expect(getMachineState(sim, BIN_SEG_SAMPLER_ID).volume).toBe(0);
+    }
+  }, 10000);
+
+  it("the pre-bin fills, and backpressures upstream when full rather than spilling", () => {
+    const sim = createSim(line);
+    setDestination(sim, "flexicon");
+    setFeederRate(sim, VIBRATING_CONVEYOR_ID, 0); // nothing draining the pre-bin
+    setSource(sim, "proBox");
+    setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
+    setFeederRate(sim, PRO_BOX_FEEDER_ID, tPerHourToM3PerSec(20)); // the feeder's own metering rate, not just the source valve
+    for (let i = 0; i < Math.round(700 / DT); i++) stepSim(sim, DT); // past the lag, plenty of time to fill and trip
+
+    // Same finding as the outload branch's own equivalent test (metal bin
+    // 1's "a full metal bin trips the conveyor rather than spilling"
+    // above): the pre-bin's own high-level trip (flexiconPreBinHighTrip,
+    // lineData.js) stops the conveyor at its 85% set point well before hard
+    // accumulator capacity is ever reached, so overflow protection in
+    // ordinary operation is the trip, not the physical reverse-pass
+    // capacity check underneath it — that check still guarantees no spill
+    // regardless (issue #18), which is what this asserts.
+    const preBin = getMachineState(sim, FLEXICON_PRE_BIN_ID);
+    expect(preBin.spill).toBeCloseTo(0); // backpressure/trip, not spill
+    expect(preBin.stored).toBeLessThan(preBin.capacity); // trips before hard capacity, doesn't need to reach it
+    expect(getInterlockState(sim, FLEXICON_PRE_BIN_ID).phase).toBe("stopped");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
+    expect(() => assertConserved(sim)).not.toThrow();
+  }, 15000);
+
+  it("the vibrating conveyor meters the pre-bin's discharge at a presenter-settable rate", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 1); // plenty stored, isolates the feeder's own metering
+    setFeederRate(sim, VIBRATING_CONVEYOR_ID, tPerHourToM3PerSec(6));
+    for (let i = 0; i < Math.round(5 / DT); i++) stepSim(sim, DT);
+    expect(getMachineState(sim, VIBRATING_CONVEYOR_ID).flowRateM3PerSec).toBeCloseTo(tPerHourToM3PerSec(6), 5);
+  });
+
+  it("the filling head takes a charge, holds it for a cycle, and discharges a completed bag, reusing the batch cycle behaviour", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 1); // plenty of supply
+    // Synthetic, well past the slider's own 0-20 t/h range: isolates the
+    // filling head's own cycle timing from how long a realistic vibrating-
+    // conveyor rate would take to deliver one whole bag's charge (which, at
+    // the slider's own max, is itself several minutes — the real-world
+    // bag-filling time this branch models, not a slow test).
+    setFeederRate(sim, VIBRATING_CONVEYOR_ID, tPerHourToM3PerSec(500));
+    const head = () => getMachineState(sim, FILLING_HEAD_ID);
+    expect(head().phase).toBe("charging");
+
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // charges fully at this rate
+    expect(head().phase).toBe("holding");
+    expect(head().held).toBeCloseTo(head().chargeM3);
+
+    for (let i = 0; i < Math.round(50 / DT); i++) stepSim(sim, DT); // past the configured 45s hold
+    expect(head().phase).toBe("charging"); // discharged the completed bag, cycling again
+    expect(head().delivered).toBeGreaterThan(0);
+  });
+
+  it("the terminus reports a running count of big bags delivered alongside its volume total", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 1); // ~1.8 bags' worth stored, enough for one full cycle
+    setFeederRate(sim, VIBRATING_CONVEYOR_ID, tPerHourToM3PerSec(500)); // see the batch-cycle test's own comment
+    const bag = () => getMachineState(sim, BIG_BAG_ID);
+    const head = () => getMachineState(sim, FILLING_HEAD_ID);
+    expect(BEHAVIORS.terminalSink.snapshot(bag()).bagCount).toBe(0);
+
+    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT); // one full charge + 45s hold + discharge pulse
+    expect(bag().total).toBeCloseTo(head().chargeM3);
+    expect(BEHAVIORS.terminalSink.snapshot(bag()).bagCount).toBe(1);
+  });
+
+  it("every branch machine publishes a live snapshot once its own upstream is running, not frozen decoration", () => {
+    const sim = createSim(line);
+    setDestination(sim, "flexicon");
+    setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 1);
+    // The default authored rate (10 t/h, lineData.js), not the other tests'
+    // own synthetic 500 t/h: that rate drains this pre-bin's whole 2.5 m3
+    // in ~13s, which would starve the head before this snapshot check and
+    // read as "stalled" rather than "never live" — the same trap the #40
+    // investigation caught (a final-tick read isn't the same as a live
+    // trajectory). At the default rate the pre-bin is nowhere near drained
+    // by t=60s.
+    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
+
+    for (const id of [BIN_SEG_SAMPLER_ID, FLEXICON_PRE_BIN_ID, VIBRATING_CONVEYOR_ID, FILLING_HEAD_ID, ROLLER_SCALE_ID, BIG_BAG_ID]) {
+      expect(getMachineState(sim, id).flowRateM3PerSec).toBeDefined();
+    }
+    expect(getMachineState(sim, VIBRATING_CONVEYOR_ID).flowRateM3PerSec).toBeGreaterThan(0);
+    expect(getMachineState(sim, FILLING_HEAD_ID).held).toBeGreaterThan(0); // genuinely mid-charge, not frozen
+  });
+});
+
+describe("arming: a full Flexicon pre-bin does not trip anything while routed elsewhere (issue #48)", () => {
+  it("a disarmed pre-bin trip never fires: leaving the destination at metal bin 1 with the pre-bin already over its own high set point leaves the conveyor running", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 1); // already well past its own 85% trip point
+    // destination defaults to metalBin1, not flexicon — see setDestination's
+    // own DESTINATIONS table (engine.js)
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+
+    expect(getInterlockState(sim, FLEXICON_PRE_BIN_ID).phase).toBe("running"); // never even armed
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(1); // never touched
+  });
+
+  it("the same full pre-bin trips the conveyor once Flexicon is (re-)selected", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 1);
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+    expect(getInterlockState(sim, FLEXICON_PRE_BIN_ID).phase).toBe("running");
+
+    setDestination(sim, "flexicon"); // now selected
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // past the 5s signal delay
+    expect(getInterlockState(sim, FLEXICON_PRE_BIN_ID).phase).toBe("stopped");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
+  });
+});
+
+describe("the Flexicon pre-bin's own high-level trip cascades and latches like the metal bins' (issue #48)", () => {
+  it("trips the conveyor, then both packaging drum feeders lose run permit — the same shared cascade the outload branch's own trips drive", () => {
+    const sim = createSim(line);
+    setDestination(sim, "flexicon");
+    setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 1);
+
+    for (let i = 0; i < Math.round(3 / DT); i++) stepSim(sim, DT); // short of the 5s trip delay
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(1);
+
+    for (let i = 0; i < Math.round(3 / DT); i++) stepSim(sim, DT); // past the 5s trip delay, short of +1s feeder delay
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).runPermit).toBe(true);
+    expect(getMachineState(sim, TREATING_FEEDER_ID).runPermit).toBe(true);
+
+    for (let i = 0; i < Math.round(2 / DT); i++) stepSim(sim, DT); // past the 1s feeder-stop delay too
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).runPermit).toBe(false);
+    expect(getMachineState(sim, TREATING_FEEDER_ID).runPermit).toBe(false);
+    expect(() => assertConserved(sim)).not.toThrow();
+  });
+
+  it("latches: resetting trips clears it only once the pre-bin has actually been emptied, and the presenter's reset recovers it", () => {
+    const sim = createSim(line);
+    setDestination(sim, "flexicon");
+    setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 1);
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
+
+    resetTrips(sim);
+    expect(getInterlockState(sim, FLEXICON_PRE_BIN_ID).phase).toBe("stopped"); // still full, re-latches
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(0);
+
+    // The presenter's own bin-empty affordance (PlantControls.jsx): the
+    // same setAccumulatorLevel the level-jump slider already uses.
+    setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 0);
+    resetTrips(sim);
+    expect(getInterlockState(sim, FLEXICON_PRE_BIN_ID).phase).toBe("recovering");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(1);
+  });
+
+  it("conserves volume across a switch onto and off the Flexicon branch mid-run", () => {
+    const sim = createSim(line);
+    setSource(sim, "proBox");
+    setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(15));
+    for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT);
+
+    setDestination(sim, "flexicon");
+    for (let i = 0; i < Math.round(300 / DT); i++) stepSim(sim, DT);
+    // Past the ~185s lag for material fed since the switch: proves the
+    // branch genuinely carried product during this window, not just that
+    // the totals happen to balance regardless of which branch (if any)
+    // actually moved anything.
+    expect(getMachineState(sim, FLEXICON_PRE_BIN_ID).stored).toBeGreaterThan(0);
+
+    setDestination(sim, "metalBin1");
+    for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT);
+
+    expect(() => assertConserved(sim)).not.toThrow();
   });
 });

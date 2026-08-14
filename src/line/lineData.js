@@ -781,6 +781,17 @@ export const line = {
       anchors: { in: { x: 30, y: 0 }, out: { x: 30, y: 36 } },
       smallLabel: true,
       labelAt: { x: -180, y: 40 },
+      // Issue #48: pass-through, no holdup — the same reasoning
+      // treatMetalRemover's and grainBreak's own passThrough already rest
+      // on (an in-line sampler diverts a negligible probe volume, modelled
+      // as none, not a genuine split). This is the first machine downstream
+      // of the pneumatic outlet the parent issue names "52.604.V01" — that
+      // valve is pendulumConveyor's own `outBinSeg` port (routedTransportDelay,
+      // its own sim block above), already opened by the destination selector
+      // (setDestination(sim, "flexicon"), engine.js) since issue #47; there
+      // is no separate valve machine to model, the same way the outload
+      // branch's own selected outlet is a port, not a standalone machine.
+      sim: { kind: "passThrough" },
     },
     // binSegment ("BIN SEGMENT", TBC-11) deleted 2026-08-12 (issue #44):
     // the "bin segment" of the original drawing reading is the outload
@@ -802,6 +813,28 @@ export const line = {
       fill: 0.45,
       instruments: ["LSH", "LSL"],
       labelAt: { x: 120, y: 55 },
+      params: [
+        { id: "level", label: "fill level", min: 0, max: 100, value: 45, unit: "%", bind: "levelJump" },
+        { id: "highSetpoint", label: "LSH set point", min: 45, max: 100, value: 85, unit: "%", bind: "interlockHighSetpoint" },
+        { id: "lowSetpoint", label: "LSL set point", min: 0, max: 45, value: 35, unit: "%", bind: "interlockLowSetpoint" },
+        { id: "signalDelay", label: "signal delay", min: 0, max: 15, value: 5, unit: "s", bind: "interlockSignalDelay" },
+      ],
+      // Issue #48: reuses the accumulator behaviour unchanged (issue #18),
+      // a seventh configuration. Working volume has no confirmed source —
+      // the FD names an LT0/LSH0/LSL0 instrument set here but no capacity,
+      // the same "not given" gap the two metal bins' own working volumes
+      // hit (PLC_FUNCTIONAL_DESCRIPTION.md §12). 2.5 m3 is a demo-paced
+      // assumption sized as an in-process buffer ahead of a discrete pull
+      // (the filling head's own one-bag charge below), not terminal
+      // storage like the metal bins — closer in scale to the treater
+      // pre-bin (1.63 m3) than to a 6 m3 metal bin. See
+      // docs/OPEN_QUESTIONS.md.
+      sim: {
+        kind: "accumulator",
+        capacityM3: 2.5,
+        initialLevelFraction: 0.45,
+        provenance: { capacityM3: "assumed", initialLevelFraction: "assumed" },
+      },
     },
     {
       id: "vibratingConveyor",
@@ -816,6 +849,18 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 110, y: 30 } },
       labelAt: { x: -188, y: 2 },
+      // Issue #48: meters the pre-bin's discharge, reusing the drum
+      // feeders' own meteredFeeder behaviour unchanged (issue #20) — the
+      // parent spec's own reuse claim for this machine. No document gives
+      // this conveyor's own rate range; the drum feeders' confirmed 2-20
+      // t/h is reused as a plausible presenter-settable range, same
+      // reasoning the Pro Box source's own rate slider already leans on.
+      params: [{ id: "rate", label: "feed rate", min: 0, max: 20, value: 10, unit: "t/h", bind: "feederRate", readBind: "feederRateActual" }],
+      sim: {
+        kind: "meteredFeeder",
+        rateM3PerSec: tPerHourToM3PerSec(10),
+        provenance: { rateM3PerSec: "assumed" },
+      },
     },
     {
       id: "flexiconFillingHead",
@@ -830,6 +875,32 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 70 } },
       labelAt: { x: 105, y: 30 },
+      // Issue #48: the one genuinely new configuration on this branch, and
+      // the parent spec's own largest reuse claim landing — the batch
+      // treater's batchCycle primitive (issue #24), unchanged, takes a
+      // charge, holds it for a cycle, and discharges the whole charge as a
+      // pulse, exactly the "take a bag's charge, dwell, release a
+      // completed bag" shape a big-bag filling head needs. Bag-change dead
+      // time (the seconds lost swapping an empty bag onto the head for the
+      // next cycle) is explicitly out of scope for this ticket — batchCycle's
+      // own discharge-to-charging transition is already immediate, so this
+      // needs no code change to fill continuously rather than modelling
+      // that gap.
+      params: [
+        { id: "batchSize", label: "bag size", min: 500, max: 1500, value: 1000, unit: "kg", bind: "batchSize" },
+        { id: "cycleTime", label: "fill time", min: 15, max: 120, value: 45, unit: "s", bind: "batchCycleTime" },
+      ],
+      // No document sizes the Flexicon package at all (out of the FD's own
+      // scope, per the parent issue) — "one-tonne big bags" is a demo-paced
+      // assumption, not a plant fact, so `chargeM3` and the 45 s fill time
+      // are both assumed and flagged for engineer follow-up; see
+      // docs/OPEN_QUESTIONS.md.
+      sim: {
+        kind: "batchCycle",
+        chargeM3: 1.0 / BULK_DENSITY_T_PER_M3,
+        phases: [{ name: "fill", durationSec: 45 }],
+        provenance: { chargeM3: "assumed", "phases[0].durationSec": "assumed" },
+      },
     },
     {
       id: "rollerScale",
@@ -842,6 +913,12 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 90, y: 0 }, out: { x: 170, y: 13 } },
       labelAt: { x: 0, y: 46 },
+      // Issue #48: pass-through, no holdup — a filled bag rides straight
+      // across the rollers and over the belt scale to the terminus, per
+      // the parent issue's own description; the weighing itself has
+      // nothing further for the sim to model beyond the bag volume
+      // already carried through.
+      sim: { kind: "passThrough" },
     },
     {
       id: "bigBagStub",
@@ -853,6 +930,22 @@ export const line = {
       x: 2760, y: 729, w: 8, h: 8,
       ports: { inputs: ["in"], outputs: [] },
       anchors: { in: { x: 4, y: 4 } },
+      // Issue #48: the branch's own terminus, reusing terminalSink (issue
+      // #26) with its optional `bagSizeM3` (behaviors.js) so this one, and
+      // only this one, also publishes a running bag count — a stakeholder
+      // reads "47 bags" without translating a volume, unlike discardBin's
+      // plain waste total. `bagSizeM3` matches the filling head's own
+      // assumed one-tonne charge exactly, since a bag arriving here is by
+      // construction one whole charge off that machine's discharge pulse.
+      // `displayCapacityM3` is presenter-facing only (same convention as
+      // discardBin's own), scaled to a handful of bags so the fill bar
+      // visibly rises over a demo run.
+      sim: {
+        kind: "terminalSink",
+        displayCapacityM3: 10,
+        bagSizeM3: 1.0 / BULK_DENSITY_T_PER_M3,
+        provenance: { displayCapacityM3: "assumed", bagSizeM3: "assumed" },
+      },
     },
     {
       id: "concettiSampler",
@@ -1121,7 +1214,8 @@ export const line = {
     // selected" (PLC_FUNCTIONAL_DESCRIPTION.md §5); only the two metal bins
     // have a real sensor behind them this ticket (the Flexicon and Concetti
     // pre-bins aren't sim-enabled yet), so this is two of the four rows the
-    // FD's own table lists, not a partial reading of it.
+    // FD's own table lists, not a partial reading of it. Issue #48 below
+    // lands the Flexicon row, the third of the four.
     {
       id: "metalBin1HighTrip",
       kind: "thresholdStopTrip",
@@ -1167,6 +1261,29 @@ export const line = {
         { machine: "pendulumConveyor", port: "outBuffer" },
         { machine: "outloadDiverter", port: "out2" },
       ],
+      provenance: {
+        highSetpoint: "assumed", lowSetpoint: "assumed",
+        signalDelaySec: "confirmed", rampTimeSec: "assumed",
+      },
+    },
+    {
+      id: "flexiconPreBinHighTrip",
+      kind: "thresholdStopTrip",
+      sensor: { machine: "flexiconPreBin" },
+      // Issue #48, the FD's third destination-interlock row: "Flexicon
+      // pre-bin high `52.701.H00.LSH0` -> Bucket elevator `52.604.E00` 'if
+      // selected' ... 5 s -> drum feeders" (PLC_FUNCTIONAL_DESCRIPTION.md
+      // §5) — same shape and same actuator as the two metal bins' own
+      // trips (metalBin1HighTrip/metalBin2HighTrip above), reused
+      // unchanged. `armedWhen` here needs only one condition, not two: this
+      // branch has no diverter downstream of the conveyor the way the
+      // outload branch does (one outlet, `outBinSeg`, one destination), so
+      // the conveyor's own selected port alone is "Flexicon is selected".
+      highSetpoint: 0.85,
+      lowSetpoint: 0.35,
+      signalDelaySec: 5,
+      action: { machine: "pendulumConveyor", rampTimeSec: 0.5 },
+      armedWhen: [{ machine: "pendulumConveyor", port: "outBinSeg" }],
       provenance: {
         highSetpoint: "assumed", lowSetpoint: "assumed",
         signalDelaySec: "confirmed", rampTimeSec: "assumed",
