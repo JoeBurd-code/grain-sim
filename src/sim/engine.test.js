@@ -1618,6 +1618,16 @@ const FILLING_HEAD_ID = "flexiconFillingHead";
 const ROLLER_SCALE_ID = "rollerScale";
 const BIG_BAG_ID = "bigBagStub";
 
+// Issue #49: the Concetti bagging branch — sampler, pre-bin, bagging scale
+// (batchCycle reused a fourth time), filling & sewing, palletising and the
+// bag-counting terminus.
+const CONCETTI_SAMPLER_ID = "concettiSampler";
+const CONCETTI_PRE_BIN_ID = "concettiPreBin";
+const CONCETTI_SCALE_ID = "concettiScale";
+const CONCETTI_FILLER_ID = "concettiFiller";
+const PALLETISING_ID = "palletising";
+const PALLET_STUB_ID = "palletStub";
+
 describe("Pro Box source and the source selector (issue #46)", () => {
   it("the Pro Box is a live source with a presenter-settable rate, same as the treating-line stub", () => {
     const sim = createSim(line);
@@ -2200,6 +2210,269 @@ describe("the Flexicon pre-bin's own high-level trip cascades and latches like t
     // the totals happen to balance regardless of which branch (if any)
     // actually moved anything.
     expect(getMachineState(sim, FLEXICON_PRE_BIN_ID).stored).toBeGreaterThan(0);
+
+    setDestination(sim, "metalBin1");
+    for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT);
+
+    expect(() => assertConserved(sim)).not.toThrow();
+  });
+});
+
+// Issue #49: the Concetti bagging branch, end to end — the fourth and last
+// outload destination, completing every route on the line. The sampler,
+// filling & sewing head and palletiser are all pass-throughs (issue #22's
+// own reuse claim again), the pre-bin is another accumulator configuration
+// (issue #18, an eighth reuse), and the bagging scale reuses issue #24's
+// batchCycle a fourth time. The pre-bin's own high-level trip is the fourth
+// and last of the FD's destination-interlock table (PLC_FUNCTIONAL_DESCRIPTION.md
+// §5), completing the cascade the parent spec (#43) names as the whole
+// project's central argument: this branch's own trip is exercised fully in
+// the dedicated cascade describe block below, not just to the conveyor.
+describe("the Concetti bagging branch completes (issue #49)", () => {
+  it("selecting Concetti routes product down this branch and nowhere else", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0);
+    setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
+    setAccumulatorLevel(sim, METAL_BIN_2_ID, 0);
+    setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 0);
+    setDestination(sim, "concetti");
+    setSource(sim, "proBox");
+    setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
+    for (let i = 0; i < Math.round(220 / DT); i++) stepSim(sim, DT); // past the conveyor's own ~185s transit lag
+
+    expect(getMachineState(sim, CONCETTI_PRE_BIN_ID).stored).toBeGreaterThan(0);
+    expect(getMachineState(sim, OUTLOAD_BIN_ID).stored).toBeCloseTo(0);
+    expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeCloseTo(0);
+    expect(getMachineState(sim, METAL_BIN_2_ID).stored).toBeCloseTo(0);
+    expect(getMachineState(sim, FLEXICON_PRE_BIN_ID).stored).toBeCloseTo(0);
+    expect(() => assertConserved(sim)).not.toThrow();
+  }, 10000);
+
+  it("the auto sampler holds no material at any point", () => {
+    const sim = createSim(line);
+    setDestination(sim, "concetti");
+    setSource(sim, "proBox");
+    setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
+    for (let i = 0; i < Math.round(220 / DT); i++) {
+      stepSim(sim, DT);
+      expect(getMachineState(sim, CONCETTI_SAMPLER_ID).volume).toBe(0);
+    }
+  }, 10000);
+
+  it("the pre-bin fills, and backpressures upstream when full rather than spilling", () => {
+    const sim = createSim(line);
+    setDestination(sim, "concetti");
+    setSource(sim, "proBox");
+    setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
+    setFeederRate(sim, PRO_BOX_FEEDER_ID, tPerHourToM3PerSec(20));
+    // Freezes the bagging scale in "holding" after it drains exactly one
+    // charge (~0.069 m3, negligible against the pre-bin's own 0.72 m3
+    // capacity) by stretching its cycle time far past this test's own run
+    // length, so the pre-bin fills against an effectively undrained
+    // downstream. This branch has no metering feeder between the pre-bin
+    // and the scale the way the Flexicon branch's own equivalent test gets
+    // to zero (its vibratingConveyor) — the scale draws directly off the
+    // accumulator's reverse pass, so stopping the *cycle* is this branch's
+    // own equivalent isolation.
+    setBatchCycleSec(sim, CONCETTI_SCALE_ID, 1e6);
+    for (let i = 0; i < Math.round(400 / DT); i++) stepSim(sim, DT); // past the lag, plenty of time to fill and trip
+
+    const preBin = getMachineState(sim, CONCETTI_PRE_BIN_ID);
+    expect(preBin.spill).toBeCloseTo(0); // backpressure/trip, not spill
+    expect(preBin.stored).toBeLessThan(preBin.capacity); // trips before hard capacity, doesn't need to reach it
+    expect(getInterlockState(sim, CONCETTI_PRE_BIN_ID).phase).toBe("stopped");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
+    expect(() => assertConserved(sim)).not.toThrow();
+  }, 15000);
+
+  it("the bagging scale takes a charge, holds it for a cycle, and discharges a completed bag, reusing the batch cycle behaviour", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1); // plenty of supply; no metering feeder sits between the pre-bin and the scale
+    const scale = () => getMachineState(sim, CONCETTI_SCALE_ID);
+    expect(scale().phase).toBe("charging");
+
+    stepSim(sim, DT); // the full pre-bin's own reverse-pass discharge fills one whole charge in a single tick
+    expect(scale().phase).toBe("holding");
+    expect(scale().held).toBeCloseTo(scale().chargeM3);
+
+    // Past the configured 15s hold: with the pre-bin still full, the scale
+    // discharges and instantly recharges for its next cycle within the same
+    // window (unlike the Flexicon filling head's own equivalent test, which
+    // rate-limits its supply and so can catch "charging" mid-flight) — so
+    // `delivered` is the reliable signal a completed bag actually left,
+    // rather than the transient phase value at whatever tick this lands on.
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+    expect(scale().delivered).toBeGreaterThan(0);
+    expect(scale().delivered).toBeCloseTo(scale().chargeM3); // exactly one whole bag, not a partial pulse
+  });
+
+  it("filling and sewing, and palletising, hold no material at any point", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1);
+    for (let i = 0; i < Math.round(40 / DT); i++) {
+      stepSim(sim, DT);
+      expect(getMachineState(sim, CONCETTI_FILLER_ID).volume).toBe(0);
+      expect(getMachineState(sim, PALLETISING_ID).volume).toBe(0);
+    }
+  });
+
+  it("the terminus reports a running count of bags delivered alongside its volume total", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1);
+    const pallet = () => getMachineState(sim, PALLET_STUB_ID);
+    const scale = () => getMachineState(sim, CONCETTI_SCALE_ID);
+    expect(BEHAVIORS.terminalSink.snapshot(pallet()).bagCount).toBe(0);
+
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // one full charge + 15s hold + discharge pulse
+    expect(pallet().total).toBeCloseTo(scale().chargeM3);
+    expect(BEHAVIORS.terminalSink.snapshot(pallet()).bagCount).toBe(1);
+  });
+
+  it("every branch machine publishes a live snapshot once its own upstream is running, not frozen decoration", () => {
+    const sim = createSim(line);
+    setDestination(sim, "concetti");
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1);
+    for (let i = 0; i < Math.round(30 / DT); i++) stepSim(sim, DT); // several bagging-scale cycles at 15s each
+
+    for (const id of [CONCETTI_SAMPLER_ID, CONCETTI_PRE_BIN_ID, CONCETTI_SCALE_ID, CONCETTI_FILLER_ID, PALLETISING_ID, PALLET_STUB_ID]) {
+      expect(getMachineState(sim, id).flowRateM3PerSec).toBeDefined();
+    }
+    expect(getMachineState(sim, PALLET_STUB_ID).total).toBeGreaterThan(0); // genuinely delivered, not frozen
+  });
+});
+
+describe("arming: a full Concetti pre-bin does not trip anything while routed elsewhere (issue #49)", () => {
+  it("a disarmed pre-bin trip never fires: leaving the destination at metal bin 1 with the pre-bin already over its own high set point leaves the conveyor running", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1); // already well past its own 85% trip point
+    // destination defaults to metalBin1, not concetti — see setDestination's
+    // own DESTINATIONS table (engine.js)
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+
+    expect(getInterlockState(sim, CONCETTI_PRE_BIN_ID).phase).toBe("running"); // never even armed
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(1); // never touched
+  });
+
+  it("the same full pre-bin trips the conveyor once Concetti is (re-)selected", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1);
+    // Freezes the bagging scale after its first charge (see the branch's
+    // own "fills, and backpressures" test above for the full reasoning):
+    // without this, the scale keeps drawing from the pre-bin the whole time
+    // it's disarmed — unlike the Flexicon pre-bin's own equivalent test,
+    // where the default vibrating-conveyor rate against a 2.5 m3 capacity
+    // drains too slowly over the same window to matter, this branch's much
+    // smaller 0.72 m3 pre-bin would otherwise drop back under its own 85%
+    // set point before re-arming ever gets a chance to see it.
+    setBatchCycleSec(sim, CONCETTI_SCALE_ID, 1e6);
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+    expect(getInterlockState(sim, CONCETTI_PRE_BIN_ID).phase).toBe("running");
+
+    setDestination(sim, "concetti"); // now selected
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // past the 5s signal delay
+    expect(getInterlockState(sim, CONCETTI_PRE_BIN_ID).phase).toBe("stopped");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
+  });
+});
+
+// This is the demonstration the parent spec (#43) names as the whole
+// project's central argument: a bag machine at one end of the building
+// trips the packaging conveyor, which trips both inlet drum feeders 1s
+// later, which starves the scalping screen, backs up the treater after-bin,
+// and stops the batch treater at the other end — the complete cascade,
+// spanning both zones, in one combined event feed with its real delays.
+describe("the Concetti pre-bin's own high-level trip cascades the full length of the line and latches (issue #49)", () => {
+  it("cascades in the documented order — conveyor stops, both drum feeders stop 1s later, and the treating zone eventually backs up and holds the treater — logged in the combined event feed with the real delays between them", () => {
+    const sim = createSim(line);
+    setDestination(sim, "concetti");
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1);
+
+    for (let i = 0; i < Math.round(3 / DT); i++) stepSim(sim, DT); // short of the 5s trip delay
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(1); // not yet
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).runPermit).toBe(true);
+    expect(getMachineState(sim, TREATING_FEEDER_ID).runPermit).toBe(true);
+
+    for (let i = 0; i < Math.round(3 / DT); i++) stepSim(sim, DT); // past the 5s trip delay (t~6s), short of +1s feeder delay
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).runPermit).toBe(true);
+    expect(getMachineState(sim, TREATING_FEEDER_ID).runPermit).toBe(true);
+
+    for (let i = 0; i < Math.round(2 / DT); i++) stepSim(sim, DT); // past the 1s feeder-stop delay too (t~8s)
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).runPermit).toBe(false);
+    expect(getMachineState(sim, TREATING_FEEDER_ID).runPermit).toBe(false);
+
+    for (let i = 0; i < Math.round(6000 / DT); i++) stepSim(sim, DT); // let it propagate all the way back
+    expect(afterBinInterlock(sim).phase).toBe("held"); // the batch treater eventually stops accepting charges, at the far end of the line
+    // The AC's own "scalping screen starved" link, asserted directly rather
+    // than only inferred from the after-bin backing up behind it:
+    // inletDrumFeeder2 (TREATING_FEEDER_ID) is the screen's only real
+    // discharge (its own comment further down this file), so once that
+    // feeder's runPermit drops the screen has nowhere left to send
+    // material and genuinely stops flowing, not just conceptually.
+    expect(BEHAVIORS.splitter.snapshot(getMachineState(sim, SCREEN_ID)).flowing).toBe(false);
+
+    // Events are logged against each rule's own *sensor*, not its actuator
+    // (control.js's own combined-events construction) — concettiPreBinHighTrip's
+    // sensor is the pre-bin itself, conveyorRunningInterlockFeeder1/2's
+    // shared sensor is the conveyor, and afterBinHoldTreater's is the
+    // after-bin, so these three ids are exactly where this cascade's own
+    // three stages surface in the feed.
+    const events = getCombinedEvents(sim);
+    const firstEventT = (machineId) => events.find((e) => e.machineId === machineId)?.t;
+    const preBinT = firstEventT(CONCETTI_PRE_BIN_ID);
+    const conveyorT = firstEventT(CONVEYOR_ID);
+    const afterBinT = firstEventT(AFTER_BIN_ID);
+    expect(preBinT).toBeDefined();
+    expect(conveyorT).toBeDefined();
+    expect(afterBinT).toBeDefined();
+    expect(conveyorT).toBeGreaterThan(preBinT); // the conveyor-tagged (feeder-stop) events land after the pre-bin's own trip
+    expect(afterBinT).toBeGreaterThan(conveyorT); // and the treater's own response lands much later still, at the far end of the line
+    // Both packaging drum feeders' own stop is logged (autoStopOnNotRunning,
+    // same shared conveyor sensor) — two distinct events, not one.
+    expect(events.filter((e) => e.machineId === CONVEYOR_ID).length).toBeGreaterThanOrEqual(2);
+
+    expect(() => assertConserved(sim)).not.toThrow();
+  }, 20000);
+
+  it("the cascade latches: resetting trips clears it only once the pre-bin has actually been emptied, and the presenter's reset recovers it", () => {
+    const sim = createSim(line);
+    setDestination(sim, "concetti");
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1);
+    // Freezes the bagging scale after its first charge, same reasoning as
+    // the arming test above: even once the conveyor trips and stops feeding
+    // it, the scale itself keeps drawing from whatever's already stored,
+    // and this branch's small 0.72 m3 pre-bin would otherwise read back
+    // under its own 85% set point well before this test gets to assert
+    // "still full, re-latches" below.
+    setBatchCycleSec(sim, CONCETTI_SCALE_ID, 1e6);
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
+
+    resetTrips(sim);
+    expect(getInterlockState(sim, CONCETTI_PRE_BIN_ID).phase).toBe("stopped"); // still full, re-latches
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(0);
+
+    // The presenter's own bin-empty affordance (PlantControls.jsx): the
+    // same setAccumulatorLevel the level-jump slider already uses.
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0);
+    resetTrips(sim);
+    expect(getInterlockState(sim, CONCETTI_PRE_BIN_ID).phase).toBe("recovering");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(1);
+  });
+
+  it("conserves volume across a switch onto and off the Concetti branch mid-run", () => {
+    const sim = createSim(line);
+    setSource(sim, "proBox");
+    setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(15));
+    for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT);
+
+    setDestination(sim, "concetti");
+    for (let i = 0; i < Math.round(300 / DT); i++) stepSim(sim, DT);
+    // Past the ~185s lag for material fed since the switch: proves the
+    // branch genuinely carried product during this window, not just that
+    // the totals happen to balance regardless of which branch (if any)
+    // actually moved anything.
+    expect(getMachineState(sim, CONCETTI_PRE_BIN_ID).stored).toBeGreaterThan(0);
 
     setDestination(sim, "metalBin1");
     for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT);
