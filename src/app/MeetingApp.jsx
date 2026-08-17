@@ -196,6 +196,7 @@ export default function MeetingApp() {
           utilitiesHealthy={engine.snap.utilitiesHealthy}
           utilitiesTripPhase={engine.snap.utilitiesTripPhase}
           onSetUtilitiesHealthy={engine.setUtilitiesHealthy}
+          onClearPlant={engine.clearPlant}
         />
       </header>
 

@@ -4,7 +4,7 @@
 // consumed per wall-clock second, never the fixed timestep itself.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  createSim, stepSim, resetSim, resetTrips as resetTripsSim, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
+  createSim, stepSim, resetSim, resetTrips as resetTripsSim, clearPlant as clearPlantSim, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, setElevatorSpeed,
   setInterlockSlowSetpoint, setInterlockStopSetpoint,
   setInterlockSlowDelay as engineSetInterlockSlowDelay, setInterlockStopDelay as engineSetInterlockStopDelay,
@@ -158,6 +158,14 @@ export function useSimEngine(line) {
     publish();
   }, [sim, publish]);
 
+  // Plant control (issue #55): CLEAR PLANT — takes effect immediately,
+  // whether paused or running, same one-click shape as every other plant
+  // control here.
+  const clearPlant = useCallback(() => {
+    clearPlantSim(sim);
+    publish();
+  }, [sim, publish]);
+
   // Toggles one machine's level/rate series on or off (issue #36). Reads the
   // latest history via the functional updater rather than closing over the
   // `history` state value, so rapid double-toggles never race a stale read.
@@ -281,7 +289,7 @@ export function useSimEngine(line) {
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
   return {
-    snap, running, start, pause, stepOnce, restart, resetTrips, speed, setSpeed, setRate, setFeedRate, setLevel,
+    snap, running, start, pause, stepOnce, restart, resetTrips, clearPlant, speed, setSpeed, setRate, setFeedRate, setLevel,
     setInterlockHigh, setInterlockLow, setInterlockDelay, setElevatorSpeed: setElevatorSpeedFraction,
     setInterlockSlow, setInterlockStop, setInterlockSlowDelay, setInterlockStopDelay,
     setBatchSize: setBatchSizeM3, setBatchCycleTime, setWasteFraction, setSource, setDestination,

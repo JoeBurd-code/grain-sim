@@ -104,7 +104,16 @@ export function createSim(line) {
     const m = machinesById.get(id);
     if (BEHAVIORS[m.sim.kind].multiOutput) multiOutputPorts.set(id, m.ports.outputs);
   }
-  return { t: 0, line, machines, downstream, multiOutputPorts, order, control, controlledStop, utilitiesTrip };
+  return {
+    t: 0, line, machines, downstream, multiOutputPorts, order, control, controlledStop, utilitiesTrip,
+    // Issue #55: running total of every unit CLEAR PLANT has ever discarded
+    // — internal-only, never published to the UI (see useSimEngine.js's
+    // publishSnap, which doesn't read it) — folded into assertConserved
+    // (conservation.js) as its own term so the whole-line invariant still
+    // proves out across a clear without that material landing in any
+    // presenter-facing counter.
+    discardedByClear: 0,
+  };
 }
 
 // Rebuilds `sim` from its own `line` and copies the result over the same
@@ -245,6 +254,26 @@ export function resetTrips(sim) {
   // health has actually been restored, the same self-gating shape every
   // control.js reset already has.
   resetUtilitiesTrip(sim);
+}
+
+// Plant control (issue #55): CLEAR PLANT — instantly empties every machine
+// on the line of whatever grain it's currently holding, via each behaviour's
+// own `clear` (behaviors.js), a kind not opting in (source, passThrough,
+// meteredFeeder, splitter, router — none hold material of their own) simply
+// contributes nothing. Cumulative counters, the event log, latched trips,
+// source/destination selection and run/pause state are all untouched — this
+// only ever zeroes the material a machine is holding right now, never
+// anything this file's own resetTrips/resetSim already own. The total
+// discarded folds into `sim.discardedByClear` (createSim above) rather than
+// any presenter-facing counter, so `conservationTotals` (conservation.js)
+// can still account for it without exposing a new number to the UI.
+export function clearPlant(sim) {
+  let discarded = 0;
+  for (const state of sim.machines.values()) {
+    const clear = BEHAVIORS[state.kind]?.clear;
+    if (clear) discarded += clear(state);
+  }
+  sim.discardedByClear += discarded;
 }
 
 // Plant control (issue #50): the counterpart to resetTrips above, and

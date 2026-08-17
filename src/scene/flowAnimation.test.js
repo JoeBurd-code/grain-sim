@@ -12,15 +12,19 @@ import { computeConnectionFlowRatios } from "./flowAnimation";
 const SOURCE_ID = "upstreamStub";
 const BUFFER_BIN_ID = "treaterBufferBin";
 const FEEDER_ID = "treatDrumFeeder";
+const PRE_BIN_ID = "treaterPreBin";
 const TREATER_ID = "batchTreater";
 const SCREEN_ID = "scalpingScreen";
 
-// Isolates the feeder's own draw from the buffer bin's stock (mirrors
-// engine.test.js's own feedElevator helper), so a short run reliably keeps
-// material moving all the way to the treater without needing to also
-// balance the source valve.
+// Isolates the feeder's own draw from new inflow (mirrors engine.test.js's
+// own feedElevator helper), so a short run reliably keeps material moving
+// all the way to the treater without needing to also balance the source
+// valve. Issue #55: the line now starts empty, so the bin needs its own
+// real stock to draw from — restoring the line's old (pre-#55) 55% starting
+// level here explicitly, same as engine.test.js's own helper.
 function feedElevator(sim, tPerHour = 12) {
   setSourceRate(sim, SOURCE_ID, 0);
+  setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55);
   setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(tPerHour));
 }
 
@@ -89,6 +93,7 @@ describe("computeConnectionFlowRatios", () => {
     // of state.cycleSec, both runs would report the identical ratio.
     function ratioAtFirstDischarge(cycleSecOverride) {
       const sim = createSim(line);
+      setAccumulatorLevel(sim, PRE_BIN_ID, 0.4); // issue #55: the line now starts empty; the treater needs a charge on hand well within the 300s budget below
       feedElevator(sim, 20);
       if (cycleSecOverride != null) setBatchCycleSec(sim, TREATER_ID, cycleSecOverride);
       for (let i = 0; i < Math.round(300 / DT); i++) {
@@ -120,6 +125,7 @@ describe("computeConnectionFlowRatios", () => {
 
   it("gives a splitter's product and waste connections the same ratio, cancelling the split fraction out", () => {
     const sim = createSim(line);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.4); // issue #55: the line now starts empty; the treater needs a charge on hand well within the 180s budget below
     feedElevator(sim, 20);
     setBatchCycleSec(sim, TREATER_ID, 2); // short hold once charged, so batches pulse through repeatedly
     // The screen only actually moves material in the brief window right
@@ -149,6 +155,12 @@ describe("computeConnectionFlowRatios", () => {
   // flowing.
   it("gives only the conveyor's currently selected outlet a nonzero ratio, never the other declared ports", () => {
     const sim = createSim(line);
+    // Issue #55: the line now starts empty; restore the treating zone's own
+    // pre-#55 starting levels so material genuinely reaches the packaging
+    // conveyor within the 210s budget below.
+    setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.4);
+    setAccumulatorLevel(sim, "treaterAfterBin", 0.3);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15));
     for (let i = 0; i < Math.round(210 / DT); i++) stepSim(sim, DT); // past the ~185s transit lag, default destination (metal bin 1)
