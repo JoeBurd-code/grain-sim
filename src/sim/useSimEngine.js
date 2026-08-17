@@ -12,6 +12,7 @@ import {
   setSource as setSourceSim, getSource,
   setDestination as setDestinationSim, getDestination,
   controlledStop as controlledStopSim, resumeLine as resumeLineSim, getControlledStopPhase,
+  setUtilitiesHealthy as setUtilitiesHealthySim, getUtilitiesHealthy, getUtilitiesTripPhase,
 } from "./engine";
 import { BEHAVIORS } from "./behaviors";
 import { createPlotHistory, setSeriesPlotted, recordSample } from "./plotHistory";
@@ -51,6 +52,11 @@ function publishSnap(sim) {
   return {
     t: sim.t, machines, events: getCombinedEvents(sim), source: getSource(sim), destination: getDestination(sim),
     controlledStopPhase: getControlledStopPhase(sim),
+    // Issue #51: same derived-off-the-sim pattern as controlledStopPhase
+    // above — the toggle's own position and the trip's own latch phase are
+    // two independent facts (health can be restored while still "tripped",
+    // pending a reset), so both are published rather than collapsed into one.
+    utilitiesHealthy: getUtilitiesHealthy(sim), utilitiesTripPhase: getUtilitiesTripPhase(sim),
   };
 }
 
@@ -265,6 +271,13 @@ export function useSimEngine(line) {
     publish();
   }, [sim, publish]);
 
+  // Plant control (issue #51): the utilities health toggle, same one-click
+  // immediate-effect shape as setSource/setDestination above.
+  const setUtilitiesHealthy = useCallback((healthy) => {
+    setUtilitiesHealthySim(sim, healthy);
+    publish();
+  }, [sim, publish]);
+
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
   return {
@@ -272,7 +285,7 @@ export function useSimEngine(line) {
     setInterlockHigh, setInterlockLow, setInterlockDelay, setElevatorSpeed: setElevatorSpeedFraction,
     setInterlockSlow, setInterlockStop, setInterlockSlowDelay, setInterlockStopDelay,
     setBatchSize: setBatchSizeM3, setBatchCycleTime, setWasteFraction, setSource, setDestination,
-    controlledStop, resumeLine,
+    controlledStop, resumeLine, setUtilitiesHealthy,
     history, togglePlotSeries,
   };
 }

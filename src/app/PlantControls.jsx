@@ -23,6 +23,14 @@
 // TransportControls' own RUN/PAUSE already uses): CONTROLLED STOP while
 // running, RESUME LINE once a drain is in progress or has settled. It
 // doesn't latch (sim/controlledStop.js), so resuming needs no trip reset.
+//
+// UTILITIES (issue #51) is its sixth: the presenter's own single toggle
+// standing in for the three utility sequences the line can't run without
+// (sim/utilitiesTrip.js) — filled/active the instant health is toggled off,
+// same convention as CONTROLLED STOP above, even though the actual trip
+// doesn't land on every machine until 1s later. It does latch, like every
+// trip in control.js, so bringing the line back is RESET TRIPS' job, not a
+// second button of its own here.
 import { C, FONT_MONO } from "../scene/theme";
 
 const clusterStyle = {
@@ -70,6 +78,7 @@ const METAL_BIN_DESTINATIONS = new Set(["metalBin1", "metalBin2"]);
 export default function PlantControls({
   onResetTrips, source, onSetSource, destination, onSetDestination, onEmptyBin,
   controlledStopPhase, onControlledStop, onResumeLine,
+  utilitiesHealthy, utilitiesTripPhase, onSetUtilitiesHealthy,
 }) {
   const emptyableBinId = METAL_BIN_DESTINATIONS.has(destination) ? destination : null;
   // Issue #50: one button, two states — RUN/PAUSE's own toggle shape
@@ -78,6 +87,21 @@ export default function PlantControls({
   // or "stopped"), not just once it's fully finished, so the presenter sees
   // it engage the instant they press it rather than several seconds later.
   const stopping = controlledStopPhase !== "running";
+  // Issue #51: the toggle's own position (`utilitiesHealthy`) and the trip's
+  // own latch phase are two independent facts — a presenter can restore
+  // health while the trip is still latched, tripped, waiting on RESET TRIPS
+  // (utilitiesTrip.js's own "restoring health alone does not restart the
+  // line"). Reading only `utilitiesHealthy` here would have the button go
+  // dark the moment health is restored even though the line is still
+  // stopped, which is exactly the false "we're fine" reading a presenter
+  // must not get from this cluster — so both facts drive the button.
+  const utilitiesLatched = utilitiesTripPhase !== "running";
+  const utilitiesActive = !utilitiesHealthy || utilitiesLatched;
+  const utilitiesLabel = !utilitiesHealthy
+    ? "⚡ UTILITIES FAILED"
+    : utilitiesLatched
+      ? "⚡ TRIPPED — RESET NEEDED"
+      : "⚡ TRIP UTILITIES";
   return (
     <div style={clusterStyle}>
       <span style={labelStyle}>PLANT</span>
@@ -111,6 +135,13 @@ export default function PlantControls({
       </button>
       <button style={btnStyle} onClick={onResetTrips}>
         ⚠ RESET TRIPS
+      </button>
+      <span style={{ ...labelStyle, marginLeft: 4 }}>UTILITIES</span>
+      <button
+        style={utilitiesActive ? activeBtnStyle : btnStyle}
+        onClick={() => onSetUtilitiesHealthy(!utilitiesHealthy)}
+      >
+        {utilitiesLabel}
       </button>
     </div>
   );

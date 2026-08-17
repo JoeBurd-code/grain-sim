@@ -169,6 +169,9 @@ export default function MeetingApp() {
           controlledStopPhase={engine.snap.controlledStopPhase}
           onControlledStop={engine.controlledStop}
           onResumeLine={engine.resumeLine}
+          utilitiesHealthy={engine.snap.utilitiesHealthy}
+          utilitiesTripPhase={engine.snap.utilitiesTripPhase}
+          onSetUtilitiesHealthy={engine.setUtilitiesHealthy}
         />
         <div style={{ display: "flex", gap: 6, flex: "none" }}>
           {line.zones.map((z) => (

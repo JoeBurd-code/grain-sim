@@ -7,6 +7,7 @@ import {
   setBatchSize, setBatchCycleSec, setSplitterWasteFraction, setSource, getSource,
   setDestination, getDestination,
   controlledStop, resumeLine, getControlledStopPhase,
+  setUtilitiesHealthy, getUtilitiesTripPhase,
 } from "./engine";
 import { assertConserved, conservationTotals } from "./conservation";
 import { tPerHourToM3PerSec } from "./units";
@@ -2704,5 +2705,49 @@ describe("controlled stop (issue #50)", () => {
     stepSim(sim, DT);
     expect(getMachineState(sim, "feeder").enabled).toBe(commandedAfterFirstTick);
     expect(getControlledStopPhase(sim)).toBe("draining");
+  });
+});
+
+// Issue #51's own dedicated unit coverage (src/sim/utilitiesTrip.test.js)
+// exercises the trip/latch/reset mechanism itself against a small fabricated
+// fixture; this block covers what only the real line's own topology can —
+// the source-selector interaction (two packaging feeders, only one of which
+// should ever come back enabled) and conservation across every kind on the
+// full line at once.
+describe("utilities trip against the real line (issue #51)", () => {
+  it("trips both packaging feeders regardless of which source was selected, and a reset restores only the one that was actually selected", () => {
+    const sim = createSim(line);
+    setSource(sim, "proBox");
+    for (let i = 0; i < Math.round(5 / DT); i++) stepSim(sim, DT);
+
+    setUtilitiesHealthy(sim, false);
+    for (let i = 0; i < Math.round(1.1 / DT); i++) stepSim(sim, DT);
+    expect(getUtilitiesTripPhase(sim)).toBe("tripped");
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).enabled).toBe(false);
+    expect(getMachineState(sim, TREATING_FEEDER_ID).enabled).toBe(false);
+    expect(getMachineState(sim, SOURCE_ID).opennessTarget).toBe(0);
+    expect(getMachineState(sim, PRO_BOX_ID).opennessTarget).toBe(0);
+    expect(getMachineState(sim, ELEVATOR_ID).throttleTarget).toBe(0);
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(0);
+
+    setUtilitiesHealthy(sim, true);
+    resetTrips(sim);
+    expect(getUtilitiesTripPhase(sim)).toBe("running");
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).enabled).toBe(true); // was selected before the trip
+    expect(getMachineState(sim, TREATING_FEEDER_ID).enabled).toBe(false); // was not, and stays not
+  });
+
+  it("conservation holds across a full-line utilities trip and recovery", () => {
+    const sim = createSim(line);
+    for (let i = 0; i < Math.round(30 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
+
+    setUtilitiesHealthy(sim, false);
+    for (let i = 0; i < Math.round(1.1 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
+    for (let i = 0; i < Math.round(30 / DT); i++) { stepSim(sim, DT); assertConserved(sim); } // sits tripped
+
+    setUtilitiesHealthy(sim, true);
+    resetTrips(sim);
+    for (let i = 0; i < Math.round(60 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
+    expect(() => assertConserved(sim)).not.toThrow();
   });
 });

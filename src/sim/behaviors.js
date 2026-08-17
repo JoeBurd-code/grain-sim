@@ -605,6 +605,17 @@ function initBatchCycle(m) {
     // doesn't. Defaults open so a batch-cycle machine no interlock ever
     // commands keeps issue #24's behaviour exactly.
     blocked: false,
+    // Utilities trip (issue #51): unlike `blocked`, which only withholds a
+    // *fresh* charge, `stopped` freezes the machine exactly where it is —
+    // mid-charging, mid-holding or mid-discharging — the same "product left
+    // stranded wherever it is" a real trip demands and no existing interlock
+    // on this line has ever needed (every prior one deliberately lets an
+    // in-progress charge finish, see controlledStop.js's own comment on this
+    // same field's absence there). Independent of `blocked` so the two never
+    // fight: a utilities reset only ever clears this flag, never `blocked`,
+    // and vice versa. Defaults false so a batch-cycle machine no interlock
+    // ever commands keeps issue #24's behaviour exactly.
+    stopped: false,
   };
 }
 // Reverse pass: only wants more material while actively charging, and only
@@ -620,11 +631,17 @@ function initBatchCycle(m) {
 // the previous discharge, or at boot) is what "does not accept more seed for
 // another batch" actually withholds.
 function capacityAvailableBatchCycle(state) {
+  if (state.stopped) return 0;
   if (state.phase !== "charging") return 0;
   if (state.held === 0 && state.blocked) return 0;
   return Math.max(0, state.chargeM3 - state.held);
 }
 function applyBatchCycle(state, dt, inflow, cap, downstreamCap = 0, hasDownstream = false) {
+  // Issue #51: a genuine trip, unlike `blocked` above, freezes the machine
+  // outright — no phase advances, no hold timer ticks, no discharge — so a
+  // charge caught mid-cycle stays exactly where the trip found it rather
+  // than running on to its next natural transition.
+  if (state.stopped) return 0;
   const accepted = Math.min(inflow, cap);
   state.held += accepted;
   state.drawn += accepted;
@@ -681,11 +698,14 @@ function conserveBatchCycle(state, hasDownstream) {
 // is starving it" or "stopped" outright. Derived here rather than stored as
 // a distinct state.phase value, since capacityAvailableBatchCycle's own
 // check (blocked && held === 0) already gives the exact condition for free.
+// `stopped` (issue #51) takes priority over both: a utilities trip can catch
+// this machine mid-charging, mid-holding or mid-discharging, and the popup
+// should read "stopped" regardless of which phase it was frozen in.
 function snapshotBatchCycle(state) {
   const waiting = state.phase === "charging" && state.held === 0 && state.blocked;
   return {
     fill: state.chargeM3 > 0 ? state.held / state.chargeM3 : 0,
-    phase: waiting ? "waiting" : state.phase,
+    phase: state.stopped ? "stopped" : waiting ? "waiting" : state.phase,
     // chargeM3/cycleSec (issue #35): published live, not just read off the
     // line's authored sim block, since setBatchSize/setBatchCycleSec (both
     // issue #24 presenter controls) mutate these on `state` directly — the
@@ -701,6 +721,14 @@ function snapshotBatchCycle(state) {
 // this invoked and keeps its default `blocked: false`.
 function commandBatchCycle(state, blocked) {
   state.blocked = blocked;
+}
+// Utilities trip (issue #51): the immediate, total stop `blocked` above was
+// never meant to provide (see `stopped`'s own comment on initBatchCycle).
+// The control layer is not the caller here — utilitiesTrip.js is, the same
+// category of direct commander controlledStop.js already is for the other
+// actuator kinds.
+function setStoppedBatchCycle(state, stopped) {
+  state.stopped = stopped;
 }
 
 // Splitter (issue #26): divides a single infeed across two named output
@@ -927,6 +955,7 @@ export const BEHAVIORS = {
   batchCycle: {
     init: initBatchCycle, capacityAvailable: capacityAvailableBatchCycle, apply: applyBatchCycle,
     conserve: conserveBatchCycle, snapshot: snapshotBatchCycle, command: commandBatchCycle,
+    setStopped: setStoppedBatchCycle,
   },
   splitter: {
     init: initSplitter, capacityAvailable: capacityAvailableSplitter, apply: applySplitter,

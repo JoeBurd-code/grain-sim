@@ -8,6 +8,10 @@ import {
   initControlledStop, stepControlledStop, beginControlledStop as beginControlledStopRun,
   resumeControlledStop,
 } from "./controlledStop";
+import {
+  initUtilitiesTrip, stepUtilitiesTrip, setUtilitiesHealthy as setUtilitiesHealthySim,
+  resetUtilitiesTrip,
+} from "./utilitiesTrip";
 
 export const DT = 0.05; // s, fixed sim timestep (matches the proven mock)
 
@@ -85,6 +89,11 @@ export function createSim(line) {
   // order computed once off this same `line`'s topology (see
   // sim/controlledStop.js and line/stopOrder.js).
   const controlledStop = initControlledStop(line);
+  // Issue #51: the utilities trip's own runtime state — no line-derived
+  // config needed (unlike control.js's rules), since it doesn't target one
+  // sensor/actuator pair but every actuator on the line at once, discovered
+  // fresh off `sim.machines` the moment it actually fires (utilitiesTrip.js).
+  const utilitiesTrip = initUtilitiesTrip();
   // The declared output ports of every multi-output (splitter, and later
   // router) machine, so the passes below know the full port set to build
   // downstreamCap/hasDownstream objects over — including a port with
@@ -95,7 +104,7 @@ export function createSim(line) {
     const m = machinesById.get(id);
     if (BEHAVIORS[m.sim.kind].multiOutput) multiOutputPorts.set(id, m.ports.outputs);
   }
-  return { t: 0, line, machines, downstream, multiOutputPorts, order, control, controlledStop };
+  return { t: 0, line, machines, downstream, multiOutputPorts, order, control, controlledStop, utilitiesTrip };
 }
 
 // Rebuilds `sim` from its own `line` and copies the result over the same
@@ -211,6 +220,10 @@ export function stepSim(sim, dt) {
   sim.t += dt;
   stepControl(sim);
   stepControlledStop(sim);
+  // Issue #51: stepped last, so a utilities trip firing this tick overrides
+  // whatever the two passes above just commanded — a trip is total, and
+  // nothing else on the line gets to argue with it.
+  stepUtilitiesTrip(sim);
   return sim;
 }
 
@@ -226,6 +239,12 @@ export function getMachineState(sim, id) {
 // kind.
 export function resetTrips(sim) {
   resetControlTrips(sim);
+  // Issue #51: swept by the same one RESET TRIPS button, per that ticket's
+  // own "reuses the latch and reset machinery" instruction — resetUtilitiesTrip
+  // decides for itself whether it has anything latched and whether utilities
+  // health has actually been restored, the same self-gating shape every
+  // control.js reset already has.
+  resetUtilitiesTrip(sim);
 }
 
 // Plant control (issue #50): the counterpart to resetTrips above, and
@@ -264,6 +283,22 @@ export function getControlledStopPhase(sim) {
   return sim.controlledStop.phase;
 }
 
+// Plant control (issue #51): the utilities health toggle, and read access to
+// both the presenter's own toggle position and the trip's own latch phase —
+// same "filled = active" convention the source/destination selectors and the
+// controlled-stop button already give the plant-control cluster.
+export function setUtilitiesHealthy(sim, healthy) {
+  setUtilitiesHealthySim(sim, healthy);
+}
+
+export function getUtilitiesHealthy(sim) {
+  return sim.utilitiesTrip.healthy;
+}
+
+export function getUtilitiesTripPhase(sim) {
+  return sim.utilitiesTrip.phase;
+}
+
 // Read access to an interlock's runtime state (phase, event log, live
 // parameters), keyed by its sensor machine — the same public seam
 // getMachineState offers for a plain machine, so a test or the UI never
@@ -286,6 +321,15 @@ export function getCombinedEvents(sim) {
   // gathered from a single runtime object rather than one per sensor.
   for (const entry of sim.controlledStop.log) {
     events.push({ ...entry, machineName: machineNames.get(entry.machineId) });
+  }
+  // Issue #51: the utilities trip's own log, merged the same way — tagged
+  // with a synthetic "utilities" id rather than a real line machine (see
+  // utilitiesTrip.js's own header: the three utility sequences are
+  // deliberately not modelled as machines), so there is no real id for
+  // `machineNames` to resolve; the display name is supplied directly here
+  // instead of looked up.
+  for (const entry of sim.utilitiesTrip.log) {
+    events.push({ ...entry, machineName: "UTILITIES" });
   }
   events.sort((a, b) => a.t - b.t);
   return events;
