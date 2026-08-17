@@ -8,9 +8,12 @@
 // The visible time window is controlled by two sliders (zoom + shift) driven
 // by useChartRange, a thin hook over the pure chartRange.js module -- this
 // replaced an earlier drag-pan/wheel-zoom interaction (issue #37) after user
-// feedback that dragging directly on the chart didn't feel good. Dock height
-// is a separate, simpler drag-to-resize on the dock's own top edge; it has
-// no data dependency so it doesn't need a pure module of its own.
+// feedback that dragging directly on the chart didn't feel good. The dock
+// itself (issue #53) is fixed-height and open by default; a pull tab pinned
+// to the bottom-center of the viewport is the only control for showing or
+// hiding it, sliding it in and out via a CSS transform transition rather
+// than reserving/releasing layout space, so toggling never resizes the
+// scene above it.
 //
 // Issue #38: each plotted machine's level line also gets a dot at every
 // timestamp that machine logged an interlock event, sourced from the same
@@ -23,7 +26,7 @@
 // selecting a time span -- a shaded band with a live elapsed-time readout,
 // left in place once released. useMeasure owns the mode/span state; the
 // pure math lives in measureSpan.js, mirroring useChartRange/chartRange.js.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 import { m3PerSecToTPerHour } from "../sim/units";
 import { sampleValueAt } from "../sim/plotHistory";
@@ -42,9 +45,12 @@ const MARGIN = { left: 40, right: 44, top: 14, bottom: 24 };
 const PLOT_PADDING_LEFT = 8;
 const PLOT_PADDING_RIGHT = 14;
 const MIN_RATE_AXIS_MAX_TPH = 5;
-const DEFAULT_DOCK_HEIGHT = 260;
-const MIN_DOCK_HEIGHT = 120;
-const MAX_DOCK_HEIGHT = 520;
+const DOCK_HEIGHT = 260;
+const DOCK_TRANSITION = "transform 0.28s ease, bottom 0.28s ease";
+// Tab sits one layer above the dock so it stays clickable/visible as the
+// dock's fixed panel slides underneath it.
+const DOCK_Z_INDEX = 20;
+const TAB_Z_INDEX = DOCK_Z_INDEX + 1;
 
 // Matches MachinePopup.jsx's Slider styling (label row + accent-colored
 // range input) so the chart's controls read as the same widget family.
@@ -112,40 +118,9 @@ function usePlotSize() {
   return [ref, size];
 }
 
-// Drag-to-resize on the dock's top edge. Moving the pointer up grows the
-// dock (handle and cursor move opposite the height delta), matching the
-// direction a top-edge resize handle reads as natural.
-function useDockHeight() {
-  const [height, setHeight] = useState(DEFAULT_DOCK_HEIGHT);
-  const dragRef = useRef(null);
-
-  useEffect(() => {
-    const onMove = (e) => {
-      const start = dragRef.current;
-      if (!start) return;
-      const next = start.height + (start.y - e.clientY);
-      setHeight(Math.min(MAX_DOCK_HEIGHT, Math.max(MIN_DOCK_HEIGHT, next)));
-    };
-    const onUp = () => { dragRef.current = null; };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    return () => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-  }, []);
-
-  const onHandlePointerDown = useCallback((e) => {
-    if (e.button !== 0) return;
-    dragRef.current = { y: e.clientY, height };
-  }, [height]);
-
-  return [height, onHandlePointerDown];
-}
-
 export default function ChartDock({ history, events, onEventClick }) {
   const [plotRef, size] = usePlotSize();
-  const [dockHeight, onHandlePointerDown] = useDockHeight();
+  const [open, setOpen] = useState(true);
 
   // Derived together, keyed only on `history` (referentially stable while
   // nothing is plotted -- see plotHistory.js's recordSample no-op fast path
@@ -232,185 +207,200 @@ export default function ChartDock({ history, events, onEventClick }) {
   const measureX2 = measure.span ? x(measure.span.end) : null;
 
   return (
-    <div style={{
-      flex: "none", height: dockHeight, borderTop: `1px solid ${C.line}`,
-      display: "flex", fontFamily: FONT_MONO, background: C.bg, position: "relative",
-    }}>
-      <div
-        onPointerDown={onHandlePointerDown}
-        style={{
-          position: "absolute", top: -3, left: 0, right: 0, height: 6,
-          cursor: "ns-resize", userSelect: "none", WebkitUserSelect: "none",
-        }}
-      />
-
-      <div style={{ width: 190, flex: "none", padding: "12px 16px", borderRight: `1px solid ${C.line}` }}>
-        <div style={{ fontFamily: FONT_DISP, fontSize: 13, letterSpacing: 0.5, color: C.text }}>SHARED CHART</div>
-        <div style={{ fontSize: 9, color: C.muted, marginTop: 4, marginBottom: 12, lineHeight: 1.6 }}>
-          level % · left axis, solid<br />rate t/h · right axis, dashed
+    <>
+      <div style={{
+        position: "fixed", left: 0, right: 0, bottom: 0, height: DOCK_HEIGHT,
+        borderTop: `1px solid ${C.line}`, display: "flex", fontFamily: FONT_MONO,
+        background: C.bg, zIndex: DOCK_Z_INDEX,
+        transform: `translateY(${open ? "0" : "100%"})`, transition: DOCK_TRANSITION,
+      }}>
+        <div style={{ width: 190, flex: "none", padding: "12px 16px", borderRight: `1px solid ${C.line}` }}>
+          <div style={{ fontFamily: FONT_DISP, fontSize: 13, letterSpacing: 0.5, color: C.text }}>SHARED CHART</div>
+          <div style={{ fontSize: 9, color: C.muted, marginTop: 4, marginBottom: 12, lineHeight: 1.6 }}>
+            level % · left axis, solid<br />rate t/h · right axis, dashed
+          </div>
+          <MeasureToggle active={measure.active} onClick={measure.toggle} />
+          <RangeSlider
+            label="zoom" value={zoomFrac} onChange={setZoomFrac}
+            formatValue={(v) => `${Math.round(v * 100)}%`}
+          />
+          <RangeSlider
+            label="shift" value={shiftFrac} onChange={setShiftFrac} disabled={shiftDisabled}
+            formatValue={(v) => (shiftDisabled ? "—" : `${Math.round(v * 100)}%`)}
+          />
         </div>
-        <MeasureToggle active={measure.active} onClick={measure.toggle} />
-        <RangeSlider
-          label="zoom" value={zoomFrac} onChange={setZoomFrac}
-          formatValue={(v) => `${Math.round(v * 100)}%`}
-        />
-        <RangeSlider
-          label="shift" value={shiftFrac} onChange={setShiftFrac} disabled={shiftDisabled}
-          formatValue={(v) => (shiftDisabled ? "—" : `${Math.round(v * 100)}%`)}
-        />
+
+        <div
+          ref={plotRef}
+          style={{
+            flex: 1, minWidth: 0, position: "relative", overflow: "hidden",
+            padding: `0 ${PLOT_PADDING_RIGHT}px 0 ${PLOT_PADDING_LEFT}px`,
+            cursor: measure.active ? "crosshair" : "default",
+            userSelect: "none", WebkitUserSelect: "none",
+          }}
+        >
+          {ready && (
+            <svg width={w} height={h}>
+              <defs>
+                <clipPath id="chartPlotClip">
+                  <rect x={plotLeft} y={plotTop} width={plotW} height={plotH} />
+                </clipPath>
+              </defs>
+              <line x1={plotLeft} y1={plotTop} x2={plotLeft} y2={plotBottom} stroke={C.line} strokeWidth="1" />
+              <line x1={plotLeft} y1={plotBottom} x2={plotRight} y2={plotBottom} stroke={C.line} strokeWidth="1" />
+              <line x1={plotRight} y1={plotTop} x2={plotRight} y2={plotBottom} stroke={C.line} strokeWidth="1" />
+
+              {[0, 25, 50, 75, 100].map((pct) => (
+                <g key={`lvl${pct}`}>
+                  <line x1={plotLeft - 4} y1={yLevel(pct)} x2={plotLeft} y2={yLevel(pct)} stroke={C.muted} strokeWidth="1" />
+                  <text x={plotLeft - 7} y={yLevel(pct) + 3} fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="end">
+                    {pct}
+                  </text>
+                </g>
+              ))}
+              {[0, rateAxisMax / 2, rateAxisMax].map((r) => (
+                <g key={`rate${r}`}>
+                  <line x1={plotRight} y1={yRate(r)} x2={plotRight + 4} y2={yRate(r)} stroke={C.muted} strokeWidth="1" />
+                  <text x={plotRight + 7} y={yRate(r) + 3} fontFamily={FONT_MONO} fontSize="8" fill={C.muted}>
+                    {Math.round(r)}
+                  </text>
+                </g>
+              ))}
+              {[0, 0.25, 0.5, 0.75, 1].map((f) => (
+                <text
+                  key={`t${f}`} x={x(tMin + tSpan * f)} y={plotBottom + 14}
+                  fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="middle"
+                >
+                  {(tMin + tSpan * f).toFixed(0)}s
+                </text>
+              ))}
+              <text x={plotLeft} y={plotTop - 3} fontFamily={FONT_MONO} fontSize="8" fill={C.muted}>%</text>
+              <text x={plotRight} y={plotTop - 3} fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="end">t/h</text>
+
+              {activeSeries.length === 0 && (
+                <text
+                  x={(plotLeft + plotRight) / 2} y={(plotTop + plotBottom) / 2}
+                  fontFamily={FONT_MONO} fontSize="10" fill={C.muted} textAnchor="middle"
+                >
+                  no machines plotted · use “plot” in a machine's popup
+                </text>
+              )}
+
+              <g clipPath="url(#chartPlotClip)">
+                {measure.span && (
+                  <rect
+                    x={Math.min(measureX1, measureX2)}
+                    y={plotTop}
+                    width={Math.abs(measureX2 - measureX1)}
+                    height={plotH}
+                    fill={MEASURE_COLOR}
+                    fillOpacity={0.15}
+                    stroke={MEASURE_COLOR}
+                    strokeOpacity={0.6}
+                    strokeWidth="1"
+                  />
+                )}
+                {activeSeries.map((s) => {
+                  if (s.samples.length < 2) return null;
+                  const points = s.samples.map((p) => `${x(p.t)},${seriesY(s, p)}`).join(" ");
+                  return (
+                    <polyline
+                      key={`${s.machine.id}-${s.kind}`}
+                      points={points}
+                      fill="none"
+                      stroke={s.color}
+                      strokeWidth="1.5"
+                      strokeDasharray={s.kind === "rate" ? "4 3" : undefined}
+                    />
+                  );
+                })}
+                {eventDots.map((d) => (
+                  <circle
+                    key={d.idx}
+                    cx={x(d.t)}
+                    cy={yLevel(d.value * 100)}
+                    r={EVENT_DOT_RADIUS}
+                    fill={d.color}
+                    stroke={C.bg}
+                    strokeWidth="1"
+                    style={{ cursor: "pointer" }}
+                    onClick={() => onEventClick?.(d.idx)}
+                  >
+                    <title>jump to event in log</title>
+                  </circle>
+                ))}
+                {measure.span && (
+                  <text
+                    x={Math.min(Math.max((measureX1 + measureX2) / 2, plotLeft + 26), plotRight - 26)}
+                    y={plotTop + 12}
+                    fontFamily={FONT_MONO} fontSize="9" fill={MEASURE_COLOR} textAnchor="middle"
+                  >
+                    Δ {(measure.span.end - measure.span.start).toFixed(1)}s
+                  </text>
+                )}
+              </g>
+
+              {/* Issue #39: transparent capture surface for measure-mode drag
+                  -- only intercepts pointer events while measure mode is on,
+                  so event-dot clicks above keep working the rest of the time. */}
+              <rect
+                x={plotLeft} y={plotTop} width={plotW} height={plotH}
+                fill="transparent"
+                pointerEvents={measure.active ? "all" : "none"}
+                onPointerDown={(e) => measure.onPlotPointerDown(e, range)}
+              />
+            </svg>
+          )}
+        </div>
+
+        <div style={{ width: 170, flex: "none", padding: "12px 16px", borderLeft: `1px solid ${C.line}`, fontSize: 8.5, color: C.muted, overflowY: "auto" }}>
+          <div style={{ letterSpacing: 2, textTransform: "uppercase", fontSize: 8, marginBottom: 8 }}>key</div>
+          {plottedMachines.length === 0 ? (
+            <div style={{ fontStyle: "italic" }}>nothing plotted yet</div>
+          ) : (
+            plottedMachines.map((m) => {
+              const entry = history.get(m.id);
+              const color = plotColorFor(m.id);
+              return (
+                <div key={m.id} style={{ marginBottom: 8 }}>
+                  <div style={{ color: C.text, fontSize: 9, marginBottom: 3 }}>{m.name}</div>
+                  {entry.level && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                      <span style={{ width: 22, height: 2, background: color, display: "inline-block" }} />
+                      <span>level</span>
+                    </div>
+                  )}
+                  {entry.rate && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ width: 22, borderTop: `2px dashed ${color}`, display: "inline-block" }} />
+                      <span>rate</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
 
-      <div
-        ref={plotRef}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title={open ? "collapse chart dock" : "expand chart dock"}
+        aria-expanded={open}
+        aria-label={open ? "collapse chart dock" : "expand chart dock"}
         style={{
-          flex: 1, minWidth: 0, position: "relative", overflow: "hidden",
-          padding: `0 ${PLOT_PADDING_RIGHT}px 0 ${PLOT_PADDING_LEFT}px`,
-          cursor: measure.active ? "crosshair" : "default",
-          userSelect: "none", WebkitUserSelect: "none",
+          position: "fixed", left: "50%", transform: "translateX(-50%)",
+          bottom: open ? DOCK_HEIGHT : 0, transition: DOCK_TRANSITION,
+          zIndex: TAB_Z_INDEX, width: 48, height: 18,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          background: C.bg, border: `1px solid ${C.line}`,
+          borderBottom: open ? "none" : `1px solid ${C.line}`,
+          borderRadius: "5px 5px 0 0", color: C.muted, cursor: "pointer",
+          fontFamily: FONT_MONO, fontSize: 10, lineHeight: 1, userSelect: "none",
         }}
       >
-        {ready && (
-          <svg width={w} height={h}>
-            <defs>
-              <clipPath id="chartPlotClip">
-                <rect x={plotLeft} y={plotTop} width={plotW} height={plotH} />
-              </clipPath>
-            </defs>
-            <line x1={plotLeft} y1={plotTop} x2={plotLeft} y2={plotBottom} stroke={C.line} strokeWidth="1" />
-            <line x1={plotLeft} y1={plotBottom} x2={plotRight} y2={plotBottom} stroke={C.line} strokeWidth="1" />
-            <line x1={plotRight} y1={plotTop} x2={plotRight} y2={plotBottom} stroke={C.line} strokeWidth="1" />
-
-            {[0, 25, 50, 75, 100].map((pct) => (
-              <g key={`lvl${pct}`}>
-                <line x1={plotLeft - 4} y1={yLevel(pct)} x2={plotLeft} y2={yLevel(pct)} stroke={C.muted} strokeWidth="1" />
-                <text x={plotLeft - 7} y={yLevel(pct) + 3} fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="end">
-                  {pct}
-                </text>
-              </g>
-            ))}
-            {[0, rateAxisMax / 2, rateAxisMax].map((r) => (
-              <g key={`rate${r}`}>
-                <line x1={plotRight} y1={yRate(r)} x2={plotRight + 4} y2={yRate(r)} stroke={C.muted} strokeWidth="1" />
-                <text x={plotRight + 7} y={yRate(r) + 3} fontFamily={FONT_MONO} fontSize="8" fill={C.muted}>
-                  {Math.round(r)}
-                </text>
-              </g>
-            ))}
-            {[0, 0.25, 0.5, 0.75, 1].map((f) => (
-              <text
-                key={`t${f}`} x={x(tMin + tSpan * f)} y={plotBottom + 14}
-                fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="middle"
-              >
-                {(tMin + tSpan * f).toFixed(0)}s
-              </text>
-            ))}
-            <text x={plotLeft} y={plotTop - 3} fontFamily={FONT_MONO} fontSize="8" fill={C.muted}>%</text>
-            <text x={plotRight} y={plotTop - 3} fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="end">t/h</text>
-
-            {activeSeries.length === 0 && (
-              <text
-                x={(plotLeft + plotRight) / 2} y={(plotTop + plotBottom) / 2}
-                fontFamily={FONT_MONO} fontSize="10" fill={C.muted} textAnchor="middle"
-              >
-                no machines plotted · use “plot” in a machine's popup
-              </text>
-            )}
-
-            <g clipPath="url(#chartPlotClip)">
-              {measure.span && (
-                <rect
-                  x={Math.min(measureX1, measureX2)}
-                  y={plotTop}
-                  width={Math.abs(measureX2 - measureX1)}
-                  height={plotH}
-                  fill={MEASURE_COLOR}
-                  fillOpacity={0.15}
-                  stroke={MEASURE_COLOR}
-                  strokeOpacity={0.6}
-                  strokeWidth="1"
-                />
-              )}
-              {activeSeries.map((s) => {
-                if (s.samples.length < 2) return null;
-                const points = s.samples.map((p) => `${x(p.t)},${seriesY(s, p)}`).join(" ");
-                return (
-                  <polyline
-                    key={`${s.machine.id}-${s.kind}`}
-                    points={points}
-                    fill="none"
-                    stroke={s.color}
-                    strokeWidth="1.5"
-                    strokeDasharray={s.kind === "rate" ? "4 3" : undefined}
-                  />
-                );
-              })}
-              {eventDots.map((d) => (
-                <circle
-                  key={d.idx}
-                  cx={x(d.t)}
-                  cy={yLevel(d.value * 100)}
-                  r={EVENT_DOT_RADIUS}
-                  fill={d.color}
-                  stroke={C.bg}
-                  strokeWidth="1"
-                  style={{ cursor: "pointer" }}
-                  onClick={() => onEventClick?.(d.idx)}
-                >
-                  <title>jump to event in log</title>
-                </circle>
-              ))}
-              {measure.span && (
-                <text
-                  x={Math.min(Math.max((measureX1 + measureX2) / 2, plotLeft + 26), plotRight - 26)}
-                  y={plotTop + 12}
-                  fontFamily={FONT_MONO} fontSize="9" fill={MEASURE_COLOR} textAnchor="middle"
-                >
-                  Δ {(measure.span.end - measure.span.start).toFixed(1)}s
-                </text>
-              )}
-            </g>
-
-            {/* Issue #39: transparent capture surface for measure-mode drag
-                -- only intercepts pointer events while measure mode is on,
-                so event-dot clicks above keep working the rest of the time. */}
-            <rect
-              x={plotLeft} y={plotTop} width={plotW} height={plotH}
-              fill="transparent"
-              pointerEvents={measure.active ? "all" : "none"}
-              onPointerDown={(e) => measure.onPlotPointerDown(e, range)}
-            />
-          </svg>
-        )}
-      </div>
-
-      <div style={{ width: 170, flex: "none", padding: "12px 16px", borderLeft: `1px solid ${C.line}`, fontSize: 8.5, color: C.muted, overflowY: "auto" }}>
-        <div style={{ letterSpacing: 2, textTransform: "uppercase", fontSize: 8, marginBottom: 8 }}>key</div>
-        {plottedMachines.length === 0 ? (
-          <div style={{ fontStyle: "italic" }}>nothing plotted yet</div>
-        ) : (
-          plottedMachines.map((m) => {
-            const entry = history.get(m.id);
-            const color = plotColorFor(m.id);
-            return (
-              <div key={m.id} style={{ marginBottom: 8 }}>
-                <div style={{ color: C.text, fontSize: 9, marginBottom: 3 }}>{m.name}</div>
-                {entry.level && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-                    <span style={{ width: 22, height: 2, background: color, display: "inline-block" }} />
-                    <span>level</span>
-                  </div>
-                )}
-                {entry.rate && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ width: 22, borderTop: `2px dashed ${color}`, display: "inline-block" }} />
-                    <span>rate</span>
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
-      </div>
-    </div>
+        {open ? "▼" : "▲"}
+      </button>
+    </>
   );
 }
