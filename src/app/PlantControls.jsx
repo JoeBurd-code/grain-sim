@@ -16,6 +16,13 @@
 // EMPTY BIN only renders while the current destination is actually a metal
 // bin (the other two destinations have nothing this control could act on),
 // so the cluster never shows a button with nothing to do.
+//
+// CONTROLLED STOP (issue #50) is its fifth: the demonstrable counterpart to
+// RESET TRIPS — a trip strands product, a controlled stop drains the line —
+// so it sits right beside it. One button, two states (the same toggle shape
+// TransportControls' own RUN/PAUSE already uses): CONTROLLED STOP while
+// running, RESUME LINE once a drain is in progress or has settled. It
+// doesn't latch (sim/controlledStop.js), so resuming needs no trip reset.
 import { C, FONT_MONO } from "../scene/theme";
 
 const clusterStyle = {
@@ -62,8 +69,15 @@ const METAL_BIN_DESTINATIONS = new Set(["metalBin1", "metalBin2"]);
 
 export default function PlantControls({
   onResetTrips, source, onSetSource, destination, onSetDestination, onEmptyBin,
+  controlledStopPhase, onControlledStop, onResumeLine,
 }) {
   const emptyableBinId = METAL_BIN_DESTINATIONS.has(destination) ? destination : null;
+  // Issue #50: one button, two states — RUN/PAUSE's own toggle shape
+  // (TransportControls.jsx), just in this cluster's red rather than wheat,
+  // and filled whenever a drain is in progress or has settled ("draining"
+  // or "stopped"), not just once it's fully finished, so the presenter sees
+  // it engage the instant they press it rather than several seconds later.
+  const stopping = controlledStopPhase !== "running";
   return (
     <div style={clusterStyle}>
       <span style={labelStyle}>PLANT</span>
@@ -92,6 +106,9 @@ export default function PlantControls({
           EMPTY BIN
         </button>
       )}
+      <button style={stopping ? activeBtnStyle : btnStyle} onClick={stopping ? onResumeLine : onControlledStop}>
+        {stopping ? "▶ RESUME LINE" : "⏻ CONTROLLED STOP"}
+      </button>
       <button style={btnStyle} onClick={onResetTrips}>
         ⚠ RESET TRIPS
       </button>

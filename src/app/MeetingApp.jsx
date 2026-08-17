@@ -166,6 +166,9 @@ export default function MeetingApp() {
           destination={engine.snap.destination}
           onSetDestination={engine.setDestination}
           onEmptyBin={(binId) => engine.setLevel(binId, 0)}
+          controlledStopPhase={engine.snap.controlledStopPhase}
+          onControlledStop={engine.controlledStop}
+          onResumeLine={engine.resumeLine}
         />
         <div style={{ display: "flex", gap: 6, flex: "none" }}>
           {line.zones.map((z) => (
