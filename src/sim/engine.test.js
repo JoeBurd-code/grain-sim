@@ -6,6 +6,7 @@ import {
   setInterlockSlowSetpoint, setInterlockStopSetpoint, setInterlockSlowDelay, setInterlockStopDelay,
   setBatchSize, setBatchCycleSec, setSplitterWasteFraction, setSource, getSource,
   setDestination, getDestination,
+  controlledStop, resumeLine, getControlledStopPhase,
 } from "./engine";
 import { assertConserved, conservationTotals } from "./conservation";
 import { tPerHourToM3PerSec } from "./units";
@@ -2478,5 +2479,230 @@ describe("the Concetti pre-bin's own high-level trip cascades the full length of
     for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT);
 
     expect(() => assertConserved(sim)).not.toThrow();
+  });
+});
+
+// Issue #50: the presenter's other way to stop the line, and the direct
+// counterpart to a trip (control.js) — a trip stops the commanded machine
+// immediately, wherever its material happens to be (see e.g. this file's own
+// "material already on the elevator chain during the slow-down and the
+// stop..." test above, where the frozen queue is exactly the point). A
+// controlled stop walks the line's own upstream-first stop order
+// (line/stopOrder.js) instead, so material already released keeps moving to
+// whatever is still running rather than freezing mid-transit.
+//
+// A handful of these tests drive a small fabricated line rather than the
+// real one (same convention stopOrder.test.js's own cycle/stub tests use):
+// the real line's own demo-staged fill levels are large enough, and its own
+// real interlocks (the treater pre-bin's two-stage throttle, the metal
+// bins' own high-level trip) sensitive enough, that a full end-to-end drain
+// of the whole thing routinely collides with one of *those* — a real,
+// correct interaction, just not what these specific tests are isolating.
+// The full-line and lineWithoutPackaging (already defined above) cases
+// below cover the mechanism against real data; the fabricated line isolates
+// the mechanism itself, fast and deterministically.
+const miniLine = {
+  machines: [
+    { id: "src", sim: { kind: "source", rateM3PerSec: 1 } },
+    { id: "bin", sim: { kind: "accumulator", capacityM3: 10, initialLevelFraction: 0.5 } },
+    { id: "feeder", sim: { kind: "meteredFeeder", rateM3PerSec: 1, enabled: true } },
+    { id: "belt", sim: { kind: "transportDelay", distanceM: 5, speedMPerMin: 10, ceilingM3PerSec: 1 } },
+    { id: "sink", sim: { kind: "terminalSink" } },
+  ],
+  connections: [
+    { from: { machine: "src", port: "out" }, to: { machine: "bin", port: "in" }, kind: "product" },
+    { from: { machine: "bin", port: "out" }, to: { machine: "feeder", port: "in" }, kind: "product" },
+    { from: { machine: "feeder", port: "out" }, to: { machine: "belt", port: "in" }, kind: "product" },
+    { from: { machine: "belt", port: "out" }, to: { machine: "sink", port: "in" }, kind: "product" },
+  ],
+  interlocks: [],
+};
+
+describe("controlled stop (issue #50)", () => {
+  it("starts 'running'; the very next tick closes the source, but leaves the feeder alone while the bin behind it still holds real stock", () => {
+    const sim = createSim(miniLine);
+    expect(getControlledStopPhase(sim)).toBe("running");
+
+    controlledStop(sim); // the phase flips immediately; the walk itself runs on the next tick
+    expect(getControlledStopPhase(sim)).toBe("draining");
+    stepSim(sim, DT);
+
+    expect(getMachineState(sim, "src").opennessTarget).toBe(0);
+    // The bin gates the walk here (it has no actuator of its own to
+    // command, but it does hold real stock — see this file's own header):
+    // the feeder is its *only* discharge path, so disabling the feeder
+    // before the bin has actually drained would strand that stock for good.
+    expect(getMachineState(sim, "feeder").enabled).toBe(true);
+    expect(getMachineState(sim, "belt").throttleTarget).toBe(1);
+  });
+
+  it("an accumulator with no actuator of its own still gates the walk: its only discharge path doesn't stop until its own stock has actually drained, and the belt doesn't stop until it has too", () => {
+    const sim = createSim(miniLine);
+    for (let i = 0; i < Math.round(2 / DT); i++) { stepSim(sim, DT); assertConserved(sim); } // real material already on the belt
+
+    controlledStop(sim);
+    for (let i = 0; i < Math.round(5 / DT); i++) { stepSim(sim, DT); assertConserved(sim); } // short of the bin's own ~8s drain
+    expect(getMachineState(sim, "bin").stored).toBeGreaterThan(0);
+    expect(getMachineState(sim, "feeder").enabled).toBe(true); // not stranded: still draining into the belt
+
+    for (let i = 0; i < Math.round(100 / DT); i++) { stepSim(sim, DT); assertConserved(sim); } // past the bin's own drain and the belt's own 30s transit
+    expect(getControlledStopPhase(sim)).toBe("stopped");
+    expect(getMachineState(sim, "bin").stored).toBeCloseTo(0);
+    expect(getMachineState(sim, "feeder").enabled).toBe(false);
+    const belt = getMachineState(sim, "belt");
+    expect(belt.queue.length).toBe(0);
+    expect(belt.backlog).toBeCloseTo(0);
+    expect(belt.throttleFraction).toBe(0); // now genuinely stopped, with nothing left to protect
+    expect(getMachineState(sim, "sink").total).toBeGreaterThan(0); // it all arrived, nothing lost
+    expect(() => assertConserved(sim)).not.toThrow();
+  });
+
+  it("does not touch either real transport-delay chain's throttle in the first tick, even once real material is already moving", () => {
+    const sim = createSim(line);
+    for (let i = 0; i < Math.round(5 / DT); i++) stepSim(sim, DT); // get real flow going first
+
+    controlledStop(sim);
+    stepSim(sim, DT);
+
+    expect(getControlledStopPhase(sim)).toBe("draining");
+    // Both sources close immediately — neither has anything of its own to
+    // strand — but neither transport-delay chain is touched yet: each is
+    // reached only once everything upstream of it (including the buffer
+    // bin, which gates on its own stock, not just its actuator) has
+    // actually drained.
+    expect(getMachineState(sim, SOURCE_ID).opennessTarget).toBe(0);
+    expect(getMachineState(sim, ELEVATOR_ID).throttleTarget).toBe(1);
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(1);
+  });
+
+  it("reaches 'stopped' once a real (isolated) zone has fully drained, and conservation holds throughout", () => {
+    const sim = createSim(lineWithoutPackaging); // isolates the treating zone, same convention as this file's own zone tests
+    for (let i = 0; i < Math.round(10 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
+
+    controlledStop(sim);
+    for (let i = 0; i < Math.round(1000 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
+
+    expect(getControlledStopPhase(sim)).toBe("stopped");
+    for (const id of [BUFFER_BIN_ID, PRE_BIN_ID, AFTER_BIN_ID]) {
+      expect(getMachineState(sim, id).stored, `${id} should have drained`).toBeCloseTo(0, 3);
+    }
+    const elevator = getMachineState(sim, ELEVATOR_ID);
+    expect(elevator.queue.length).toBe(0);
+    expect(elevator.backlog).toBeCloseTo(0);
+    expect(elevator.throttleFraction).toBe(0);
+    // The batch treater is deliberately not asserted at 0 `held`: if the
+    // pre-bin's own last drop happens to leave it mid-charge, that charge
+    // has no more supply coming (everything upstream is already drained)
+    // and can never complete — a starved partial charge, accounted for in
+    // conservation's own `inTransit`, not a leak and not this walk's to fix.
+    expect(() => assertConserved(sim)).not.toThrow();
+  });
+
+  it("a batch-cycle destination still lets the whole walk reach 'stopped' even when it's left holding a starved partial charge, and conservation still holds", () => {
+    // A small, deliberately slow feed so the source valve's own 6s closing
+    // ramp can't smuggle in more than a fraction of a second charge on top
+    // of what the warm-up already released — otherwise the exact residual
+    // this test wants to see (a genuine partial charge, not a further whole
+    // one) would depend on exactly how the ramp lines up with chargeM3.
+    const miniLineWithBatch = {
+      machines: [
+        { id: "src", sim: { kind: "source", rateM3PerSec: 0.02 } },
+        { id: "belt", sim: { kind: "transportDelay", distanceM: 1, speedMPerMin: 10, ceilingM3PerSec: 1 } },
+        { id: "scale", sim: { kind: "batchCycle", chargeM3: 0.3, phases: [{ name: "cycle", durationSec: 5 }] } },
+        { id: "sink", sim: { kind: "terminalSink" } },
+      ],
+      connections: [
+        { from: { machine: "src", port: "out" }, to: { machine: "belt", port: "in" }, kind: "product" },
+        { from: { machine: "belt", port: "out" }, to: { machine: "scale", port: "in" }, kind: "product" },
+        { from: { machine: "scale", port: "out" }, to: { machine: "sink", port: "in" }, kind: "product" },
+      ],
+      interlocks: [],
+    };
+    const sim = createSim(miniLineWithBatch);
+    for (let i = 0; i < Math.round(20 / DT); i++) { stepSim(sim, DT); assertConserved(sim); } // ~0.4 m3 released, more than one charge's worth
+
+    controlledStop(sim);
+    // Past the valve's own ramp, the belt's transit, and the first charge's
+    // hold cycle — long enough for the belt to hand off everything it was
+    // ever going to, including the tail end that has to wait for the first
+    // charge to clear before the scale has room for it.
+    for (let i = 0; i < Math.round(60 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
+
+    expect(getControlledStopPhase(sim)).toBe("stopped"); // the walk completes — this machine never blocks it
+    const scale = getMachineState(sim, "scale");
+    expect(scale.phase).toBe("charging"); // never reached a fresh full charge
+    expect(scale.held).toBeGreaterThan(0); // holding a genuine partial charge
+    expect(scale.held).toBeLessThan(scale.chargeM3); // ...not a further whole one
+    expect(getMachineState(sim, "sink").total).toBeGreaterThan(0); // the one completed charge still arrived
+    expect(() => assertConserved(sim)).not.toThrow(); // the stranded partial charge is accounted for, not lost
+  });
+
+  it("writes its own commands to the combined event feed, tagged by the machine each one commands", () => {
+    const sim = createSim(line);
+    controlledStop(sim);
+    stepSim(sim, DT);
+    const events = getCombinedEvents(sim);
+    const sourceEvent = events.find((e) => e.machineId === SOURCE_ID && e.message.includes("controlled stop"));
+    const feeder1Event = events.find((e) => e.machineId === PRO_BOX_FEEDER_ID && e.message.includes("controlled stop"));
+    expect(sourceEvent).toBeDefined();
+    expect(sourceEvent.machineName).toBeTruthy();
+    expect(feeder1Event).toBeDefined(); // inletDrumFeeder1 has nothing upstream of it worth gating on, so it's commanded in the same first tick
+  });
+
+  it("does not latch: resumeLine restores normal running with no trip reset involved, and the line flows again", () => {
+    const sim = createSim(miniLine);
+    for (let i = 0; i < Math.round(2 / DT); i++) stepSim(sim, DT);
+
+    controlledStop(sim);
+    for (let i = 0; i < Math.round(50 / DT); i++) stepSim(sim, DT);
+    expect(getControlledStopPhase(sim)).toBe("stopped");
+
+    resumeLine(sim); // deliberately not resetTrips — a controlled stop is not a trip
+    expect(getControlledStopPhase(sim)).toBe("running");
+    expect(getMachineState(sim, "src").opennessTarget).toBe(1);
+    expect(getMachineState(sim, "feeder").enabled).toBe(true);
+    expect(getMachineState(sim, "belt").throttleTarget).toBe(1);
+
+    const sinkBefore = getMachineState(sim, "sink").total;
+    for (let i = 0; i < Math.round(40 / DT); i++) stepSim(sim, DT); // past the belt's own transit again
+    expect(getMachineState(sim, "sink").total).toBeGreaterThan(sinkBefore); // genuinely flowing again, not still parked
+  });
+
+  it("resuming mid-drain restores exactly the actuators the walk had already touched", () => {
+    const sim = createSim(line);
+    controlledStop(sim);
+    stepSim(sim, DT); // one tick: both sources and the Pro Box feeder commanded; the buffer bin still gates everything after it
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).enabled).toBe(false);
+
+    resumeLine(sim);
+    expect(getControlledStopPhase(sim)).toBe("running");
+    expect(getMachineState(sim, SOURCE_ID).opennessTarget).toBe(1);
+    expect(getMachineState(sim, PRO_BOX_ID).opennessTarget).toBe(1);
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).enabled).toBe(false); // never selected (source defaults to the treating line), stays off
+  });
+
+  it("resuming with the Pro Box selected restores the Pro Box, not the treating line", () => {
+    const sim = createSim(line);
+    setSource(sim, "proBox");
+    expect(getSource(sim)).toBe("proBox");
+
+    controlledStop(sim);
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // enough for the source-selection commands to land; no need to fully settle
+
+    resumeLine(sim);
+    expect(getSource(sim)).toBe("proBox");
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).enabled).toBe(true);
+    expect(getMachineState(sim, TREATING_FEEDER_ID).enabled).toBe(false);
+  });
+
+  it("calling controlledStop again mid-drain, or once stopped, is a harmless no-op", () => {
+    const sim = createSim(miniLine);
+    controlledStop(sim);
+    stepSim(sim, DT);
+    const commandedAfterFirstTick = getMachineState(sim, "feeder").enabled;
+    controlledStop(sim); // already draining — should not restart the walk or re-log
+    stepSim(sim, DT);
+    expect(getMachineState(sim, "feeder").enabled).toBe(commandedAfterFirstTick);
+    expect(getControlledStopPhase(sim)).toBe("draining");
   });
 });

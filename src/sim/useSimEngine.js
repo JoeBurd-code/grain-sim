@@ -11,6 +11,7 @@ import {
   setBatchSize, setBatchCycleSec, setSplitterWasteFraction, getCombinedEvents,
   setSource as setSourceSim, getSource,
   setDestination as setDestinationSim, getDestination,
+  controlledStop as controlledStopSim, resumeLine as resumeLineSim, getControlledStopPhase,
 } from "./engine";
 import { BEHAVIORS } from "./behaviors";
 import { createPlotHistory, setSeriesPlotted, recordSample } from "./plotHistory";
@@ -45,7 +46,12 @@ function publishSnap(sim) {
   // (engine.js's getSource) rather than tracked separately, so it can never
   // drift from what's actually running. `destination` (issue #47) is the
   // same pattern for the two routers the destination selector commands.
-  return { t: sim.t, machines, events: getCombinedEvents(sim), source: getSource(sim), destination: getDestination(sim) };
+  // `controlledStopPhase` (issue #50) is the same pattern again, for the
+  // controlled-stop button's own active/inactive state.
+  return {
+    t: sim.t, machines, events: getCombinedEvents(sim), source: getSource(sim), destination: getDestination(sim),
+    controlledStopPhase: getControlledStopPhase(sim),
+  };
 }
 
 export function useSimEngine(line) {
@@ -244,6 +250,21 @@ export function useSimEngine(line) {
     publish();
   }, [sim, publish]);
 
+  // Plant control (issue #50): the counterpart to resetTrips above, same
+  // one-click shape — takes effect immediately, whether paused or running.
+  // Deliberately not gated on `running`: a presenter can stage or undo a
+  // controlled stop while the clock itself is paused, same as every other
+  // plant control here.
+  const controlledStop = useCallback(() => {
+    controlledStopSim(sim);
+    publish();
+  }, [sim, publish]);
+
+  const resumeLine = useCallback(() => {
+    resumeLineSim(sim);
+    publish();
+  }, [sim, publish]);
+
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
   return {
@@ -251,6 +272,7 @@ export function useSimEngine(line) {
     setInterlockHigh, setInterlockLow, setInterlockDelay, setElevatorSpeed: setElevatorSpeedFraction,
     setInterlockSlow, setInterlockStop, setInterlockSlowDelay, setInterlockStopDelay,
     setBatchSize: setBatchSizeM3, setBatchCycleTime, setWasteFraction, setSource, setDestination,
+    controlledStop, resumeLine,
     history, togglePlotSeries,
   };
 }

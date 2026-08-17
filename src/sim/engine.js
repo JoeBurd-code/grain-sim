@@ -4,6 +4,10 @@
 // not part of this seam.
 import { BEHAVIORS, REGISTERED_KINDS, unregisteredKindMessage } from "./behaviors";
 import { initControl, stepControl, combineEventLogs, primeInstruments, resetTrips as resetControlTrips } from "./control";
+import {
+  initControlledStop, stepControlledStop, beginControlledStop as beginControlledStopRun,
+  resumeControlledStop,
+} from "./controlledStop";
 
 export const DT = 0.05; // s, fixed sim timestep (matches the proven mock)
 
@@ -77,6 +81,10 @@ export function createSim(line) {
   // the sensor's initial level right away, so the very first published
   // snapshot — before the sim has ever ticked — already shows real values.
   primeInstruments(control, machines);
+  // Issue #50: the controlled stop's own runtime state, walking the stop
+  // order computed once off this same `line`'s topology (see
+  // sim/controlledStop.js and line/stopOrder.js).
+  const controlledStop = initControlledStop(line);
   // The declared output ports of every multi-output (splitter, and later
   // router) machine, so the passes below know the full port set to build
   // downstreamCap/hasDownstream objects over — including a port with
@@ -87,7 +95,7 @@ export function createSim(line) {
     const m = machinesById.get(id);
     if (BEHAVIORS[m.sim.kind].multiOutput) multiOutputPorts.set(id, m.ports.outputs);
   }
-  return { t: 0, line, machines, downstream, multiOutputPorts, order, control };
+  return { t: 0, line, machines, downstream, multiOutputPorts, order, control, controlledStop };
 }
 
 // Rebuilds `sim` from its own `line` and copies the result over the same
@@ -202,6 +210,7 @@ export function stepSim(sim, dt) {
 
   sim.t += dt;
   stepControl(sim);
+  stepControlledStop(sim);
   return sim;
 }
 
@@ -219,6 +228,42 @@ export function resetTrips(sim) {
   resetControlTrips(sim);
 }
 
+// Plant control (issue #50): the counterpart to resetTrips above, and
+// deliberately independent of it — a controlled stop is not a trip, latches
+// nothing, and needs no SCADA reset to undo (see controlledStop.js's own
+// header). Passes which packaging feeder is currently selected into
+// controlledStop.js's own beginControlledStop, which stores it on its own
+// state (only if a drain is actually starting) — this file never writes
+// into `sim.controlledStop` directly, the same read/command-only boundary
+// every other module here keeps with `sim.control`.
+export function controlledStop(sim) {
+  beginControlledStopRun(sim, getSource(sim));
+}
+
+// Restores every actuator the drain touched back to its normal running
+// command, then re-selects whichever packaging feeder controlledStop above
+// captured — resumeControlledStop itself re-enables *every* meteredFeeder it
+// commanded (it has no notion of "the selected one"), so this setSource call
+// is what leaves exactly one running again rather than both. Reads
+// `preStopSource` before calling resumeControlledStop, which clears it as
+// part of resetting its own state back to "running". A no-op source
+// selection (fabricated test lines with neither packaging feeder, or a
+// resume called with nothing ever stopped) is harmless: setSource simply has
+// nothing to select.
+export function resumeLine(sim) {
+  const preStopSource = sim.controlledStop.preStopSource;
+  resumeControlledStop(sim);
+  if (preStopSource) setSource(sim, preStopSource);
+}
+
+// Read access: which phase the controlled stop is in, for the plant-control
+// cluster's own button state (issue #50) — filled/active for "draining" or
+// "stopped", same "filled = active" convention the source/destination
+// selectors already use.
+export function getControlledStopPhase(sim) {
+  return sim.controlledStop.phase;
+}
+
 // Read access to an interlock's runtime state (phase, event log, live
 // parameters), keyed by its sensor machine — the same public seam
 // getMachineState offers for a plain machine, so a test or the UI never
@@ -234,7 +279,16 @@ export function getInterlockState(sim, sensorMachineId) {
 // lives).
 export function getCombinedEvents(sim) {
   const machineNames = new Map(sim.line.machines.map((m) => [m.id, m.name]));
-  return combineEventLogs(sim.control, machineNames);
+  const events = combineEventLogs(sim.control, machineNames);
+  // Issue #50: the controlled stop's own log merges into the same feed, off
+  // the same machineNames lookup — controlledStop.js tags each entry with
+  // the machine it commanded, exactly like a rule's own log entries, just
+  // gathered from a single runtime object rather than one per sensor.
+  for (const entry of sim.controlledStop.log) {
+    events.push({ ...entry, machineName: machineNames.get(entry.machineId) });
+  }
+  events.sort((a, b) => a.t - b.t);
+  return events;
 }
 
 export function setSourceRate(sim, id, rateM3PerSec) {
