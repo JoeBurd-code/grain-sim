@@ -2,6 +2,7 @@
 // Returns { ok, errors } where errors are human-readable strings, so a bad
 // data edit made in a hurry (e.g. during the engineer meeting) fails loudly.
 import { REGISTERED_KINDS, BEHAVIORS, unregisteredKindMessage } from "../sim/behaviors";
+import { isSimExempt } from "./simExempt";
 
 export function validateLine(line) {
   const errors = [];
@@ -9,6 +10,21 @@ export function validateLine(line) {
   for (const m of line.machines) {
     if (m.sim && !REGISTERED_KINDS.has(m.sim.kind)) {
       errors.push(unregisteredKindMessage(m.id, m.sim.kind));
+    }
+  }
+
+  // Issue #52: the census (behaviorCensus.js) is only honest if "not yet
+  // engined" is a fact the validator itself enforces, not just a number the
+  // census happens to report. A machine with no `sim` block is either a
+  // genuine gap (fails here) or one of the two deliberate, permanent
+  // exemptions `isSimExempt` recognises (see its own comment) — the census
+  // and the validator must agree on exactly which, which is why that check
+  // lives in one shared place rather than being re-decided here.
+  for (const m of line.machines) {
+    if (!m.sim && !isSimExempt(m)) {
+      errors.push(
+        `machine "${m.id}" (${m.tag}) declares no sim.kind and is not marked as a stub or intentionally out of scope`
+      );
     }
   }
 

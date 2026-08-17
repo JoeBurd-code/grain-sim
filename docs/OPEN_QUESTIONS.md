@@ -20,6 +20,36 @@ Columns:
 
 ---
 
+## Engineer follow-up: the short list (issue #52)
+
+Everything below this point is the full register — every gap the sim has ever
+tripped over, most of them **not** load-bearing (the demo's point holds
+regardless of the exact number). This section is the other filter: only the
+rows marked **Yes** under "Load bearing?", the ones actually worth an
+engineer's time, pulled into one place so the register can double as the
+message to send rather than something he'd have to read end to end. Each
+line names the one question to ask; the full reasoning for why it's
+load-bearing stays on the row itself.
+
+1. **`treatDrumFeeder` (`52.505.L00`)** — is the real percentage-opening →
+   flow-rate mapping linear, and is it even a continuous dial or a
+   two-position selector (`ZS13`/`ZS14` driving `XV4`/`XV5`, per the FD)?
+   *(Machine 2 section)*
+2. **`treatingElevatorRunningAutoStart` interlock** — what rate does the
+   drum feeder actually auto-start at, within its confirmed 2-20 t/h range?
+   *(Newly raised by the FD section)*
+3. **`treatingElevator` / `pendulumConveyor` (`52.506.E00` / `52.604.E00`)**
+   — one question resolves both: is the shared sheet 52-13 chain speed
+   10.08 m/min or ~20.5 m/min, or is the bucket pitch finer than the
+   drawing's own bucket count implies? *(Machine 3 and Machine 8 sections)*
+4. **`batchTreater` (`52.508.T00`)** — is 40 s the batch's own cycle time,
+   or does it already net in downtime the line's separately-quoted 12 t/h
+   sustained rate has accounted for and 40 s hasn't? *(Machine 5 section)*
+5. **`flexiconFillingHead` (`52.703.L00`)** — the Flexicon package's real
+   rated bag size. *(Machine 10 section)*
+6. **`concettiScale` (`TBC-16`)** — the Concetti package's real rated bag
+   size. *(Machine 11 section)*
+
 ## 2026-08-05: the Functional Description arrived, and it was the control document
 
 The PLC & SCADA Functional Description (A2653FSD001 V1.0) landed and was analysed
@@ -167,7 +197,7 @@ its discharge with no position of its own ever confirmed.
 
 | Machine | Gap | Assumption in use | Expected from | Load bearing? |
 |---|---|---|---|---|
-| `grainBreak` | Exact position along the line — the engineer confirmed the grain break itself exists, as an unpowered cascade chute, but never placed it; the FD doesn't mention it at all (consistent with an unpowered device, nothing to trip or command) | Re-sited onto `pendulumConveyor`'s discharge into the outload buffer bin (`lineData.js`, x:1656/y:190) — the one place upstream of the bin a cascade chute plausibly sits now that its old parent (the phantom elevator) is gone, but this is a placement of convenience, not a plant fact | Engineer, one line: where does the grain break actually sit on branch B? | No — `grainBreak` carries no `sim` block yet (not engined); REAL_LINE_SPECS.md §6 already expects it to be pass-through with no holdup when it is built, so wherever it sits between the pendulum conveyor and the outload buffer bin, it changes nothing about how material moves, only where the symbol is drawn |
+| `grainBreak` | Exact position along the line — the engineer confirmed the grain break itself exists, as an unpowered cascade chute, but never placed it; the FD doesn't mention it at all (consistent with an unpowered device, nothing to trip or command) | Re-sited onto `pendulumConveyor`'s discharge into the outload buffer bin (`lineData.js`, x:1656/y:190) — the one place upstream of the bin a cascade chute plausibly sits now that its old parent (the phantom elevator) is gone, but this is a placement of convenience, not a plant fact | Engineer, one line: where does the grain break actually sit on branch B? | No — engined since issue #46 as `passThrough`, exactly the "pass-through, no holdup" shape `REAL_LINE_SPECS.md` §6 already expected (`lineData.js` `sim: { kind: "passThrough" }`, no capacity or holdup fields to place wrong); this row previously said it wasn't engined yet, which was stale — caught while bringing the register current for issue #52. Wherever it actually sits between the pendulum conveyor and the outload buffer bin changes nothing about how material moves, only where the symbol is drawn |
 
 ## Machine 8: the packaging conveyor carries product to the outload buffer bin (issue #46)
 
@@ -197,6 +227,7 @@ gives it — plus one item the FD is explicit was never captured at all.
 | `metalBin1` / `metalBin2` | Discharge (truck loadout) — no document covers the gate logic, only that `52.613.V00`/`V01` are *inlet* gates (`REAL_LINE_SPECS.md` §12 item 3, `PLC_FUNCTIONAL_DESCRIPTION.md` §8.4) | Not modelled at all: both bins only ever fill (their own downstream, `dischargeStub1`/`dischargeStub2`, isn't sim-enabled, so the accumulator's own reverse-pass discharge cap is always 0). Emptying either bin is the presenter's own affordance (PlantControls.jsx's EMPTY BIN button, reusing `setAccumulatorLevel(sim, id, 0)` — the same call the level-jump slider already makes) | Engineer, one line: what actually discharges a full metal bin — a gate, a screw, gravity to a rail car? | No — out of scope by design; the acceptance criteria explicitly ask for a presenter affordance here, not modelled gate logic |
 | `metalBin1HighTrip` / `metalBin2HighTrip` interlocks | Trip set point and ramp time | 85%/35% (mirrors every other bin's own LSH/LSL), signal delay **5 s [CONFIRMED, FD §5]**, ramp time 0.5 s — the FD classifies this a genuine **Trip** ("stops the device immediately, no shutdown procedure"), unlike the treater pre-bin's own engineer-described graduated VFD ramp, so a near-instant ramp is used rather than a multi-second one | Set point: nothing to absorb, same reasoning as every other bin's LSH/LSL (operator-adjustable SCADA configuration). Ramp time: no FD number for "immediately" in seconds; assumed near-zero | No — the demo's point is that the trip is abrupt compared to the pre-bin's own graduated response, which holds at any near-zero ramp |
 | (whole outload branch) | Switching destination mid-run is a deliberate presenter affordance, off-spec: the real plant only selects a destination at sequence start (`PLC_FUNCTIONAL_DESCRIPTION.md` §4, the pre-checks) | Permitted at any time via `setDestination` (engine.js); recorded here the same way the auto-reopen convention was (see the buffer bin's own resolved row above) — a presenter should not claim this reflects real plant operation | Neither — a deliberate, documented departure from the real sequence, made for the transport-lag demonstration it enables | No — this is a presenter feature, not a plant-behaviour claim |
+| `pendulumConveyor` (`52.604.E00`) | Per-outlet transit distance — the three pneumatically selected outlets sit at different points along the belt's own carrying-side run (`outBuffer`, `outBinSeg`, `outConcetti` anchor at x:240/1120/1745 of 1750 in `lineData.js`, roughly a quarter, two-thirds and the full length along), but no document gives each outlet's own physical distance from the infeed — caught while asserting whole-line conservation across every route at once (issue #52), not by any one branch's own build | `routedTransportDelay` (`src/sim/behaviors.js`) uses a single `distanceM` (31.087 m, the full carrying-side path) for every packet regardless of which outlet it's routed to — so material bound for `outBuffer`, physically the nearest outlet, is modelled with the same transit lag as material bound for `outConcetti`, the farthest. Conservation still holds either way (issue #52's own whole-line test exercises all three), only the relative timing between destinations is off | Engineer or the operational spec: each outlet's own along-belt distance from the infeed, so a per-port `distanceM` could replace the single shared one | No for the demo's own point (every destination still receives everything fed to it, correctly delayed, and switching destinations mid-run still conserves) — **would become load-bearing** if a future demo wants to show the three destinations arriving at visibly different, physically-derived lag times rather than all three sharing one number |
 
 ## Machine 10: the Flexicon big-bag branch completes (issue #48)
 

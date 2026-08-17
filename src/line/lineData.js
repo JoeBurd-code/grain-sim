@@ -327,6 +327,19 @@ export const line = {
       anchors: { in: { x: 30, y: 0 } },
       smallLabel: true,
       labelAt: { x: 70, y: 28 },
+      // Deliberately un-simulated, permanently, not just not-yet-built:
+      // waste water is a ~monthly cleaning event, not a per-batch flow, and
+      // the engineer confirmed it "does not need to be shown"
+      // [CONFIRMED 2026-06-30, REAL_LINE_SPECS.md §12 item 21 and its own
+      // "Headline corrections" summary]. Unlike the dead-end `type: "stub"`
+      // machines (metalRejectStub1, dischargeStub1/
+      // 2, chemStub), this one is a real, visible component the mimic
+      // should keep drawing accurately — hence its own `ibc` symbol and
+      // label, not a tiny stub marker — so the exemption is recorded here
+      // instead of by changing its `type`. `simExempt` is what
+      // validateLine.js and behaviorCensus.js both check (issue #52) so
+      // this doesn't count as a real "not yet engined" gap.
+      simExempt: true,
     },
     {
       id: "treaterAfterBin",

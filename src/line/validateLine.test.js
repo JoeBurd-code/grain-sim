@@ -29,6 +29,7 @@ function makeValidLine(overrides = {}) {
         y: 100,
         ports: { inputs: ["in"], outputs: ["out"] },
         anchors: { in: { x: 50, y: 0 }, out: { x: 50, y: 120 } },
+        sim: { kind: "accumulator", capacityM3: 1 },
       },
     ],
     connections: [
@@ -130,6 +131,32 @@ describe("validateLine", () => {
     expect(result.errors.join("\n")).toContain("teleporter");
   });
 
+  // Issue #52: the census (behaviorCensus.js) is only honest about "not yet
+  // engined" reaching zero if the validator enforces the same rule, rather
+  // than letting a real machine quietly ship with no sim block at all.
+  it("rejects a non-stub, non-exempt machine that declares no sim.kind", () => {
+    const line = makeValidLine();
+    delete line.machines[1].sim; // bufferBin: a real machine, not a stub, not marked out of scope
+    const result = validateLine(line);
+    expect(result.ok).toBe(false);
+    expect(result.errors.join("\n")).toContain("bufferBin");
+  });
+
+  it("accepts a stub machine (type: \"stub\") that declares no sim.kind", () => {
+    const line = makeValidLine();
+    // feedStub (machines[0]) is already type "stub" with no sim block.
+    const result = validateLine(line);
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts a machine marked simExempt that declares no sim.kind", () => {
+    const line = makeValidLine();
+    delete line.machines[1].sim;
+    line.machines[1].simExempt = true; // e.g. the waste-water IBC: real and visible, deliberately never simulated
+    const result = validateLine(line);
+    expect(result.ok).toBe(true);
+  });
+
   it("accepts an interlock whose sensor and actuator both reference real machines", () => {
     const line = makeValidLine();
     line.machines[0].sim = { kind: "source", rateM3PerSec: 1 }; // feedStub
@@ -214,6 +241,7 @@ describe("validateLine", () => {
       x: 300, y: 200,
       ports: { inputs: ["in"], outputs: [] },
       anchors: { in: { x: 0, y: 0 } },
+      sim: { kind: "terminalSink" },
     });
     line.connections.push(
       { from: { machine: "bufferBin", port: "out" }, to: { machine: "diverter", port: "in" }, kind: "product" },

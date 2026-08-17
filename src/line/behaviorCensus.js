@@ -2,8 +2,12 @@
 // never hand maintained, so it cannot drift the way a written-up document
 // would. A machine "declares" a behaviour by carrying a `sim.kind`; grouping
 // on that field is the whole census. A machine with no `sim` block at all
-// simply hasn't been engined yet and is counted separately as `undeclared`,
-// not folded into any behaviour row.
+// hasn't been engined yet — unless `isSimExempt` (./simExempt.js, the same
+// check validateLine.js enforces) says it's one of the deliberate, permanent
+// exemptions, counted separately as `outOfScope` rather than folded into
+// `undeclared` (issue #52): those machines will never gain a `sim` block, by
+// design, so counting them as "not yet engined" would keep the census
+// permanently short of zero for a reason that isn't a real gap.
 //
 // Two tier status per node (per the parent spec, issue #15):
 //   ENGINED   — built, tested, conserving, even with assumed values left.
@@ -23,6 +27,7 @@
 //               gate itself, same as validateLine.js assumes a green suite
 //               rather than re-running it — this census reads only the data.
 import { REGISTERED_KINDS, unregisteredKindMessage } from "../sim/behaviors";
+import { isSimExempt } from "./simExempt";
 
 function hasAssumedValue(provenance) {
   if (!provenance) return false;
@@ -32,11 +37,13 @@ function hasAssumedValue(provenance) {
 export function computeBehaviorCensus(line) {
   const byKind = new Map();
   let undeclared = 0;
+  let outOfScope = 0;
 
   for (const m of line.machines) {
     const kind = m.sim?.kind;
     if (!kind) {
-      undeclared += 1;
+      if (isSimExempt(m)) outOfScope += 1;
+      else undeclared += 1;
       continue;
     }
     // Fails loudly rather than silently dropping the node from the census
@@ -62,7 +69,7 @@ export function computeBehaviorCensus(line) {
     { total: 0, engined: 0, confirmed: 0 }
   );
 
-  return { behaviors, totals, undeclared, machineCount: line.machines.length };
+  return { behaviors, totals, undeclared, outOfScope, machineCount: line.machines.length };
 }
 
 export function formatCensusReport(census) {
@@ -80,5 +87,10 @@ export function formatCensusReport(census) {
   report.push(renderRow(["TOTAL", census.totals.total, census.totals.engined, census.totals.confirmed]));
   report.push("");
   report.push(`not yet engined: ${census.undeclared} of ${census.machineCount} machines on the whole line`);
+  if (census.outOfScope > 0) {
+    report.push(
+      `out of demo scope, never simulated by design: ${census.outOfScope} of ${census.machineCount} machines`
+    );
+  }
   return report.join("\n");
 }
