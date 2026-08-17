@@ -86,6 +86,10 @@ export default function MachinePopup({
   return (
     <div style={{
       position: "absolute", top: 12, right: 12, width: 300, maxHeight: "calc(100% - 24px)",
+      // Issue #53: the chart dock became a fixed-position overlay (z-index 20/21)
+      // instead of a layout sibling that shrank `main`, so a tall popup can now
+      // reach behind it -- stay above so the dock's slide never covers it.
+      zIndex: 30,
       overflowY: "auto", background: C.panel, border: `1px solid ${C.line}`,
       borderRadius: 8, padding: 14, fontFamily: FONT_MONO, boxShadow: "0 8px 30px rgba(0,0,0,0.5)",
     }}>

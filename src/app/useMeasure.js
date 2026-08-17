@@ -34,9 +34,9 @@ export function useMeasure() {
     return () => window.removeEventListener("keydown", onKey);
   }, [active, deactivate]);
 
-  // Window-level pointermove/up, matching useViewport's/useDockHeight's own
-  // drag-tracking convention -- pointer capture on the SVG would otherwise
-  // interfere with the event-dot click handlers sharing the same surface.
+  // Window-level pointermove/up, matching useViewport's own drag-tracking
+  // convention -- pointer capture on the SVG would otherwise interfere with
+  // the event-dot click handlers sharing the same surface.
   useEffect(() => {
     if (!active) return;
     const onMove = (e) => {
