@@ -110,6 +110,17 @@ describe("accumulator", () => {
     expect(out).toBe(0);
     expect(state.stored).toBe(5);
   });
+
+  it("clear (issue #55) discards whatever is stored, returning the discarded volume, leaving initialStored/spill/discharged untouched", () => {
+    const state = { kind: "accumulator", capacity: 10, stored: 6, initialStored: 4, spill: 1.5, discharged: 3 };
+    const discarded = BEHAVIORS.accumulator.clear(state);
+
+    expect(discarded).toBe(6);
+    expect(state.stored).toBe(0);
+    expect(state.initialStored).toBe(4); // cumulative starting-inventory term, not a counter clearPlant touches
+    expect(state.spill).toBe(1.5);
+    expect(state.discharged).toBe(3);
+  });
 });
 
 describe("meteredFeeder (issue #20)", () => {
@@ -590,6 +601,20 @@ describe("transportDelay (issue #21)", () => {
       expect(BEHAVIORS.transportDelay.snapshot(state).chainSpeedMPerMin).toBeCloseTo(15);
     });
   });
+
+  it("clear (issue #55) discards both the in-transit queue and the backlog, returning their combined volume, leaving delivered untouched", () => {
+    const state = BEHAVIORS.transportDelay.init({ sim: { distanceM: 10, speedMPerMin: 60, ceilingM3PerSec: 1 } });
+    state.queue = [{ progress: 0.2, vol: 1 }, { progress: 0.6, vol: 2 }];
+    state.backlog = 0.5;
+    state.delivered = 4;
+
+    const discarded = BEHAVIORS.transportDelay.clear(state);
+
+    expect(discarded).toBeCloseTo(3.5); // 1 + 2 + 0.5
+    expect(state.queue).toEqual([]);
+    expect(state.backlog).toBe(0);
+    expect(state.delivered).toBe(4);
+  });
 });
 
 describe("routedTransportDelay (issue #47)", () => {
@@ -684,6 +709,24 @@ describe("routedTransportDelay (issue #47)", () => {
     }
     const c = B.conserve(state);
     expect(fed).toBeCloseTo(c.inTransit + c.delivered, 6);
+  });
+
+  it("clear (issue #55) discards the queue and every port's backlog entries, leaving `selected` (the destination) and delivered untouched", () => {
+    const state = initState();
+    state.selected = "b";
+    state.queue = [{ progress: 0.3, vol: 1, port: "a" }];
+    state.backlogEntries = [{ vol: 2, port: "a" }, { vol: 0.5, port: "b" }];
+    state.backlog = 2.5;
+    state.delivered = 7;
+
+    const discarded = B.clear(state);
+
+    expect(discarded).toBeCloseTo(3.5); // 1 + 2 + 0.5
+    expect(state.queue).toEqual([]);
+    expect(state.backlogEntries).toEqual([]);
+    expect(state.backlog).toBe(0);
+    expect(state.selected).toBe("b"); // destination selection, not held material
+    expect(state.delivered).toBe(7);
   });
 });
 
@@ -927,6 +970,25 @@ describe("batchCycle (issue #24)", () => {
       // never even attempts to push more than that, so nothing is lost here.
       expect(BEHAVIORS.batchCycle.capacityAvailable(state)).toBe(0);
     });
+  });
+
+  it("clear (issue #55) discards whatever charge is held mid-cycle, resets to a fresh charging phase, and leaves blocked/stopped/delivered untouched", () => {
+    const state = initState({ chargeM3: 1, cycleSec: 2 });
+    BEHAVIORS.batchCycle.apply(state, 0.05, 1, 1); // charge drawn instantly, hold begins
+    for (let i = 0; i < 10; i++) BEHAVIORS.batchCycle.apply(state, 0.05, 0, 0); // mid-hold, still fully held
+    expect(state.phase).toBe("holding");
+    expect(state.held).toBeCloseTo(1);
+    state.blocked = true; // a latched interlock — must survive the clear
+    state.delivered = 5;
+
+    const discarded = BEHAVIORS.batchCycle.clear(state);
+
+    expect(discarded).toBeCloseTo(1);
+    expect(state.held).toBe(0);
+    expect(state.phase).toBe("charging");
+    expect(state.elapsedSec).toBe(0);
+    expect(state.blocked).toBe(true); // latched trip state, not touched by clearPlant
+    expect(state.delivered).toBe(5);
   });
 });
 

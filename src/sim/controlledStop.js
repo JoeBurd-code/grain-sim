@@ -125,8 +125,24 @@ const STOPPABLE = {
   // `commanded` (see stepControlledStop below) — this entry exists purely
   // to gate the walk until real stock has actually drained through whatever
   // comes next, per this file's own header.
+  //
+  // `stored <= EPS` alone isn't enough (issue #55 surfaced this, though the
+  // gap always existed): a bin whose feed and draw happen to be balanced —
+  // the ordinary case once the line starts empty and a feeder's draw rate
+  // usually outpaces the source feeding it — reads "empty" on every tick
+  // even while real material is actively passing through it *this instant*.
+  // Advancing past it there would disable its only discharge path (the next
+  // actuator in the walk) while the still-ramping-shut valve upstream is
+  // still emitting into it, stranding that trickle in the bin for good —
+  // its only way out was the actuator this walk was about to disable.
+  // `flowRateM3PerSec` (issue #28's generic per-tick outflow, set fresh
+  // every tick before this walk ever runs) is the fact that tells the two
+  // cases apart: it reads zero only once the bin has genuinely stopped
+  // passing material through, not merely whenever its balance happens to
+  // net to zero.
   accumulator: {
-    isDrained: (state, sim, id) => !hasRealDownstream(sim, id) || state.stored <= EPS,
+    isDrained: (state, sim, id) =>
+      !hasRealDownstream(sim, id) || (state.stored <= EPS && (state.flowRateM3PerSec ?? 0) <= EPS),
   },
 };
 

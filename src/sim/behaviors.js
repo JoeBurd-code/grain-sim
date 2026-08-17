@@ -7,7 +7,12 @@
 // volume and mutate state), `conserve` (this machine's contribution to the
 // conservation totals, see conservation.js) and `snapshot` (its published
 // dynamic render value, see useSimEngine.js — omitted where a kind has
-// nothing to show). Adding a kind means adding one entry here; nothing
+// nothing to show). `clear` (issue #55, CLEAR PLANT) discards whatever held
+// material this machine currently carries and returns the discarded volume;
+// omitted entirely on a kind that holds no material of its own (source,
+// passThrough, meteredFeeder, splitter, router) and left un-called on
+// terminalSink, whose running total is a delivered-style counter, not held
+// material. Adding a kind means adding one entry here; nothing
 // downstream needs a matching switch/if. This is also the registry
 // validateLine.js checks declared `sim.kind` values against.
 
@@ -113,6 +118,17 @@ function applyAccumulator(state, dt, inflow, cap, downstreamCap = 0) {
 }
 function conserveAccumulator(state) {
   return { initialStored: state.initialStored, stored: state.stored, spilled: state.spill };
+}
+// Plant control (issue #55 — CLEAR PLANT): discards whatever this bin is
+// currently holding, leaving `initialStored` (the t=0 seed) and every
+// cumulative counter (`spill`, `discharged`) untouched — the caller folds
+// the returned volume into its own internal-only discard total so
+// conservation still proves out, per this behaviour's own contract with
+// clearPlant (engine.js).
+function clearAccumulator(state) {
+  const discarded = state.stored;
+  state.stored = 0;
+  return discarded;
 }
 function snapshotAccumulator(state) {
   return { fill: state.capacity > 0 ? state.stored / state.capacity : 0 };
@@ -305,6 +321,14 @@ function applyTransportDelay(state, dt, inflow, cap, downstreamCap = 0, hasDowns
 function conserveTransportDelay(state, hasDownstream) {
   const inTransit = queueVolume(state) + state.backlog;
   return hasDownstream ? { inTransit } : { inTransit, delivered: state.delivered };
+}
+// Plant control (issue #55): discards everything in transit — the queue and
+// the backlog alike — leaving `delivered` (a cumulative counter) untouched.
+function clearTransportDelay(state) {
+  const discarded = queueVolume(state) + state.backlog;
+  state.queue = [];
+  state.backlog = 0;
+  return discarded;
 }
 
 // Issue #31: bands the packet queue into `bandCount` equal-width slices of
@@ -507,6 +531,18 @@ function conserveRoutedTransportDelay(state) {
   const inTransit = queueVolume(state) + state.backlog;
   return { inTransit, delivered: state.delivered };
 }
+// Plant control (issue #55): the packaging conveyor's own clear — the queue
+// and the per-port backlog entries alike, mirroring plain transportDelay's
+// own clearTransportDelay, but over `backlogEntries` rather than a bare
+// scalar. `selected` (the destination routing) is untouched — that's the
+// presenter's own destination-selector state, not held material.
+function clearRoutedTransportDelay(state) {
+  const discarded = queueVolume(state) + state.backlog;
+  state.queue = [];
+  state.backlogEntries = [];
+  state.backlog = 0;
+  return discarded;
+}
 function snapshotRoutedTransportDelay(state) {
   const inTransitVol = queueVolume(state);
   const hasMaterial = state.queue.length > 0 || state.backlog > 0;
@@ -689,6 +725,19 @@ function applyBatchCycle(state, dt, inflow, cap, downstreamCap = 0, hasDownstrea
 // itself.
 function conserveBatchCycle(state, hasDownstream) {
   return hasDownstream ? { inTransit: state.held } : { inTransit: state.held, delivered: state.delivered };
+}
+// Plant control (issue #55): discards whatever charge is currently held —
+// mid-charging, mid-holding or mid-discharging alike — and resets the cycle
+// back to a fresh "charging" phase rather than leaving it holding or
+// discharging a now-empty charge. `blocked` (the hold-next-batch interlock)
+// and `stopped` (the utilities trip) are both latched trip state, per
+// clearPlant's own contract, so neither is touched here.
+function clearBatchCycle(state) {
+  const discarded = state.held;
+  state.held = 0;
+  state.phase = "charging";
+  state.elapsedSec = 0;
+  return discarded;
 }
 // `phase` here is the same charging/holding/discharging value apply() drives
 // — except when a fresh charge is being withheld by the hold-next-batch
@@ -932,7 +981,7 @@ export const BEHAVIORS = {
   },
   accumulator: {
     init: initAccumulator, capacityAvailable: capacityAvailableAccumulator, apply: applyAccumulator,
-    conserve: conserveAccumulator, snapshot: snapshotAccumulator,
+    conserve: conserveAccumulator, snapshot: snapshotAccumulator, clear: clearAccumulator,
   },
   meteredFeeder: {
     init: initMeteredFeeder, capacityAvailable: capacityAvailableMeteredFeeder, apply: applyMeteredFeeder,
@@ -941,13 +990,13 @@ export const BEHAVIORS = {
   },
   transportDelay: {
     init: initTransportDelay, capacityAvailable: capacityAvailableTransportDelay, apply: applyTransportDelay,
-    conserve: conserveTransportDelay, snapshot: snapshotTransportDelay,
+    conserve: conserveTransportDelay, snapshot: snapshotTransportDelay, clear: clearTransportDelay,
     command: commandTransportDelay, isSettled: isSettledTransportDelay,
     confirmedRunning: isConfirmedRunningTransportDelay,
   },
   routedTransportDelay: {
     init: initRoutedTransportDelay, capacityAvailable: capacityAvailableRoutedTransportDelay, apply: applyRoutedTransportDelay,
-    conserve: conserveRoutedTransportDelay, snapshot: snapshotRoutedTransportDelay,
+    conserve: conserveRoutedTransportDelay, snapshot: snapshotRoutedTransportDelay, clear: clearRoutedTransportDelay,
     command: commandRoutedTransportDelay, isSettled: isSettledRoutedTransportDelay,
     confirmedRunning: isConfirmedRunningRoutedTransportDelay, selectPort: selectPortRoutedTransportDelay,
     multiOutput: true,
@@ -955,7 +1004,7 @@ export const BEHAVIORS = {
   batchCycle: {
     init: initBatchCycle, capacityAvailable: capacityAvailableBatchCycle, apply: applyBatchCycle,
     conserve: conserveBatchCycle, snapshot: snapshotBatchCycle, command: commandBatchCycle,
-    setStopped: setStoppedBatchCycle,
+    setStopped: setStoppedBatchCycle, clear: clearBatchCycle,
   },
   splitter: {
     init: initSplitter, capacityAvailable: capacityAvailableSplitter, apply: applySplitter,

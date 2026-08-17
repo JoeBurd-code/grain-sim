@@ -43,6 +43,15 @@
 // even though the actual trip doesn't land on every machine until 1s later.
 // It does latch, like every trip in control.js, so bringing the line back is
 // RESET TRIPS' job, not a second button of its own here.
+//
+// CLEAR PLANT (issue #55) is deliberately its own section, not a fourth
+// SAFETY-section occupant: it isn't a safety action at all (it doesn't stop
+// or trip anything, and unlike RESET TRIPS it doesn't undo an interlock's
+// own latch) — it discards material outright, the single most destructive
+// thing any control on this line can do, which the acceptance criteria call
+// out as needing to read as more severe than the red safety tier, not lumped
+// into it. Solid red fill even at rest (never just an outline, unlike the
+// SAFETY section's idle state) and no confirmation step, per spec.
 import { C, FONT_MONO } from "../scene/theme";
 
 const rowStyle = {
@@ -93,6 +102,28 @@ const activeBtnStyle = {
   ...btnStyle, background: C.red, color: "#1a1a14",
 };
 
+// CLEAR PLANT (issue #55): solid-filled red even at rest, unlike the SAFETY
+// section's own btnStyle above (outline until active) — the acceptance
+// criteria call for the single most visually severe control in the panel,
+// so this is the one button that never sits in an idle/outline state at all.
+// Critically, an *active* safety button (activeBtnStyle above) also renders
+// solid red — same fill, same text color — so fill alone doesn't actually
+// read as more severe than SAFETY at its own worst. A glow (box-shadow, in
+// C.red's own rgb so it never drifts from the palette) is what pushes this
+// past that: no safety-tier button, active or not, ever has one.
+const clearPlantBtnStyle = {
+  ...buttonBase, background: C.red, color: "#1a1a14", border: `2px solid ${C.red}`,
+  fontWeight: 700, letterSpacing: "0.12em", boxShadow: "0 0 10px 1px rgba(248, 81, 73, 0.7)",
+};
+
+// The DANGER section itself carries a faint red wash no other section here
+// has (SAFETY's own sectionStyle(C.red) is border-only) — legible at a
+// glance as the one section that's dangerous just to be looking at, not
+// only once its button is pressed.
+const dangerSectionStyle = {
+  ...sectionStyle(C.red), background: "rgba(248, 81, 73, 0.08)",
+};
+
 const SOURCES = [
   { id: "treatingLine", label: "TREATING LINE" },
   { id: "proBox", label: "PRO BOX" },
@@ -117,6 +148,7 @@ export default function PlantControls({
   onResetTrips, source, onSetSource, destination, onSetDestination, onEmptyBin,
   controlledStopPhase, onControlledStop, onResumeLine,
   utilitiesHealthy, utilitiesTripPhase, onSetUtilitiesHealthy,
+  onClearPlant,
 }) {
   const emptyableBinId = METAL_BIN_DESTINATIONS.has(destination) ? destination : null;
   // Issue #50: one button, two states — RUN/PAUSE's own toggle shape
@@ -191,6 +223,15 @@ export default function PlantControls({
             onClick={() => onSetUtilitiesHealthy(!utilitiesHealthy)}
           >
             {utilitiesLabel}
+          </button>
+        </div>
+      </div>
+
+      <div style={dangerSectionStyle}>
+        <span style={sectionTitleStyle(C.red)}>DANGER</span>
+        <div style={sectionRowStyle}>
+          <button style={clearPlantBtnStyle} onClick={onClearPlant}>
+            CLEAR PLANT
           </button>
         </div>
       </div>

@@ -122,7 +122,7 @@ export const line = {
       x: 140, y: 170, w: 170, h: 190,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 45, y: 0 }, out: { x: 85, y: 190 } },
-      fill: 0.55,
+      fill: 0,
       instruments: ["LT", "LSH", "LSL"],
       labelAt: { x: -6, y: -16 },
       // Live jump, not just an initial condition: dragging this sets the
@@ -133,20 +133,21 @@ export const line = {
       // waiting on the drum feeder's own drain (issue #20), which starts off
       // by default (see treatDrumFeeder below).
       params: [
-        { id: "level", label: "fill level", min: 0, max: 100, value: 55, unit: "%", bind: "levelJump" },
+        { id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" },
         { id: "highSetpoint", label: "LSH set point", min: 55, max: 100, value: 85, unit: "%", bind: "interlockHighSetpoint" },
         { id: "lowSetpoint", label: "LSL set point", min: 0, max: 55, value: 35, unit: "%", bind: "interlockLowSetpoint" },
         { id: "signalDelay", label: "signal delay", min: 0, max: 15, value: 7, unit: "s", bind: "interlockSignalDelay" },
       ],
       // 7.7 m3 / 5.5 t working volume [CONFIRMED 2026-06-30,
-      // REAL_LINE_SPECS.md §5]. LSH/LSL set points and the 55% start level
-      // are assumed (see docs/OPEN_QUESTIONS.md) — low sensitivity per
-      // issue #18, so not raised with the engineer.
+      // REAL_LINE_SPECS.md §5]. LSH/LSL set points are assumed (see
+      // docs/OPEN_QUESTIONS.md) — low sensitivity per issue #18, so not
+      // raised with the engineer. Starts empty (issue #55): every bin,
+      // buffer and belt on the line starts with zero held material on page
+      // load and RESTART, not a demo-paced starting level.
       sim: {
         kind: "accumulator",
         capacityM3: 7.7,
-        initialLevelFraction: 0.55,
-        provenance: { capacityM3: "confirmed", initialLevelFraction: "assumed" },
+        provenance: { capacityM3: "confirmed" },
       },
     },
     {
@@ -235,7 +236,7 @@ export const line = {
       x: 590, y: 290, w: 90, h: 100,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 100 } },
-      fill: 0.4,
+      fill: 0,
       instruments: ["LT", "LSH", "LSL"],
       labelAt: { x: -10, y: -16 },
       // Reuses the same accumulator behaviour as the buffer bin (issue #18)
@@ -243,7 +244,7 @@ export const line = {
       // once and configured seven times per the parent spec. The two-stage
       // control response below (preBinSlowStopTrip) is what's actually new.
       params: [
-        { id: "level", label: "fill level", min: 0, max: 100, value: 40, unit: "%", bind: "levelJump" },
+        { id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" },
         { id: "lowSetpoint", label: "LSL0 recover", min: 0, max: 55, value: 35, unit: "%", bind: "interlockLowSetpoint" },
         { id: "slowSetpoint", label: "slow set point", min: 35, max: 90, value: 60, unit: "%", bind: "interlockSlowSetpoint" },
         { id: "slowDelay", label: "slow delay", min: 0, max: 15, value: 3, unit: "s", bind: "interlockSlowDelay" },
@@ -252,16 +253,15 @@ export const line = {
       ],
       // 1.63 m3 / 1.17 t working volume [CONFIRMED, FD 2026-08-05 Treating
       // mimic label, REAL_LINE_SPECS.md §2/§8.1 — supersedes the earlier
-      // 1.62 m3 screenshot read]. LSH0/LSL0 set points and the 40% start
-      // level are assumed, same low-sensitivity reasoning as the buffer
-      // bin (issue #18/#19): the FD confirms these are operator-adjustable
-      // SCADA configuration, not fixed plant values, so there is nothing
-      // further to absorb for them.
+      // 1.62 m3 screenshot read]. LSH0/LSL0 set points are assumed, same
+      // low-sensitivity reasoning as the buffer bin (issue #18/#19): the FD
+      // confirms these are operator-adjustable SCADA configuration, not
+      // fixed plant values, so there is nothing further to absorb for them.
+      // Starts empty (issue #55), same as every other bin on the line.
       sim: {
         kind: "accumulator",
         capacityM3: 1.63,
-        initialLevelFraction: 0.4,
-        provenance: { capacityM3: "confirmed", initialLevelFraction: "assumed" },
+        provenance: { capacityM3: "confirmed" },
       },
     },
     {
@@ -351,7 +351,7 @@ export const line = {
       x: 540, y: 560, w: 80, h: 80,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 80 } },
-      fill: 0.3,
+      fill: 0,
       instruments: ["LSH", "LSL"],
       labelAt: { x: -150, y: 30 },
       // Reuses the same accumulator behaviour as the buffer bin (issue #18)
@@ -363,21 +363,20 @@ export const line = {
       // spill regardless, before or after that landed (see
       // docs/OPEN_QUESTIONS.md).
       params: [
-        { id: "level", label: "fill level", min: 0, max: 100, value: 30, unit: "%", bind: "levelJump" },
+        { id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" },
         { id: "highSetpoint", label: "LSH0 set point", min: 30, max: 100, value: 60, unit: "%", bind: "interlockHighSetpoint" },
         { id: "lowSetpoint", label: "LSL0 clear point", min: 0, max: 30, value: 20, unit: "%", bind: "interlockLowSetpoint" },
         { id: "signalDelay", label: "signal delay", min: 0, max: 15, value: 5, unit: "s", bind: "interlockSignalDelay" },
       ],
       // 0.67 m3 working volume [CONFIRMED 2026-06-30, REAL_LINE_SPECS.md
-      // §5]. LSH0/LSL0 set points and the 30% start level are assumed, same
-      // low-sensitivity reasoning as the buffer bin (#18/#19) and pre-bin
-      // (#22): the FD confirms these are operator-adjustable SCADA
-      // configuration, not fixed plant values.
+      // §5]. LSH0/LSL0 set points are assumed, same low-sensitivity
+      // reasoning as the buffer bin (#18/#19) and pre-bin (#22): the FD
+      // confirms these are operator-adjustable SCADA configuration, not
+      // fixed plant values. Starts empty (issue #55).
       sim: {
         kind: "accumulator",
         capacityM3: 0.67,
-        initialLevelFraction: 0.3,
-        provenance: { capacityM3: "confirmed", initialLevelFraction: "assumed" },
+        provenance: { capacityM3: "confirmed" },
       },
     },
     {
@@ -626,21 +625,19 @@ export const line = {
       x: 1650, y: 240, w: 130, h: 145,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 30, y: 0 }, out: { x: 65, y: 145 } },
-      fill: 0.62,
+      fill: 0,
       instruments: ["LSH", "LSL"],
       labelAt: { x: -190, y: 30 },
       // Issue #46: the same accumulator behaviour as every other bin on the
       // line (issue #18), configured a fourth time. 4.51 m3 / 3.25 t working
       // volume [CONFIRMED, PLC_FUNCTIONAL_DESCRIPTION.md §8.3 / §8.4 mimic
       // label — the "bin segment" figure from the original drawing reading
-      // belongs here, see this machine's tag-correction comment above]. The
-      // 62% start level matches the `fill` already authored above; assumed,
-      // same low-sensitivity reasoning as every other bin's start level.
+      // belongs here, see this machine's tag-correction comment above].
+      // Starts empty (issue #55), same as every other bin on the line.
       sim: {
         kind: "accumulator",
         capacityM3: 4.51,
-        initialLevelFraction: 0.62,
-        provenance: { capacityM3: "confirmed", initialLevelFraction: "assumed" },
+        provenance: { capacityM3: "confirmed" },
       },
     },
     {
@@ -709,7 +706,7 @@ export const line = {
       x: 1585, y: 460, w: 160, h: 172,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 80, y: 0 }, out: { x: 80, y: 162 } },
-      fill: 0.35,
+      fill: 0,
       instruments: ["LT", "LSH"],
       labelAt: { x: 0, y: 198 },
       // Issue #47: an accumulator (issue #18's behaviour, configured a
@@ -726,13 +723,12 @@ export const line = {
       // accumulator's own reverse-pass discharge cap is always 0, and
       // emptying it is the presenter's own bin-empty affordance
       // (PlantControls.jsx, reusing the same setLevel(0) the level-jump
-      // slider itself calls).
-      params: [{ id: "level", label: "fill level", min: 0, max: 100, value: 35, unit: "%", bind: "levelJump" }],
+      // slider itself calls). Starts empty (issue #55).
+      params: [{ id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" }],
       sim: {
         kind: "accumulator",
         capacityM3: 6,
-        initialLevelFraction: 0.35,
-        provenance: { capacityM3: "assumed", initialLevelFraction: "assumed" },
+        provenance: { capacityM3: "assumed" },
       },
     },
     {
@@ -757,18 +753,18 @@ export const line = {
       x: 1765, y: 460, w: 160, h: 172,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 80, y: 0 }, out: { x: 80, y: 162 } },
-      fill: 0.12,
+      fill: 0,
       instruments: ["LT", "LSH"],
       labelAt: { x: 0, y: 198 },
       // Issue #47: same accumulator configuration as metalBin1, sixth
       // reuse of issue #18's behaviour — see metalBin1's own comment for
-      // the working-volume and no-modelled-discharge reasoning.
-      params: [{ id: "level", label: "fill level", min: 0, max: 100, value: 12, unit: "%", bind: "levelJump" }],
+      // the working-volume and no-modelled-discharge reasoning. Starts
+      // empty (issue #55).
+      params: [{ id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" }],
       sim: {
         kind: "accumulator",
         capacityM3: 6,
-        initialLevelFraction: 0.12,
-        provenance: { capacityM3: "assumed", initialLevelFraction: "assumed" },
+        provenance: { capacityM3: "assumed" },
       },
     },
     {
@@ -823,11 +819,11 @@ export const line = {
       x: 2515, y: 440, w: 90, h: 90,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 90 } },
-      fill: 0.45,
+      fill: 0,
       instruments: ["LSH", "LSL"],
       labelAt: { x: 120, y: 55 },
       params: [
-        { id: "level", label: "fill level", min: 0, max: 100, value: 45, unit: "%", bind: "levelJump" },
+        { id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" },
         { id: "highSetpoint", label: "LSH set point", min: 45, max: 100, value: 85, unit: "%", bind: "interlockHighSetpoint" },
         { id: "lowSetpoint", label: "LSL set point", min: 0, max: 45, value: 35, unit: "%", bind: "interlockLowSetpoint" },
         { id: "signalDelay", label: "signal delay", min: 0, max: 15, value: 5, unit: "s", bind: "interlockSignalDelay" },
@@ -841,12 +837,11 @@ export const line = {
       // (the filling head's own one-bag charge below), not terminal
       // storage like the metal bins — closer in scale to the treater
       // pre-bin (1.63 m3) than to a 6 m3 metal bin. See
-      // docs/OPEN_QUESTIONS.md.
+      // docs/OPEN_QUESTIONS.md. Starts empty (issue #55).
       sim: {
         kind: "accumulator",
         capacityM3: 2.5,
-        initialLevelFraction: 0.45,
-        provenance: { capacityM3: "assumed", initialLevelFraction: "assumed" },
+        provenance: { capacityM3: "assumed" },
       },
     },
     {
@@ -997,11 +992,11 @@ export const line = {
       x: 3145, y: 350, w: 90, h: 90,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 90 } },
-      fill: 0.5,
+      fill: 0,
       instruments: ["LT", "LSH", "LSL"],
       labelAt: { x: 110, y: 30 },
       params: [
-        { id: "level", label: "fill level", min: 0, max: 100, value: 50, unit: "%", bind: "levelJump" },
+        { id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" },
         { id: "highSetpoint", label: "LSH set point", min: 50, max: 100, value: 85, unit: "%", bind: "interlockHighSetpoint" },
         { id: "lowSetpoint", label: "LSL set point", min: 0, max: 50, value: 35, unit: "%", bind: "interlockLowSetpoint" },
         { id: "signalDelay", label: "signal delay", min: 0, max: 15, value: 5, unit: "s", bind: "interlockSignalDelay" },
@@ -1011,12 +1006,12 @@ export const line = {
       // LOW-confidence one — sheet 52-14 gives ~0.72 m3 with a "(?)" against
       // it (REAL_LINE_SPECS.md §7) — so it's used as the assumed value
       // rather than trusted as confirmed, same treatment the parent issue
-      // asks for explicitly. See docs/OPEN_QUESTIONS.md.
+      // asks for explicitly. See docs/OPEN_QUESTIONS.md. Starts empty
+      // (issue #55).
       sim: {
         kind: "accumulator",
         capacityM3: 0.72,
-        initialLevelFraction: 0.5,
-        provenance: { capacityM3: "assumed", initialLevelFraction: "assumed" },
+        provenance: { capacityM3: "assumed" },
       },
     },
     {
