@@ -147,18 +147,42 @@ export default function MeetingApp() {
       `}</style>
 
       <header style={{
-        display: "flex", justifyContent: "space-between", alignItems: "center",
-        padding: "10px 16px", borderBottom: `1px solid ${C.line}`, flex: "none", gap: 16, flexWrap: "wrap",
+        display: "flex", flexDirection: "column", gap: 8,
+        padding: "10px 16px", borderBottom: `1px solid ${C.line}`, flex: "none",
       }}>
-        <TransportControls
-          running={engine.running}
-          onStart={engine.start}
-          onPause={engine.pause}
-          onStep={engine.stepOnce}
-          onRestart={engine.restart}
-          speed={engine.speed}
-          onSpeedChange={engine.setSpeed}
-        />
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <TransportControls
+            running={engine.running}
+            onStart={engine.start}
+            onPause={engine.pause}
+            onStep={engine.stepOnce}
+            onRestart={engine.restart}
+            speed={engine.speed}
+            onSpeedChange={engine.setSpeed}
+          />
+          <div style={{ display: "flex", gap: 6, flex: "none" }}>
+            {line.zones.map((z) => (
+              <button key={z.id} className="zonebtn" style={zoneBtnStyle} onClick={() => fitTo(zoneBounds(line, z.id))}>
+                {z.name}
+              </button>
+            ))}
+            <button className="zonebtn" style={{ ...zoneBtnStyle, color: C.wheat }} onClick={() => fitTo(home)}>
+              FIT ALL
+            </button>
+            <button
+              className="zonebtn"
+              style={eventPanelOpen
+                ? { ...zoneBtnStyle, background: C.wheat, color: "#1a1a14", border: `1px solid ${C.wheat}` }
+                : zoneBtnStyle}
+              onClick={() => setEventPanelOpen((v) => !v)}
+            >
+              EVENT LOG
+            </button>
+          </div>
+          <div style={{ fontSize: 9, color: selected ? C.wheat : C.muted, textAlign: "right", minWidth: 170 }}>
+            {selected ? selected.name : "click a machine · drag to pan · wheel to zoom"}
+          </div>
+        </div>
         <PlantControls
           onResetTrips={engine.resetTrips}
           source={engine.snap.source}
@@ -173,28 +197,6 @@ export default function MeetingApp() {
           utilitiesTripPhase={engine.snap.utilitiesTripPhase}
           onSetUtilitiesHealthy={engine.setUtilitiesHealthy}
         />
-        <div style={{ display: "flex", gap: 6, flex: "none" }}>
-          {line.zones.map((z) => (
-            <button key={z.id} className="zonebtn" style={zoneBtnStyle} onClick={() => fitTo(zoneBounds(line, z.id))}>
-              {z.name}
-            </button>
-          ))}
-          <button className="zonebtn" style={{ ...zoneBtnStyle, color: C.wheat }} onClick={() => fitTo(home)}>
-            FIT ALL
-          </button>
-          <button
-            className="zonebtn"
-            style={eventPanelOpen
-              ? { ...zoneBtnStyle, background: C.wheat, color: "#1a1a14", border: `1px solid ${C.wheat}` }
-              : zoneBtnStyle}
-            onClick={() => setEventPanelOpen((v) => !v)}
-          >
-            EVENT LOG
-          </button>
-        </div>
-        <div style={{ fontSize: 9, color: selected ? C.wheat : C.muted, textAlign: "right", minWidth: 170 }}>
-          {selected ? selected.name : "click a machine · drag to pan · wheel to zoom"}
-        </div>
       </header>
 
       {validation.ok ? (

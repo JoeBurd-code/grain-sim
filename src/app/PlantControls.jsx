@@ -1,56 +1,94 @@
 // Plant-level controls, wired to the live sim engine (see
 // src/sim/useSimEngine.js). This cluster means "control the plant" — the
-// counterpart to TransportControls' "control the clock" — kept visually
-// separate (a red-accented border, not the wheat/muted styling every other
-// header button uses) so a presenter reaching for RESET TRIPS is never
-// reaching for RESTART by mistake. The trip reset (issue #45) is its first
-// occupant; a real SCADA panel groups plant-safety actions the same way.
+// counterpart to TransportControls' "control the clock". It lives on its own
+// full-width row under the rest of the header (MeetingApp.jsx) rather than
+// competing for space with transport/zone nav on one line, and is split into
+// three labeled, bordered sections — SOURCE, DESTINATION, SAFETY — instead of
+// one undifferentiated row (issue #54), so a presenter can scan by category
+// instead of reading every button.
 //
-// The source selector (issue #46) is its second: one click each, same as
-// RESET TRIPS, per the parent spec's "every new control is a setter on the
+// Severity is what drives color, not membership in this component (issue
+// #54): SOURCE/DESTINATION/EMPTY BIN are routine operating choices, styled
+// neutral/wheat like every other non-danger header button (zonebtn,
+// TransportControls). CONTROLLED STOP, RESET TRIPS, and UTILITIES are plant-
+// safety actions and keep the original red accent so a presenter reaching
+// for RESET TRIPS is never reaching for RESTART by mistake.
+//
+// The trip reset (issue #45) is the safety section's first occupant; a real
+// SCADA panel groups plant-safety actions the same way.
+//
+// The source selector (issue #46) is the source section's occupant: one
+// click each, per the parent spec's "every new control is a setter on the
 // existing engine surface" instruction — no popup, no per-machine hunt.
 //
-// The destination selector and the bin-empty control (issue #47) are its
-// third and fourth: same one-click shape, same cluster — the acceptance
-// criteria are explicit that both live here, not in a per-machine popup.
-// EMPTY BIN only renders while the current destination is actually a metal
-// bin (the other two destinations have nothing this control could act on),
-// so the cluster never shows a button with nothing to do.
+// The destination selector and the bin-empty control (issue #47) share the
+// destination section — the acceptance criteria are explicit that both live
+// here, not in a per-machine popup. EMPTY BIN only renders while the current
+// destination is actually a metal bin (the other two destinations have
+// nothing this control could act on), so the section never shows a button
+// with nothing to do.
 //
-// CONTROLLED STOP (issue #50) is its fifth: the demonstrable counterpart to
-// RESET TRIPS — a trip strands product, a controlled stop drains the line —
-// so it sits right beside it. One button, two states (the same toggle shape
-// TransportControls' own RUN/PAUSE already uses): CONTROLLED STOP while
-// running, RESUME LINE once a drain is in progress or has settled. It
-// doesn't latch (sim/controlledStop.js), so resuming needs no trip reset.
+// CONTROLLED STOP (issue #50) sits in the safety section: the demonstrable
+// counterpart to RESET TRIPS — a trip strands product, a controlled stop
+// drains the line — so it sits right beside it. One button, two states (the
+// same toggle shape TransportControls' own RUN/PAUSE already uses):
+// CONTROLLED STOP while running, RESUME LINE once a drain is in progress or
+// has settled. It doesn't latch (sim/controlledStop.js), so resuming needs no
+// trip reset.
 //
-// UTILITIES (issue #51) is its sixth: the presenter's own single toggle
-// standing in for the three utility sequences the line can't run without
-// (sim/utilitiesTrip.js) — filled/active the instant health is toggled off,
-// same convention as CONTROLLED STOP above, even though the actual trip
-// doesn't land on every machine until 1s later. It does latch, like every
-// trip in control.js, so bringing the line back is RESET TRIPS' job, not a
-// second button of its own here.
+// UTILITIES (issue #51) is the safety section's third occupant: the
+// presenter's own single toggle standing in for the three utility sequences
+// the line can't run without (sim/utilitiesTrip.js) — filled/active the
+// instant health is toggled off, same convention as CONTROLLED STOP above,
+// even though the actual trip doesn't land on every machine until 1s later.
+// It does latch, like every trip in control.js, so bringing the line back is
+// RESET TRIPS' job, not a second button of its own here.
 import { C, FONT_MONO } from "../scene/theme";
 
-const clusterStyle = {
-  display: "flex", alignItems: "center", gap: 6,
-  border: `1px solid ${C.red}`, borderRadius: 4, padding: "3px 6px",
+const rowStyle = {
+  display: "flex", alignItems: "flex-start", gap: 10, flexWrap: "wrap",
 };
 
-const labelStyle = {
-  fontSize: 9, letterSpacing: "0.08em", color: C.red, marginRight: 2,
+const sectionStyle = (accent) => ({
+  display: "flex", flexDirection: "column", gap: 4,
+  border: `1px solid ${accent}`, borderRadius: 4, padding: "4px 8px",
+});
+
+const sectionTitleStyle = (accent) => ({
+  fontSize: 8, letterSpacing: "0.12em", color: accent, textTransform: "uppercase",
+});
+
+const sectionRowStyle = {
+  display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap",
 };
 
-const btnStyle = {
-  background: "transparent", color: C.red, border: `1px solid ${C.red}`,
+// Shape shared by every button in this component regardless of severity
+// tier — only the idle/active colors differ below.
+const buttonBase = {
   borderRadius: 4, padding: "4px 10px", fontFamily: FONT_MONO,
   fontSize: 10, letterSpacing: "0.08em", cursor: "pointer",
 };
 
-// Filled, not outlined, when its position is the one currently selected —
-// the same "filled = active" convention MeetingApp's own EVENT LOG toggle
-// already uses, just in the cluster's red rather than wheat.
+// Neutral/wheat styling (issue #54): SOURCE, DESTINATION, and EMPTY BIN are
+// routine operating choices, not safety actions — same look as MeetingApp's
+// own zonebtn / EVENT LOG toggle (muted/line idle, filled wheat when active).
+const neutralBtnStyle = {
+  ...buttonBase, background: "transparent", color: C.muted, border: `1px solid ${C.line}`,
+};
+
+const neutralActiveBtnStyle = {
+  ...neutralBtnStyle, background: C.wheat, color: "#1a1a14", border: `1px solid ${C.wheat}`,
+};
+
+// Red styling, unchanged from before issue #54: CONTROLLED STOP, RESET
+// TRIPS, and UTILITIES are plant-safety actions, not routine choices — red
+// even when idle, unlike the neutral family above.
+const btnStyle = {
+  ...buttonBase, background: "transparent", color: C.red, border: `1px solid ${C.red}`,
+};
+
+// Filled, not outlined, when active — the same "filled = active" convention
+// MeetingApp's own EVENT LOG toggle already uses, just in red.
 const activeBtnStyle = {
   ...btnStyle, background: C.red, color: "#1a1a14",
 };
@@ -103,46 +141,59 @@ export default function PlantControls({
       ? "⚡ TRIPPED — RESET NEEDED"
       : "⚡ TRIP UTILITIES";
   return (
-    <div style={clusterStyle}>
-      <span style={labelStyle}>PLANT</span>
-      <span style={{ ...labelStyle, marginLeft: 4 }}>SOURCE</span>
-      {SOURCES.map((s) => (
-        <button
-          key={s.id}
-          style={source === s.id ? activeBtnStyle : btnStyle}
-          onClick={() => onSetSource(s.id)}
-        >
-          {s.label}
-        </button>
-      ))}
-      <span style={{ ...labelStyle, marginLeft: 4 }}>DESTINATION</span>
-      {DESTINATIONS.map((d) => (
-        <button
-          key={d.id}
-          style={destination === d.id ? activeBtnStyle : btnStyle}
-          onClick={() => onSetDestination(d.id)}
-        >
-          {d.label}
-        </button>
-      ))}
-      {emptyableBinId && (
-        <button style={btnStyle} onClick={() => onEmptyBin(emptyableBinId)}>
-          EMPTY BIN
-        </button>
-      )}
-      <button style={stopping ? activeBtnStyle : btnStyle} onClick={stopping ? onResumeLine : onControlledStop}>
-        {stopping ? "▶ RESUME LINE" : "⏻ CONTROLLED STOP"}
-      </button>
-      <button style={btnStyle} onClick={onResetTrips}>
-        ⚠ RESET TRIPS
-      </button>
-      <span style={{ ...labelStyle, marginLeft: 4 }}>UTILITIES</span>
-      <button
-        style={utilitiesActive ? activeBtnStyle : btnStyle}
-        onClick={() => onSetUtilitiesHealthy(!utilitiesHealthy)}
-      >
-        {utilitiesLabel}
-      </button>
+    <div style={rowStyle}>
+      <div style={sectionStyle(C.line)}>
+        <span style={sectionTitleStyle(C.muted)}>SOURCE</span>
+        <div style={sectionRowStyle}>
+          {SOURCES.map((s) => (
+            <button
+              key={s.id}
+              style={source === s.id ? neutralActiveBtnStyle : neutralBtnStyle}
+              onClick={() => onSetSource(s.id)}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={sectionStyle(C.line)}>
+        <span style={sectionTitleStyle(C.muted)}>DESTINATION</span>
+        <div style={sectionRowStyle}>
+          {DESTINATIONS.map((d) => (
+            <button
+              key={d.id}
+              style={destination === d.id ? neutralActiveBtnStyle : neutralBtnStyle}
+              onClick={() => onSetDestination(d.id)}
+            >
+              {d.label}
+            </button>
+          ))}
+          {emptyableBinId && (
+            <button style={neutralBtnStyle} onClick={() => onEmptyBin(emptyableBinId)}>
+              EMPTY BIN
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div style={sectionStyle(C.red)}>
+        <span style={sectionTitleStyle(C.red)}>SAFETY</span>
+        <div style={sectionRowStyle}>
+          <button style={stopping ? activeBtnStyle : btnStyle} onClick={stopping ? onResumeLine : onControlledStop}>
+            {stopping ? "▶ RESUME LINE" : "⏻ CONTROLLED STOP"}
+          </button>
+          <button style={btnStyle} onClick={onResetTrips}>
+            ⚠ RESET TRIPS
+          </button>
+          <button
+            style={utilitiesActive ? activeBtnStyle : btnStyle}
+            onClick={() => onSetUtilitiesHealthy(!utilitiesHealthy)}
+          >
+            {utilitiesLabel}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
