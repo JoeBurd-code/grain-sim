@@ -3,7 +3,10 @@
 // state back. Internals (the two-phase step, how behaviours are wired) are
 // not part of this seam.
 import { BEHAVIORS, REGISTERED_KINDS, unregisteredKindMessage } from "./behaviors";
-import { initControl, stepControl, combineEventLogs, primeInstruments, resetTrips as resetControlTrips } from "./control";
+import {
+  initControl, stepControl, combineEventLogs, primeInstruments, resetTrips as resetControlTrips,
+  initFeedRateDerivations, stepFeedRateDerivation,
+} from "./control";
 import {
   initControlledStop, stepControlledStop, beginControlledStop as beginControlledStopRun,
   resumeControlledStop,
@@ -94,6 +97,11 @@ export function createSim(line) {
   // sensor/actuator pair but every actuator on the line at once, discovered
   // fresh off `sim.machines` the moment it actually fires (utilitiesTrip.js).
   const utilitiesTrip = initUtilitiesTrip();
+  // Issue #59: the always-on elevator-speed x feeder-gate -> feeder-rate
+  // derivation, empty on the real line for now (see control.js's own
+  // comment on initFeedRateDerivations) but stepped unconditionally below
+  // regardless — a rule-free list, unlike `control` above.
+  const feedRateDerivations = initFeedRateDerivations(line);
   // The declared output ports of every multi-output (splitter, and later
   // router) machine, so the passes below know the full port set to build
   // downstreamCap/hasDownstream objects over — including a port with
@@ -106,6 +114,7 @@ export function createSim(line) {
   }
   return {
     t: 0, line, machines, downstream, multiOutputPorts, order, control, controlledStop, utilitiesTrip,
+    feedRateDerivations,
     // Issue #55: running total of every unit CLEAR PLANT has ever discarded
     // — internal-only, never published to the UI (see useSimEngine.js's
     // publishSnap, which doesn't read it) — folded into assertConserved
@@ -228,6 +237,9 @@ export function stepSim(sim, dt) {
 
   sim.t += dt;
   stepControl(sim);
+  // Issue #59: unconditional — never gated on stepControl's own isArmed
+  // check or any rule's phase, per this step's own reasoning in control.js.
+  stepFeedRateDerivation(sim);
   stepControlledStop(sim);
   // Issue #51: stepped last, so a utilities trip firing this tick overrides
   // whatever the two passes above just commanded — a trip is total, and
