@@ -149,6 +149,22 @@ function snapshotAccumulator(state) {
 // that rate happens to be" (0 is not a safe proxy for "never touched": a
 // presenter deliberately pausing the feeder at 0 also leaves `rate` at 0,
 // and that pause must not look like "never started" to the interlock).
+// `hasGate` (issue #57, opt-in via `m.sim.hasGate`) adds a second, gate-
+// position pair of fields alongside `rate`/`manualOverride` above — the
+// drum feeders' own physical actuator, independent of the metering rate
+// this behaviour already models. Opt-in rather than unconditional because
+// meteredFeeder is also reused by machines with no physical gate at all
+// (vibratingConveyor, issue #48) — those must not carry dead gate state.
+// `gateFraction` is the presenter's own persisted dial (mirrors
+// transportDelay's `speedFraction`); `gateThrottleFraction` is the
+// interlock-commanded layer on top of it (mirrors transportDelay's
+// `throttleFraction`/`throttleTarget`), ramping toward
+// `gateThrottleTarget` at `gateThrottleRampPerSec` rather than snapping.
+// Both default fully open with an instant slew rate so a gated feeder with
+// no interlock commanding it yet behaves as if the gate were always wide
+// open. Issue #57 only establishes this state and its ramp mechanics —
+// nothing yet reads gateFraction/gateThrottleFraction into the commanded
+// rate; that rate-derivation step is issue #56's own job.
 function initMeteredFeeder(m) {
   return {
     kind: "meteredFeeder", rate: m.sim.rateM3PerSec, drawn: 0, manualOverride: false,
@@ -163,6 +179,12 @@ function initMeteredFeeder(m) {
     // away from a feeder the conveyor interlock has independently stopped
     // never has one write silently clobber the other's intent.
     runPermit: true,
+    ...(m.sim.hasGate ? {
+      gateFraction: 1,
+      gateThrottleFraction: 1,
+      gateThrottleTarget: 1,
+      gateThrottleRampPerSec: Infinity,
+    } : {}),
   };
 }
 // Reverse pass: how much this feeder can pull in this tick — its own
@@ -180,6 +202,12 @@ function capacityAvailableMeteredFeeder(state, dt, downstreamCap) {
   return Math.min(state.rate * dt, downstreamCap);
 }
 function applyMeteredFeeder(state, dt, inflow, cap) {
+  // Issue #57: only a gated feeder (state.gateThrottleFraction present) has
+  // anything to slew here — a plain meteredFeeder with no gate (e.g.
+  // vibratingConveyor) skips this every tick, same as before this existed.
+  if (state.gateThrottleFraction !== undefined) {
+    state.gateThrottleFraction = slewToward(state.gateThrottleFraction, state.gateThrottleTarget, state.gateThrottleRampPerSec, dt);
+  }
   const out = Math.min(inflow, cap);
   state.drawn += out;
   return out;
@@ -190,12 +218,34 @@ function applyMeteredFeeder(state, dt, inflow, cap) {
 function commandMeteredFeeder(state, rateM3PerSec) {
   state.rate = rateM3PerSec;
 }
+// Commands the gate's interlock-driven throttle toward an arbitrary target
+// fraction, ramping over `rampTimeSec` rather than snapping — mirrors
+// transportDelay's own commandTransportDelay exactly, just over the gate's
+// own throttle fields instead of the chain's. Issue #56's schedule is the
+// intended caller; a gated feeder with no schedule commanding it yet never
+// has this invoked and keeps its default gate throttle of 1.
+function commandGateMeteredFeeder(state, targetFraction, rampTimeSec) {
+  state.gateThrottleTarget = targetFraction;
+  state.gateThrottleRampPerSec = rampTimeSec > 0 ? 1 / rampTimeSec : Infinity;
+}
+function isSettledGateMeteredFeeder(state) {
+  return state.gateThrottleFraction === state.gateThrottleTarget;
+}
 // `rate` (issue #34) is whichever of the presenter's own dial or the
 // auto-start interlock's direct command last set it — see `manualOverride`
 // above. Published separately from flowRateM3PerSec (issue #28), which also
 // reflects downstream backpressure, not just this commanded rate.
+// `gateFraction`/`gateThrottleFraction` (issue #57) are only present on a
+// gated feeder — omitted here entirely for one with none, same convention
+// as every other optional snapshot field on this line (e.g. terminalSink's
+// `bagCount`).
 function snapshotMeteredFeeder(state) {
-  return { rate: state.rate, enabled: state.enabled, runPermit: state.runPermit };
+  const snap = { rate: state.rate, enabled: state.enabled, runPermit: state.runPermit };
+  if (state.gateFraction !== undefined) {
+    snap.gateFraction = state.gateFraction;
+    snap.gateThrottleFraction = state.gateThrottleFraction;
+  }
+  return snap;
 }
 // The source selector's command (issue #46): gates intake on/off without
 // touching `rate`, so the presenter's own dial survives being deselected
@@ -996,6 +1046,12 @@ export const BEHAVIORS = {
     init: initMeteredFeeder, capacityAvailable: capacityAvailableMeteredFeeder, apply: applyMeteredFeeder,
     conserve: conserveMeteredFeeder, snapshot: snapshotMeteredFeeder, command: commandMeteredFeeder,
     setEnabled: setEnabledMeteredFeeder, setRunPermit: setRunPermitMeteredFeeder,
+    // Issue #57: only meaningful on a gated feeder (`hasGate` at init) —
+    // harmless no-ops on any other meteredFeeder, since gateThrottleTarget/
+    // gateThrottleRampPerSec are just plain fields with nothing reading them
+    // back on a machine that never published gateThrottleFraction to begin
+    // with.
+    commandGate: commandGateMeteredFeeder, isSettledGate: isSettledGateMeteredFeeder,
   },
   transportDelay: {
     init: initTransportDelay, capacityAvailable: capacityAvailableTransportDelay, apply: applyTransportDelay,

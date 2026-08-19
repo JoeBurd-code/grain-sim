@@ -280,3 +280,19 @@ best, an unconfirmed worksheet figure, not a document fact.
 | `concettiScale` | Sustained bagging rate — sheet 52-14 gives ~12 t/h, but flagged unconfirmed on the worksheet itself (`REAL_LINE_SPECS.md` §7: "rate unconfirmed on worksheet... no longer believed to be the line bottleneck — the treater is") | 12 t/h, used as the assumed value per the parent issue's own instruction. Cycle time is *derived* from this rate against the assumed 50 kg bag size (50 kg / 12 t/h = 15 s), not independently assumed; `lineData.js` `sim.phases[0].durationSec`, `provenance: "derived"` | Engineer or the operational spec: a confirmed sustained bagging rate | No — the treater, not this scale, is the line's own confirmed bottleneck (`REAL_LINE_SPECS.md` §7), so the demo's point doesn't depend on this rate being exact; only the on-screen cadence would move |
 | `concettiScale` | Bag-change dead time — the seconds a real operator/mechanism loses swapping an empty bag onto the scale before the next charge can start | **Explicitly out of scope for this ticket, not modelled at all**, the same treatment as the Flexicon filling head's own equivalent row. `batchCycle`'s own discharge-to-charging transition is already immediate (`src/sim/behaviors.js` `applyBatchCycle`), so the scale cycles continuously rather than losing any time between bags | Engineer, if a future ticket wants to model it | No for this ticket, by its own acceptance criteria — same reasoning as the Flexicon head's own row |
 | `palletStub` (branch terminus) | Presenter-facing display capacity, for the fill bar's own 0..1 scale (no physical meaning — same convention as `discardBin`'s and `bigBagStub`'s own `displayCapacityM3`) | Ten bags' worth (≈0.69 m3), assumed; `lineData.js` `sim.displayCapacityM3`, `provenance: "assumed"` | Neither — demo-only choice, nothing to absorb | No |
+
+## Machine 12: Simatek elevator feed-rate formula constant (issue #57)
+
+Issue #56 specifies `TPH = Speed% x Gate% x k`, matching the plant's own commissioning
+spreadsheet (`Elevator_Feed_Rate_Calculator_v4_UPDATED.xlsx`, user-supplied 2026-08-19,
+read-only, not to be edited) and gives two of the spreadsheet's own worked examples
+(85%x55% ~= 13.92 TPH on the Yellow Bin/treating sheet; 95%x65% ~= 18.38 TPH on the Red
+Bin/Concetti sheet) plus the claim that `k` is the exact same constant on both sheets —
+an artifact of the spreadsheet hardcoding its own "buckets per metre" constant
+identically on both despite their differing actual bucket pitch. The xlsx itself was
+never attached to this repo, only quoted in the issue, so `k` couldn't be read off the
+sheet directly.
+
+| Machine | Gap | Assumption in use | Expected from | Load bearing? |
+|---|---|---|---|---|
+| `treatDrumFeeder`/`inletDrumFeeder1`/`inletDrumFeeder2` (`simatekFeedRateTph`, `src/sim/units.js`) | The exact value of `k` | **29.77, derived, not read off the sheet.** It's the constant that reproduces both of the issue's own worked examples to the 2 decimal places quoted (13.92 and 18.38) — any value in roughly [29.7647, 29.7733) rounds the same way, and 29.77 is the tidy point in that range. `src/sim/units.js` `SIMATEK_FEED_RATE_K` | Engineer or the source spreadsheet itself, attached to the repo | No for issue #57 — this ticket only establishes the formula and its test fixtures, wiring nothing live yet. **Possibly yes once #56 wires the band schedule**: the derived per-band (Speed%, Gate%) pairs all scale off this same `k`, so a materially different real `k` would shift every band's actual commanded gate/speed position, though not the target TPH each band demonstrates (that's fixed by the schedule table, independent of `k`) |

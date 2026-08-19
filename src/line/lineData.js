@@ -184,9 +184,14 @@ export const line = {
       // feeder's rate directly once the elevator's confirmed running,
       // out from under whatever the presenter last dragged this dial to.
       params: [{ id: "rate", label: "feed rate", min: 0, max: 20, value: 0, unit: "t/h", bind: "feederRate", readBind: "feederRateActual" }],
+      // `hasGate` (issue #57): the real drum feeder's own gate-position
+      // actuator, independent of the `rate` control above — see
+      // src/sim/behaviors.js's own comment on initMeteredFeeder for why
+      // this is opt-in rather than every meteredFeeder carrying it.
       sim: {
         kind: "meteredFeeder",
         rateM3PerSec: 0,
+        hasGate: true,
         provenance: { rateM3PerSec: "assumed" },
       },
     },
@@ -524,10 +529,12 @@ export const line = {
       // selector's own gate (src/sim/behaviors.js), separate from `rate`,
       // so this feeder's own dial is preserved for whenever it's selected.
       params: [{ id: "rate", label: "feed rate", min: 2, max: 20, value: 12, unit: "t/h", bind: "feederRate", readBind: "feederRateActual" }],
+      // `hasGate` (issue #57): see treatDrumFeeder's own comment above.
       sim: {
         kind: "meteredFeeder",
         rateM3PerSec: tPerHourToM3PerSec(12),
         enabled: false,
+        hasGate: true,
         provenance: { rateM3PerSec: "assumed" },
       },
     },
@@ -562,9 +569,11 @@ export const line = {
       // and the cascade runs backward through the zone on its own, with no
       // special-cased "idle" state anywhere.
       params: [{ id: "rate", label: "feed rate", min: 2, max: 20, value: 12, unit: "t/h", bind: "feederRate", readBind: "feederRateActual" }],
+      // `hasGate` (issue #57): see treatDrumFeeder's own comment above.
       sim: {
         kind: "meteredFeeder",
         rateM3PerSec: tPerHourToM3PerSec(12),
+        hasGate: true,
         provenance: { rateM3PerSec: "assumed" },
       },
     },
