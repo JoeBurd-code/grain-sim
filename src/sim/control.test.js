@@ -995,3 +995,306 @@ describe("primeInstruments", () => {
     expect(sim.control[0].instruments.LSH).toEqual({ code: "LSH", setpoint: 0.8, tripped: true, pulseGen: 0 });
   });
 });
+
+// gradedFeedSchedule (issue #58 — the graded feed-rate schedule + latched
+// LSHH trip): same fabricated-sim shape as the kinds above, but this rule
+// commands two actuators (an elevator's speed throttle, a feeder's gate
+// throttle) to one of three non-latching bands, plus one latched trip phase
+// on top — the real Speed% x Gate% mechanism issues #56/#57 introduced. No
+// engine.js, no real line data, standalone per issue #58's own scope.
+const GRADED_FEED_SCHEDULE_CFG = {
+  id: "testSchedule",
+  kind: "gradedFeedSchedule",
+  sensor: { machine: "bin" },
+  lowSetpoint: 0.35,
+  highSetpoint: 0.85,
+  highHighSetpoint: 0.95,
+  boost: { speedFraction: 1, gateFraction: 1, delaySec: 1, rampTimeSec: 1 },
+  normal: { speedFraction: 0.85, gateFraction: 0.55, delaySec: 1, rampTimeSec: 1 },
+  throttle: { speedFraction: 0.6, gateFraction: 0.4, delaySec: 1, rampTimeSec: 1 },
+  trip: { delaySec: 2, rampTimeSec: 1 },
+  action: { elevator: { machine: "elevator" }, feeder: { machine: "feeder" } },
+};
+
+function makeGradedFeedScheduleSim(fillFraction) {
+  const capacity = 10;
+  const bin = { kind: "accumulator", capacity, stored: fillFraction * capacity, initialStored: 0, spill: 0 };
+  const elevator = BEHAVIORS.transportDelay.init({ sim: { distanceM: 10, speedMPerMin: 60, ceilingM3PerSec: 1 } });
+  const feeder = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 1, hasGate: true } });
+  const machines = new Map([["bin", bin], ["elevator", elevator], ["feeder", feeder]]);
+  const control = initControl({ interlocks: [GRADED_FEED_SCHEDULE_CFG] });
+  return { t: 0, machines, control };
+}
+
+// Mirrors the file's own top-level step()/stepThrottle() helpers: both
+// actuators' own apply() are what actually slew their throttle fractions
+// toward whatever stepControl last commanded.
+function stepSchedule(sim, dt, n = 1) {
+  for (let i = 0; i < n; i++) {
+    BEHAVIORS.transportDelay.apply(sim.machines.get("elevator"), dt, 0, Infinity);
+    BEHAVIORS.meteredFeeder.apply(sim.machines.get("feeder"), dt, 0, Infinity);
+    sim.t += dt;
+    stepControl(sim);
+  }
+}
+
+describe("initControl (gradedFeedSchedule)", () => {
+  it("builds a gradedFeedSchedule rule starting in the boost band — the band level 0 always falls in", () => {
+    const sim = makeGradedFeedScheduleSim(0.1);
+    expect(sim.control).toHaveLength(1);
+    expect(sim.control[0].kind).toBe("gradedFeedSchedule");
+    expect(sim.control[0].phase).toBe("boost");
+    expect(sim.control[0].log).toEqual([]);
+  });
+});
+
+describe("stepControl (gradedFeedSchedule) — non-latching bands", () => {
+  it("does nothing while the level stays in the boost band, already matching both actuators' defaults", () => {
+    const sim = makeGradedFeedScheduleSim(0.1); // below lowSetpoint (0.35): the first tick logs the LSL crossing itself, nothing else
+    stepSchedule(sim, 0.05, 200);
+    expect(sim.control[0].phase).toBe("boost");
+    expect(sim.control[0].log).toHaveLength(1);
+    expect(sim.control[0].log[0].message).toMatch(/LSL set point reached/);
+    expect(sim.machines.get("elevator").throttleTarget).toBe(1);
+    expect(sim.machines.get("feeder").gateThrottleTarget).toBe(1);
+  });
+
+  it("arms toward normal the instant the level enters the low-high band, then commands both actuators once the delay elapses", () => {
+    const sim = makeGradedFeedScheduleSim(0.5); // between lowSetpoint (0.35) and highSetpoint (0.85)
+    stepSchedule(sim, 0.05);
+    expect(sim.control[0].phase).toBe("armingNormal");
+    expect(sim.control[0].log).toHaveLength(1);
+
+    stepSchedule(sim, 0.05, 22); // consume the 1s band delay
+    expect(sim.control[0].phase).toBe("normal");
+    expect(sim.machines.get("elevator").throttleTarget).toBe(0.85);
+    expect(sim.machines.get("feeder").gateThrottleTarget).toBe(0.55);
+
+    stepSchedule(sim, 0.05, 22); // consume the 1s ramp
+    expect(sim.machines.get("elevator").throttleFraction).toBeCloseTo(0.85);
+    expect(sim.machines.get("feeder").gateThrottleFraction).toBeCloseTo(0.55);
+  });
+
+  it("arms toward throttle the instant the level rises above the high set point, then commands it", () => {
+    const sim = makeGradedFeedScheduleSim(0.9); // above highSetpoint (0.85), below highHighSetpoint (0.95)
+    stepSchedule(sim, 0.05);
+    expect(sim.control[0].phase).toBe("armingThrottle");
+
+    stepSchedule(sim, 0.05, 22);
+    expect(sim.control[0].phase).toBe("throttle");
+    expect(sim.machines.get("elevator").throttleTarget).toBe(0.6);
+    expect(sim.machines.get("feeder").gateThrottleTarget).toBe(0.4);
+  });
+
+  it("tracks back down freely: throttle -> normal -> boost, with no latching between bands", () => {
+    const sim = makeGradedFeedScheduleSim(0.9);
+    stepSchedule(sim, 0.05, 80); // settles at throttle
+    expect(sim.control[0].phase).toBe("throttle");
+
+    sim.machines.get("bin").stored = 0.5 * 10; // presenter drags the level back down into normal
+    stepSchedule(sim, 0.05, 80);
+    expect(sim.control[0].phase).toBe("normal");
+    expect(sim.machines.get("elevator").throttleFraction).toBeCloseTo(0.85);
+    expect(sim.machines.get("feeder").gateThrottleFraction).toBeCloseTo(0.55);
+
+    sim.machines.get("bin").stored = 0.1 * 10; // further down into boost
+    stepSchedule(sim, 0.05, 80);
+    expect(sim.control[0].phase).toBe("boost");
+    expect(sim.machines.get("elevator").throttleFraction).toBeCloseTo(1);
+    expect(sim.machines.get("feeder").gateThrottleFraction).toBeCloseTo(1);
+  });
+
+  it("cancels an in-flight arm instantly, with no actuator command ever issued, if the level returns to the already-settled band before the delay elapses", () => {
+    const sim = makeGradedFeedScheduleSim(0.1); // settled at boost
+    sim.machines.get("bin").stored = 0.5 * 10; // rises into normal
+    stepSchedule(sim, 0.05); // arms toward normal
+    expect(sim.control[0].phase).toBe("armingNormal");
+
+    sim.machines.get("bin").stored = 0.1 * 10; // drops back to boost before the 1s delay elapses
+    stepSchedule(sim, 0.05);
+    expect(sim.control[0].phase).toBe("boost"); // reverted instantly, not still counting down
+    // The cancel itself is silent (no "commanded to ..." entry) — only the
+    // arm itself and the LSL/LSH instrument dot's own crossings ever log
+    // here, same as any other tick that moves the live level.
+    expect(sim.control[0].log.some((e) => e.message.includes("commanded"))).toBe(false);
+    expect(sim.machines.get("elevator").throttleTarget).toBe(1); // never actually commanded to normal
+    expect(sim.machines.get("feeder").gateThrottleTarget).toBe(1);
+  });
+
+  it("re-targets an in-flight arm with a fresh delay if the level moves to a third band before it fires", () => {
+    const sim = makeGradedFeedScheduleSim(0.1); // settled at boost
+    sim.machines.get("bin").stored = 0.5 * 10; // rises into normal
+    stepSchedule(sim, 0.05); // arms toward normal, fireAt ~= 1.05
+    expect(sim.control[0].phase).toBe("armingNormal");
+    stepSchedule(sim, 0.05, 4); // 0.2s more, still short of the 1s delay, level unchanged
+
+    sim.machines.get("bin").stored = 0.9 * 10; // carries on up into throttle before normal ever fired
+    stepSchedule(sim, 0.05);
+    expect(sim.control[0].phase).toBe("armingThrottle"); // re-targeted, not fired toward normal
+    expect(sim.machines.get("elevator").throttleTarget).toBe(1); // normal was never actually commanded
+
+    stepSchedule(sim, 0.05, 22); // consume the fresh 1s delay
+    expect(sim.control[0].phase).toBe("throttle");
+    expect(sim.machines.get("elevator").throttleTarget).toBe(0.6);
+    expect(sim.machines.get("feeder").gateThrottleTarget).toBe(0.4);
+  });
+});
+
+describe("stepControl (gradedFeedSchedule) — latched LSHH trip", () => {
+  it("commands the elevator to a full stop once the trip delay elapses, and latches once settled — the feeder gate is left untouched", () => {
+    const sim = makeGradedFeedScheduleSim(0.97); // above highHighSetpoint (0.95)
+    stepSchedule(sim, 0.05, 200); // well past the 2s trip delay and 1s ramp
+    expect(sim.control[0].phase).toBe("tripped");
+    expect(sim.machines.get("elevator").throttleTarget).toBe(0);
+    expect(sim.machines.get("elevator").throttleFraction).toBe(0);
+    expect(sim.machines.get("feeder").gateThrottleTarget).toBe(1); // never touched by the trip
+    expect(sim.machines.get("feeder").gateThrottleFraction).toBe(1);
+  });
+
+  it("an armed trip immediately cancels an in-flight band arm and always wins over the bands underneath it", () => {
+    const sim = makeGradedFeedScheduleSim(0.5);
+    stepSchedule(sim, 0.05); // arms toward normal
+    expect(sim.control[0].phase).toBe("armingNormal");
+    stepSchedule(sim, 0.05, 4); // 0.2s more, well short of the 1s band delay
+
+    sim.machines.get("bin").stored = 0.97 * 10; // level jumps straight to the high-high set point
+    stepSchedule(sim, 0.05);
+    expect(sim.control[0].phase).toBe("armingTrip"); // cancels the band arm outright
+
+    stepSchedule(sim, 0.05, 80); // consume the 2s trip delay and 1s ramp
+    expect(sim.control[0].phase).toBe("tripped");
+    expect(sim.machines.get("elevator").throttleTarget).toBe(0);
+    expect(sim.machines.get("feeder").gateThrottleTarget).toBe(1); // normal was never actually committed
+  });
+
+  it("stays tripped once the level falls back below high-high — no automatic reopen or resumed band", () => {
+    const sim = makeGradedFeedScheduleSim(0.97);
+    stepSchedule(sim, 0.05, 200); // reach "tripped"
+    sim.machines.get("bin").stored = 0.5 * 10; // presenter drags the level back down
+    stepSchedule(sim, 0.05, 200);
+    expect(sim.control[0].phase).toBe("tripped");
+    expect(sim.machines.get("elevator").throttleTarget).toBe(0);
+  });
+});
+
+describe("resetTrips (gradedFeedSchedule) — issue #58", () => {
+  it("is a no-op outside the tripped phase", () => {
+    const sim = makeGradedFeedScheduleSim(0.5); // still tracking bands, never tripped
+    const logLenBefore = sim.control[0].log.length;
+    resetTrips(sim);
+    expect(sim.control[0].phase).toBe("boost");
+    expect(sim.control[0].log).toHaveLength(logLenBefore);
+  });
+
+  it("re-latches rather than resuming while the level is still at/above high-high, logging the attempt", () => {
+    const sim = makeGradedFeedScheduleSim(0.97);
+    stepSchedule(sim, 0.05, 200); // reach "tripped"
+    const logLenBefore = sim.control[0].log.length;
+    resetTrips(sim);
+    expect(sim.control[0].phase).toBe("tripped");
+    expect(sim.machines.get("elevator").throttleTarget).toBe(0);
+    expect(sim.control[0].log).toHaveLength(logLenBefore + 1);
+    expect(sim.control[0].log.at(-1).message).toMatch(/remains latched/);
+  });
+
+  it("resumes the band the live level currently falls into once cleared — normal, not a fixed boost state", () => {
+    const sim = makeGradedFeedScheduleSim(0.97);
+    stepSchedule(sim, 0.05, 200); // reach "tripped"
+    sim.machines.get("bin").stored = 0.5 * 10; // clears highHigh, lands in the normal band
+    resetTrips(sim);
+
+    expect(sim.control[0].phase).toBe("recovering");
+    expect(sim.machines.get("elevator").throttleTarget).toBe(0.85);
+    expect(sim.machines.get("feeder").gateThrottleTarget).toBe(0.55);
+
+    stepSchedule(sim, 0.05, 22); // consume the ramp
+    expect(sim.control[0].phase).toBe("normal");
+  });
+
+  it("resumes into throttle when the level clears high-high but is still above the high set point", () => {
+    const sim = makeGradedFeedScheduleSim(0.97);
+    stepSchedule(sim, 0.05, 200); // reach "tripped"
+    sim.machines.get("bin").stored = 0.9 * 10; // below highHighSetpoint (0.95), above highSetpoint (0.85)
+    resetTrips(sim);
+
+    expect(sim.control[0].phase).toBe("recovering");
+    expect(sim.machines.get("elevator").throttleTarget).toBe(0.6);
+    expect(sim.machines.get("feeder").gateThrottleTarget).toBe(0.4);
+
+    stepSchedule(sim, 0.05, 22);
+    expect(sim.control[0].phase).toBe("throttle");
+  });
+});
+
+describe("instrumentReadings (gradedFeedSchedule)", () => {
+  it("reads three codes — LSL, LSH, LSHH — LSHH tripping at-or-above its own set point, distinct from LSH", () => {
+    const rule = { kind: "gradedFeedSchedule", lowSetpoint: 0.35, highSetpoint: 0.85, highHighSetpoint: 0.95 };
+    expect(instrumentReadings(rule, 0.9)).toEqual({
+      LSL: { setpoint: 0.35, tripped: false },
+      LSH: { setpoint: 0.85, tripped: true },
+      LSHH: { setpoint: 0.95, tripped: false },
+    });
+    expect(instrumentReadings(rule, 0.95).LSHH.tripped).toBe(true);
+  });
+});
+
+// Arming (gradedFeedSchedule): same armedWhen mechanism exercised in the
+// "arming (armedWhen)" describe block above (thresholdStopTrip), but this
+// kind has several distinct pending-timer phases of its own (three band
+// arms, plus the trip arm) — disarmGradedFeedSchedule must cancel any of
+// them, not just one. Not used by the real line yet (issue #58 is
+// standalone), but declared defensively, same as every other cancellable-arm
+// kind in this file.
+function makeArmedGradedFeedScheduleSim(fillFraction, selectedPort) {
+  const capacity = 10;
+  const bin = { kind: "accumulator", capacity, stored: fillFraction * capacity, initialStored: 0, spill: 0 };
+  const elevator = BEHAVIORS.transportDelay.init({ sim: { distanceM: 10, speedMPerMin: 60, ceilingM3PerSec: 1 } });
+  const feeder = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 1, hasGate: true } });
+  const router = BEHAVIORS.router.init({ sim: {}, ports: { outputs: ["thisBin", "elsewhere"] } });
+  BEHAVIORS.router.selectPort(router, selectedPort);
+  const cfg = { ...GRADED_FEED_SCHEDULE_CFG, armedWhen: [{ machine: "router", port: "thisBin" }] };
+  const machines = new Map([["bin", bin], ["elevator", elevator], ["feeder", feeder], ["router", router]]);
+  const control = initControl({ interlocks: [cfg] });
+  return { t: 0, machines, control };
+}
+
+describe("arming (armedWhen) — gradedFeedSchedule", () => {
+  it("disarming mid band-arm cancels the pending arm back to the settled band, with no command ever issued", () => {
+    const sim = makeArmedGradedFeedScheduleSim(0.5, "thisBin");
+    stepSchedule(sim, 0.05); // arms toward normal
+    expect(sim.control[0].phase).toBe("armingNormal");
+
+    BEHAVIORS.router.selectPort(sim.machines.get("router"), "elsewhere"); // disarm mid-countdown
+    stepSchedule(sim, 0.05, 40); // 2s more — well past where the frozen fireAt would have fired
+    expect(sim.control[0].phase).toBe("boost"); // cancelled, not just frozen mid-"armingNormal"
+    expect(sim.machines.get("elevator").throttleTarget).toBe(1); // never actually commanded
+
+    BEHAVIORS.router.selectPort(sim.machines.get("router"), "thisBin"); // re-arm
+    stepSchedule(sim, 0.05); // level is still 0.5: arms fresh, not already past a stale fireAt
+    expect(sim.control[0].phase).toBe("armingNormal");
+    stepSchedule(sim, 0.05, 22);
+    expect(sim.control[0].phase).toBe("normal");
+  });
+
+  it("disarming mid trip-arm cancels the pending trip back to the settled band", () => {
+    const sim = makeArmedGradedFeedScheduleSim(0.97, "thisBin"); // above highHighSetpoint
+    stepSchedule(sim, 0.05); // arms the trip
+    expect(sim.control[0].phase).toBe("armingTrip");
+
+    BEHAVIORS.router.selectPort(sim.machines.get("router"), "elsewhere");
+    stepSchedule(sim, 0.05, 80); // well past where the frozen trip would have fired
+    expect(sim.control[0].phase).toBe("boost"); // cancelled, never actually tripped
+    expect(sim.machines.get("elevator").throttleTarget).toBe(1);
+  });
+
+  it("disarming once already tripped freezes the rule, leaving the latched command untouched", () => {
+    const sim = makeArmedGradedFeedScheduleSim(0.97, "thisBin");
+    stepSchedule(sim, 0.05, 200); // reach "tripped"
+    expect(sim.control[0].phase).toBe("tripped");
+
+    BEHAVIORS.router.selectPort(sim.machines.get("router"), "elsewhere");
+    stepSchedule(sim, 0.05, 200);
+    expect(sim.control[0].phase).toBe("tripped"); // frozen, not auto-cleared
+    expect(sim.machines.get("elevator").throttleTarget).toBe(0); // the trip's own command still stands
+  });
+});

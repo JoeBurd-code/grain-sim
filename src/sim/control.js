@@ -62,6 +62,12 @@ const INSTRUMENT_FIELDS = {
   twoStageThrottle: { LSH: "stopSetpoint", LSL: "lowSetpoint" },
   holdNextBatch: { LSH: "highSetpoint", LSL: "lowSetpoint" },
   thresholdStopTrip: { LSH: "highSetpoint", LSL: "lowSetpoint" },
+  // Issue #58: the first rule kind with three instrument codes. LSHH sits
+  // above LSH (see gradedFeedSchedule's own comment below) — both read
+  // high-direction, handled by instrumentReadings' own `startsWith("LSH")`
+  // check rather than an exact-match on "LSH" the way every earlier kind
+  // only ever needed.
+  gradedFeedSchedule: { LSL: "lowSetpoint", LSH: "highSetpoint", LSHH: "highHighSetpoint" },
 };
 
 // Pure: which of a rule's instruments are tripped right now, given the
@@ -74,7 +80,7 @@ export function instrumentReadings(rule, level) {
   const readings = {};
   for (const [code, field] of Object.entries(fields)) {
     const setpoint = rule[field];
-    const tripped = code === "LSH" ? level >= setpoint : level <= setpoint;
+    const tripped = code.startsWith("LSH") ? level >= setpoint : level <= setpoint;
     readings[code] = { setpoint, tripped };
   }
   return readings;
@@ -596,6 +602,213 @@ function stepAutoStopOnNotRunning(rule, sim) {
 // own `running` branch), so there is nothing here for a SCADA reset to do.
 function resetAutoStopOnNotRunning() {}
 
+// Graded feed-rate schedule + latched high-high trip (issue #58 — LSHH
+// replaces LSH as the sole trip point on the Concetti/Treater pre-bins; LSL
+// and LSH become a live, non-latching feed-rate schedule instead, issue #56).
+// Three bands track the sensor's live level freely in *both* directions —
+// boost below LSL, normal between LSL and LSH, throttle between LSH and
+// LSHH — each commanding both actuators (the elevator's speed-fraction
+// throttle and the feeder's gate-fraction throttle) to that band's own
+// (speedFraction, gateFraction) pair: the real Speed% x Gate% mechanism the
+// plant's own Simatek calculator models (units.js, issue #57), not an
+// abstract rate. LSHH alone trips — an instant, latched command exactly like
+// every other Trip kind in this file (ADR 0006) — commanding only the
+// elevator to a full stop (the FD's own trip target, per issue #56; the
+// gate is left wherever the schedule last set it). This is this file's first
+// deliberate exception to ADR 0006's "everything latches": three of this
+// kind's four phases don't, with one that still does layered on top.
+//
+//   boost <-> normal <-> throttle -- [level >= highHighSetpoint, from any
+//   non-tripped phase] --> armingTrip -> [delay elapses, command elevator
+//   stop] -> stopping -> [settles] -> tripped
+//
+// Movement between bands, either direction, arms through one of three
+// "arming<Band>" phases (armingBoost/armingNormal/armingThrottle) rather
+// than a phase per direction pair — since bands move freely both ways,
+// "arming toward normal" means the same thing whether the level rose out of
+// boost or fell out of throttle. Unlike every latching kind's own arm, this
+// one is cancellable: `settledBand` remembers which band is actually
+// commanded right now, so an arm whose target band matches it again before
+// the delay fires never really changed anything and reverts instantly and
+// silently (mirrors disarmThresholdStopTrip's own "nothing observable
+// happened yet" reasoning), while an arm the level carries past to a third
+// band re-targets with a fresh delay rather than firing toward a target the
+// level has since left, or freezing.
+const FEED_SCHEDULE_BANDS = ["boost", "normal", "throttle"];
+const FEED_SCHEDULE_ARM_PHASE = { boost: "armingBoost", normal: "armingNormal", throttle: "armingThrottle" };
+const FEED_SCHEDULE_ARM_TARGET = { armingBoost: "boost", armingNormal: "normal", armingThrottle: "throttle" };
+
+function bandForLevel(rule, level) {
+  if (level < rule.lowSetpoint) return "boost";
+  if (level < rule.highSetpoint) return "normal";
+  return "throttle";
+}
+function resolveFeeder(rule, sim) {
+  const feeder = sim.machines.get(rule.feederId);
+  return { feeder, behavior: BEHAVIORS[feeder.kind] };
+}
+// Shared by commandBand's own step-path wording and resetGradedFeedSchedule's
+// "reset — " wording, so the two log messages' targets string never drifts
+// apart from each other.
+function formatBandTargets(band) {
+  return `${Math.round(band.speedFraction * 100)}% speed / ${Math.round(band.gateFraction * 100)}% gate`;
+}
+// Issues both actuator commands for a band, returning the band config so the
+// caller (commandBand below, or resetGradedFeedSchedule) can word its own
+// log entry — split out so the reset path can prefix "reset —" rather than
+// getting this function's own step-path wording.
+function commandBandTargets(rule, sim, bandName) {
+  const band = rule[bandName];
+  const { actuator, behavior } = resolveActuator(rule, sim);
+  behavior.command(actuator, band.speedFraction, band.rampTimeSec);
+  const { feeder, behavior: feederBehavior } = resolveFeeder(rule, sim);
+  feederBehavior.commandGate(feeder, band.gateFraction, band.rampTimeSec);
+  return band;
+}
+function commandBand(rule, sim, bandName) {
+  const band = commandBandTargets(rule, sim, bandName);
+  logEvent(rule, sim.t, `feed schedule commanded to ${bandName} (${formatBandTargets(band)})`);
+}
+function isBandSettled(rule, sim) {
+  const { actuator, behavior } = resolveActuator(rule, sim);
+  const { feeder, behavior: feederBehavior } = resolveFeeder(rule, sim);
+  return behavior.isSettled(actuator) && feederBehavior.isSettledGate(feeder);
+}
+function initGradedFeedSchedule(cfg) {
+  return {
+    kind: "gradedFeedSchedule",
+    id: cfg.id,
+    sensorId: cfg.sensor.machine,
+    actuatorId: cfg.action.elevator.machine,
+    feederId: cfg.action.feeder.machine,
+    lowSetpoint: cfg.lowSetpoint,
+    highSetpoint: cfg.highSetpoint,
+    highHighSetpoint: cfg.highHighSetpoint,
+    boost: { ...cfg.boost },
+    normal: { ...cfg.normal },
+    throttle: { ...cfg.throttle },
+    trip: { ...cfg.trip },
+    // The real line always starts empty (issue #55), so "boost" — the band
+    // level 0 falls in — is always the correct starting phase, the same
+    // reasoning every other kind's fixed starting phase above already
+    // relies on (e.g. thresholdTrip's "open").
+    phase: "boost",
+    settledBand: "boost",
+    fireAt: null,
+    log: [],
+  };
+}
+function stepGradedFeedSchedule(rule, sim) {
+  const level = readLevel(sim.machines, rule.sensorId);
+  stepRuleInstruments(rule, level, sim);
+
+  if (rule.phase === "tripped") return; // latched; only resetTrips moves this rule now
+
+  // Resolved once, up front, exactly like every other kind's own step
+  // function — only the trip's two phases below actually need it, but
+  // resolving it unconditionally here (rather than once per branch) matches
+  // this file's established convention.
+  const { actuator, behavior } = resolveActuator(rule, sim);
+
+  // LSHH always wins, immediately, from any non-tripped phase — including
+  // cancelling a band arm already in flight — exactly like every other Trip
+  // kind in this file: once armed, a delayed action always fires, whatever
+  // the bands underneath it are doing.
+  if (level >= rule.highHighSetpoint && rule.phase !== "armingTrip" && rule.phase !== "stopping") {
+    rule.phase = "armingTrip";
+    rule.fireAt = sim.t + rule.trip.delaySec;
+    logEvent(rule, sim.t, `high-high set point reached at ${pct(level)} — trip armed`);
+  }
+
+  if (rule.phase === "armingTrip") {
+    if (sim.t >= rule.fireAt) {
+      behavior.command(actuator, 0, rule.trip.rampTimeSec);
+      logEvent(rule, sim.t, `elevator commanded to stop (ramping over ${rule.trip.rampTimeSec}s) — high-high trip`);
+      rule.phase = "stopping";
+      rule.fireAt = null;
+    }
+    return;
+  }
+  if (rule.phase === "stopping") {
+    if (behavior.isSettled(actuator)) rule.phase = "tripped";
+    return;
+  }
+  if (rule.phase === "recovering") {
+    if (!isBandSettled(rule, sim)) return;
+    rule.phase = rule.settledBand;
+  }
+
+  const targetBand = bandForLevel(rule, level);
+
+  if (FEED_SCHEDULE_BANDS.includes(rule.phase)) {
+    if (targetBand !== rule.phase) {
+      rule.phase = FEED_SCHEDULE_ARM_PHASE[targetBand];
+      rule.fireAt = sim.t + rule[targetBand].delaySec;
+      logEvent(rule, sim.t, `${targetBand} band reached at ${pct(level)} — feed schedule armed`);
+    }
+    return;
+  }
+
+  const armTarget = FEED_SCHEDULE_ARM_TARGET[rule.phase];
+  if (!armTarget) return; // defensive; every reachable phase is handled above
+  if (targetBand === rule.settledBand) {
+    // Nothing was ever actually commanded differently — cancel instantly and
+    // silently, same reasoning as disarmThresholdStopTrip's own comment.
+    rule.phase = rule.settledBand;
+    rule.fireAt = null;
+    return;
+  }
+  if (targetBand !== armTarget) {
+    // The level moved again before this arm fired: re-target with a fresh
+    // delay rather than firing toward a target it's since left.
+    rule.phase = FEED_SCHEDULE_ARM_PHASE[targetBand];
+    rule.fireAt = sim.t + rule[targetBand].delaySec;
+    logEvent(rule, sim.t, `${targetBand} band reached at ${pct(level)} — feed schedule re-armed`);
+    return;
+  }
+  if (sim.t >= rule.fireAt) {
+    commandBand(rule, sim, armTarget);
+    rule.settledBand = armTarget;
+    rule.phase = armTarget;
+    rule.fireAt = null;
+  }
+}
+// Reset (issue #45's own latch convention, applied to this new kind): only
+// "tripped" is eligible, gated on the same high-high set point that armed
+// it. Clearing it resumes whichever band the live level currently falls
+// into — most likely throttle, since LSHH's own clearing threshold sits
+// above LSH — never a fixed "full"/"boost" state, per issue #58's own
+// acceptance criteria. Commanded immediately, no arm/delay phase, same
+// reasoning as resetTwoStageThrottle's own recovery path: no FD or
+// worksheet number backs a delay here, unlike the rising trip itself.
+function resetGradedFeedSchedule(rule, sim) {
+  if (rule.phase !== "tripped") return;
+  const level = readLevel(sim.machines, rule.sensorId);
+  if (level >= rule.highHighSetpoint) {
+    logEvent(rule, sim.t, `reset commanded — high-high set point still tripped at ${pct(level)}, remains latched`);
+    return;
+  }
+  const targetBand = bandForLevel(rule, level);
+  const band = commandBandTargets(rule, sim, targetBand);
+  logEvent(rule, sim.t, `reset — feed schedule resumes at ${targetBand} (${formatBandTargets(band)})`);
+  rule.settledBand = targetBand;
+  rule.phase = "recovering";
+}
+// Disarm (mirrors disarmThresholdStopTrip's own reasoning): only the phases
+// with a pending, not-yet-committed timer — the three band arms and the trip
+// arm — have anything to cancel; "stopping"/"recovering"/"tripped" each
+// represent a command already issued and must survive being disarmed
+// unchanged. Not exercised by any `armedWhen` config yet (issue #58 is
+// standalone, not wired to the real line), but every other kind with a
+// cancellable arm declares this unconditionally rather than waiting for a
+// config that happens to use it — see stepControl's own comment on why.
+function disarmGradedFeedSchedule(rule) {
+  if (FEED_SCHEDULE_ARM_TARGET[rule.phase] || rule.phase === "armingTrip") {
+    rule.phase = rule.settledBand;
+    rule.fireAt = null;
+  }
+}
+
 // One dispatch table entry per rule kind (issue #45's own instruction:
 // latching belongs in the control layer once, so every kind inherits the
 // reset mechanism through this registry rather than resetTrips branching on
@@ -612,6 +825,10 @@ const CONTROL_KINDS = {
     disarm: disarmThresholdStopTrip,
   },
   autoStopOnNotRunning: { init: initAutoStopOnNotRunning, step: stepAutoStopOnNotRunning, reset: resetAutoStopOnNotRunning },
+  gradedFeedSchedule: {
+    init: initGradedFeedSchedule, step: stepGradedFeedSchedule, reset: resetGradedFeedSchedule,
+    disarm: disarmGradedFeedSchedule,
+  },
 };
 
 // Arming (issue #47): the FD qualifies four of the packaging conveyor's own
