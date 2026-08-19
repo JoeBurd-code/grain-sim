@@ -64,11 +64,31 @@ export function validateLine(line) {
     if (!byId.has(rule.sensor.machine)) {
       errors.push(`interlock "${rule.id}" references unknown sensor machine "${rule.sensor.machine}"`);
     }
-    const actuator = byId.get(rule.action.machine);
-    if (!actuator) {
-      errors.push(`interlock "${rule.id}" references unknown action machine "${rule.action.machine}"`);
-    } else if (!BEHAVIORS[actuator.sim?.kind]?.command) {
-      errors.push(`interlock "${rule.id}" targets machine "${rule.action.machine}", whose sim.kind cannot be commanded`);
+    // gradedFeedSchedule (issue #58/#60) commands two actuators — an
+    // elevator's speed throttle and a feeder's gate throttle — instead of
+    // the single `action.machine` every other rule kind targets, so its own
+    // `action` is `{ elevator: { machine }, feeder: { machine } }` rather
+    // than a bare `{ machine }`.
+    const targets = rule.kind === "gradedFeedSchedule" ? [rule.action.elevator, rule.action.feeder] : [rule.action];
+    for (const target of targets) {
+      const actuator = byId.get(target.machine);
+      if (!actuator) {
+        errors.push(`interlock "${rule.id}" references unknown action machine "${target.machine}"`);
+      } else if (!BEHAVIORS[actuator.sim?.kind]?.command) {
+        errors.push(`interlock "${rule.id}" targets machine "${target.machine}", whose sim.kind cannot be commanded`);
+      }
+    }
+  }
+
+  // Issue #60: the always-on speed x gate -> rate derivation's own links,
+  // outside `line.interlocks` (see control.js's initFeedRateDerivations —
+  // this isn't a phase-machine rule kind, so it's not one).
+  for (const link of line.feedRateDerivations ?? []) {
+    if (!byId.has(link.elevator.machine)) {
+      errors.push(`feed-rate derivation "${link.id}" references unknown elevator machine "${link.elevator.machine}"`);
+    }
+    if (!byId.has(link.feeder.machine)) {
+      errors.push(`feed-rate derivation "${link.id}" references unknown feeder machine "${link.feeder.machine}"`);
     }
   }
 

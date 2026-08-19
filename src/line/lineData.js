@@ -162,32 +162,26 @@ export const line = {
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 36 } },
       labelAt: { x: -160, y: 24 },
       // Confirmed 2-20 t/h operating range [CONFIRMED 2026-06-30,
-      // REAL_LINE_SPECS.md §5]. Starts at 0 (off): the engineer confirmed
-      // the real feeder starts as soon as the bucket elevator is confirmed
-      // running. Issue #42 models that auto-start (see the
-      // `treatingElevatorRunningAutoStart` interlock below) now that the
-      // elevator is sim-enabled (issue #21) with a running signal of its
-      // own (`confirmedRunning`, src/sim/behaviors.js) — the presenter's
-      // own rate slider (bound here) still works exactly as issue #19's
-      // staging pattern did, both before the interlock fires (honoured
-      // immediately, never overwritten) and after (the interlock never
-      // touches the feeder again once started). See docs/OPEN_QUESTIONS.md.
-      // The real feeder is also not a direct rate control but a
-      // non-proportional percentage opening — a linear opening -> rate
-      // mapping is assumed across the confirmed range until the engineer's
-      // spreadsheet of estimated values (referenced, never sent) arrives;
-      // see docs/OPEN_QUESTIONS.md. The FD (2026-08-05) confirms the
-      // mechanism but not the numbers: two actuators A/B drive two
-      // discrete opening-degree positions (XV4/XV5) — the real control
-      // may be a two-position selector, not a continuous dial.
-      // `readBind` (issue #34): the auto-start interlock above commands this
-      // feeder's rate directly once the elevator's confirmed running,
-      // out from under whatever the presenter last dragged this dial to.
-      params: [{ id: "rate", label: "feed rate", min: 0, max: 20, value: 0, unit: "t/h", bind: "feederRate", readBind: "feederRateActual" }],
+      // REAL_LINE_SPECS.md §5]. The real feeder is not a direct rate control
+      // but a non-proportional percentage opening (the FD, 2026-08-05,
+      // confirms the mechanism: two actuators A/B drive two discrete
+      // opening-degree positions XV4/XV5 — the real control may be a
+      // two-position selector, not a continuous dial). Since issue #60 this
+      // feeder's own commanded rate is no longer a presenter-set dial at
+      // all: it's continuously derived (feedRateDerivations below, issue
+      // #59) from this Gate Position % dial x the elevator's own Speed%
+      // dial, through the plant's own Simatek formula (units.js, issue
+      // #57) — the real physical mechanism the old direct-rate slider (and
+      // issue #42's auto-start once the elevator was confirmed running) was
+      // always standing in for. `readBind` (issue #34): the pre-bin's graded
+      // feed schedule (preBinFeedSchedule below) can override this dial's
+      // effective value out from under the presenter, via `gateThrottleFraction`
+      // — never `gateFraction` itself, which this dial always shows exactly
+      // as last dragged (see engine.js's setGateFraction).
+      params: [{ id: "gatePosition", label: "gate position", min: 0, max: 100, value: 100, unit: "%", bind: "gatePosition", readBind: "gatePositionActual" }],
       // `hasGate` (issue #57): the real drum feeder's own gate-position
-      // actuator, independent of the `rate` control above — see
-      // src/sim/behaviors.js's own comment on initMeteredFeeder for why
-      // this is opt-in rather than every meteredFeeder carrying it.
+      // actuator, now this feeder's only presenter-facing control (see the
+      // params comment above).
       sim: {
         kind: "meteredFeeder",
         rateM3PerSec: 0,
@@ -208,9 +202,9 @@ export const line = {
       anchors: { in: { x: 25, y: 204 }, out: { x: 376, y: 44 } },
       instruments: ["ST"],
       labelAt: { x: 200, y: -14 },
-      // `readBind` (issue #34): the pre-bin's two-stage throttle
-      // (preBinSlowStopTrip below) can slow or stop this elevator out from
-      // under the presenter's own VFD dial.
+      // `readBind` (issue #34): the pre-bin's graded feed schedule
+      // (preBinFeedSchedule below) can throttle or stop this elevator out
+      // from under the presenter's own VFD dial.
       params: [{ id: "speed", label: "speed", min: 0, max: 100, value: 100, unit: "%", bind: "elevatorSpeed", readBind: "elevatorSpeedActual" }],
       // Transit delay derived, not guessed: rise 8.731 m at the drawing's
       // 10.08 m/min chain speed [MED/LOW, screenshot-sourced, REAL_LINE_SPECS.md
@@ -242,26 +236,27 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 100 } },
       fill: 0,
-      instruments: ["LT", "LSH", "LSL"],
+      instruments: ["LT", "LSHH", "LSH", "LSL"],
       labelAt: { x: -10, y: -16 },
       // Reuses the same accumulator behaviour as the buffer bin (issue #18)
       // unchanged — issue #22's own reuse claim, material physics written
-      // once and configured seven times per the parent spec. The two-stage
-      // control response below (preBinSlowStopTrip) is what's actually new.
+      // once and configured seven times per the parent spec. The graded feed
+      // schedule below (preBinFeedSchedule, issue #56/#58/#60) is what's
+      // actually new: LSHH replaces LSH as this bin's own trip point, and
+      // LSL/LSH now drive a live, non-latching boost/normal/throttle
+      // schedule instead of the old two-stage slow-then-stop throttle.
       params: [
         { id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" },
-        { id: "lowSetpoint", label: "LSL0 recover", min: 0, max: 55, value: 35, unit: "%", bind: "interlockLowSetpoint" },
-        { id: "slowSetpoint", label: "slow set point", min: 35, max: 90, value: 60, unit: "%", bind: "interlockSlowSetpoint" },
-        { id: "slowDelay", label: "slow delay", min: 0, max: 15, value: 3, unit: "s", bind: "interlockSlowDelay" },
-        { id: "stopSetpoint", label: "LSH0 stop set point", min: 40, max: 100, value: 85, unit: "%", bind: "interlockStopSetpoint" },
-        { id: "stopDelay", label: "stop delay", min: 0, max: 15, value: 5, unit: "s", bind: "interlockStopDelay" },
+        { id: "lowSetpoint", label: "LSL recover", min: 0, max: 55, value: 35, unit: "%", bind: "interlockLowSetpoint" },
+        { id: "highSetpoint", label: "LSH set point", min: 35, max: 90, value: 85, unit: "%", bind: "interlockHighSetpoint" },
+        { id: "highHighSetpoint", label: "LSHH trip set point", min: 55, max: 100, value: 95, unit: "%", bind: "interlockHighHighSetpoint" },
       ],
       // 1.63 m3 / 1.17 t working volume [CONFIRMED, FD 2026-08-05 Treating
       // mimic label, REAL_LINE_SPECS.md §2/§8.1 — supersedes the earlier
-      // 1.62 m3 screenshot read]. LSH0/LSL0 set points are assumed, same
-      // low-sensitivity reasoning as the buffer bin (issue #18/#19): the FD
-      // confirms these are operator-adjustable SCADA configuration, not
-      // fixed plant values, so there is nothing further to absorb for them.
+      // 1.62 m3 screenshot read]. LSL/LSH/LSHH set points are the sensor
+      // positions issue #56 gives directly (35%/85%/95%) — confirmed there,
+      // not re-guessed; LSH's own value is unchanged from the old LSH0 stop
+      // set point it replaces (see preBinFeedSchedule's own comment below).
       // Starts empty (issue #55), same as every other bin on the line.
       sim: {
         kind: "accumulator",
@@ -1261,58 +1256,49 @@ export const line = {
       },
     },
     {
-      id: "preBinSlowStopTrip",
-      kind: "twoStageThrottle",
+      id: "preBinFeedSchedule",
+      kind: "gradedFeedSchedule",
       sensor: { machine: "treaterPreBin" },
-      // Engineer confirmed the two-stage response itself: "the bucket
-      // elevator must first slow down then stop if the bin becomes too
-      // full" (docs/treater-line2-filled-20260630 (1) (1).md §6). The FD
-      // (2026-08-05) independently confirms the interlock exists and its
-      // trip delay — `52.507.H00.LSH0` -> 5 s -> elevator `52.506.E00` —
-      // but calls the whole thing a single "trip"; REAL_LINE_SPECS.md §5
-      // reconciles this as the same event the engineer described as a VFD
-      // ramp, so the FD's 5 s is used here for the stop stage, which is
-      // the one LSH0 actually gates. The slow stage is the engineer's own
-      // description with no FD or worksheet number behind it: its set
-      // point, delay, target speed and both ramp times, plus the recovery
-      // ramp time, are assumed. See docs/OPEN_QUESTIONS.md.
+      // Issue #56/#58/#60: replaces the old two-stage slow-then-stop
+      // throttle (preBinSlowStopTrip) and the separate treatingElevatorRunningAutoStart
+      // one-shot start (issue #42) with a single rule commanding both
+      // actuators continuously. LSL/LSH set points are unchanged from that
+      // old rule's own lowSetpoint/stop.setpoint (35%/85%) — the FD
+      // (2026-08-05) independently confirms the same `52.507.H00.LSH0` -> 5s
+      // -> elevator `52.506.E00` trip delay used below for LSHH's own trip
+      // stage, re-sensored from LSH to the new LSHH per issue #56's own
+      // decision (LSH itself no longer trips anything, purely display —
+      // see the pre-bin's own INSTRUMENT_FIELDS entry, control.js).
+      // LSHH (95%) is the new, confirmed sensor position issue #56 gives
+      // directly. Each band's (speedFraction, gateFraction) pair is the
+      // pre-bin's own real, currently-commissioned nominal operating point
+      // (85% speed / 55% gate, ~13.92 TPH per the Simatek calculator,
+      // units.js) scaled by sqrt(targetTph / nominalTph) to hit that band's
+      // own target TPH while preserving the nominal Speed:Gate ratio (issue
+      // #56's own "Implementation Decisions" section) — reproduced exactly
+      // by units.test.js's own worked band examples. No FD or worksheet
+      // number backs any band's own delay/ramp time (an engineer-described
+      // addition, same as the old slow stage it replaces): 3s/4s carried
+      // over from that old stage's own assumed figures. See
+      // docs/OPEN_QUESTIONS.md.
       lowSetpoint: 0.35,
-      slow: { setpoint: 0.6, delaySec: 3, speedFraction: 0.5, rampTimeSec: 4 },
-      stop: { setpoint: 0.85, delaySec: 5, rampTimeSec: 6 },
-      recoverRampTimeSec: 5,
-      action: { machine: "treatingElevator" },
+      highSetpoint: 0.85,
+      highHighSetpoint: 0.95,
+      boost: { speedFraction: 0.8525, gateFraction: 0.5516, delaySec: 3, rampTimeSec: 4 }, // ~14 TPH
+      normal: { speedFraction: 0.7893, gateFraction: 0.5107, delaySec: 3, rampTimeSec: 4 }, // ~12 TPH
+      throttle: { speedFraction: 0.5581, gateFraction: 0.3611, delaySec: 3, rampTimeSec: 4 }, // ~6 TPH
+      trip: { delaySec: 5, rampTimeSec: 6 },
+      action: { elevator: { machine: "treatingElevator" }, feeder: { machine: "treatDrumFeeder" } },
       provenance: {
-        lowSetpoint: "assumed",
-        "slow.setpoint": "assumed", "slow.delaySec": "assumed",
-        "slow.speedFraction": "assumed", "slow.rampTimeSec": "assumed",
-        "stop.setpoint": "assumed", "stop.delaySec": "confirmed", "stop.rampTimeSec": "assumed",
-        recoverRampTimeSec: "assumed",
+        lowSetpoint: "confirmed", highSetpoint: "confirmed", highHighSetpoint: "confirmed",
+        "boost.speedFraction": "derived", "boost.gateFraction": "derived",
+        "boost.delaySec": "assumed", "boost.rampTimeSec": "assumed",
+        "normal.speedFraction": "derived", "normal.gateFraction": "derived",
+        "normal.delaySec": "assumed", "normal.rampTimeSec": "assumed",
+        "throttle.speedFraction": "derived", "throttle.gateFraction": "derived",
+        "throttle.delaySec": "assumed", "throttle.rampTimeSec": "assumed",
+        "trip.delaySec": "confirmed", "trip.rampTimeSec": "assumed",
       },
-    },
-    {
-      id: "treatingElevatorRunningAutoStart",
-      kind: "autoStartOnRunning",
-      sensor: { machine: "treatingElevator" },
-      // Issue #42: the engineer confirmed the real feeder starts as soon as
-      // the bucket elevator is confirmed running (see the FD's own process
-      // interlock "Simatek Bucket Elevator not Running" on 52.505.L00, 1 s
-      // failure delay — docs/OPEN_QUESTIONS.md Machine 2 row). This models
-      // only the start side, with no delay: the FD's 1 s figure is
-      // documented for the elevator *stopping* tripping the feeder off, a
-      // different (and still unmodelled) half of the same interlock, not
-      // the start this rule commands. rateM3PerSec has no engineer-given
-      // number to auto-start at either — 15 t/h is assumed, not the line's
-      // 12 t/h "sustained" figure (REAL_LINE_SPECS.md §9-10): the batch
-      // treater's own modelled draw is ~14.4 t/h (160kg/40s, see the "14.4
-      // vs 12 t/h mismatch" row, Machine 5 below), so an auto-start rate at
-      // or below that leaves the pre-bin in permanent deficit — a
-      // structural starve, not a transient dip, and its own LSL never
-      // clears. 15 t/h matches the "well supplied" rate already used
-      // throughout this line's own test suite (e.g. issue #40's
-      // reproduction). See docs/OPEN_QUESTIONS.md.
-      rateM3PerSec: tPerHourToM3PerSec(15),
-      action: { machine: "treatDrumFeeder" },
-      provenance: { rateM3PerSec: "assumed" },
     },
     {
       id: "afterBinHoldTreater",
@@ -1484,5 +1470,17 @@ export const line = {
       action: { machine: "inletDrumFeeder2" },
       provenance: { signalDelaySec: "confirmed" },
     },
+  ],
+  // The always-on speed x gate -> rate derivation (issue #59), wired onto
+  // the real line for the first time (issue #60): the treating elevator's
+  // live effective speed and the treating-side inlet drum feeder's live
+  // effective gate, run through the Simatek formula every tick regardless
+  // of preBinFeedSchedule's own phase, so a presenter's dial change (or
+  // that schedule's own commanded band) shows up in the feeder's commanded
+  // rate immediately. Concetti's own inlet drum feeders/pendulumConveyor
+  // pair (issue #56's own scope) aren't linked here — that's a separate,
+  // later ticket.
+  feedRateDerivations: [
+    { id: "treatingFeedRateDerivation", elevator: { machine: "treatingElevator" }, feeder: { machine: "treatDrumFeeder" } },
   ],
 };

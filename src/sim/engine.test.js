@@ -1,9 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   createSim, stepSim, resetSim, resetTrips, getMachineState, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
-  setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, getInterlockState,
-  getCombinedEvents, setElevatorSpeed,
-  setInterlockSlowSetpoint, setInterlockStopSetpoint, setInterlockSlowDelay, setInterlockStopDelay,
+  setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockHighHighSetpoint, setInterlockSignalDelay, getInterlockState,
+  getCombinedEvents, setElevatorSpeed, setGateFraction,
   setBatchSize, setBatchCycleSec, setSplitterWasteFraction, setSource, getSource,
   setDestination, getDestination,
   controlledStop, resumeLine, getControlledStopPhase,
@@ -11,7 +10,8 @@ import {
   clearPlant, emptyTerminalSink,
 } from "./engine";
 import { assertConserved, conservationTotals } from "./conservation";
-import { tPerHourToM3PerSec } from "./units";
+import { tPerHourToM3PerSec, m3PerSecToTPerHour } from "./units";
+import { instrumentReadings } from "./control";
 import { line } from "../line/lineData";
 import { BEHAVIORS } from "./behaviors";
 
@@ -61,17 +61,41 @@ function interlockRule(sim) {
 // unconstrained passthrough a splitter falls back to. The hopper's sim block
 // is stripped alongside the feeder's so the screen's product port is once
 // again the un-engined frontier this fixture's isolation depends on.
-const lineWithoutPackaging = {
+// Issue #60: replaces the pre-bin's old two-stage throttle (issue #22) plus
+// the separate feeder auto-start (issue #42) with a single gradedFeedSchedule
+// rule commanding both the treating elevator and treatDrumFeeder, and wires
+// the always-on speed x gate -> rate derivation (issue #59) onto that same
+// pair. Under that wiring, treatDrumFeeder's own commanded rate is
+// continuously overwritten from the elevator's live speed and this feeder's
+// own live gate (see stepFeedRateDerivation, control.js) — deliberately
+// unguarded by manualOverride, so setFeederRate no longer has any lasting
+// effect on it. Every describe block below that predates #60 and isn't
+// actually testing the new schedule/derivation itself used setFeederRate as
+// its generic "how fast is material entering the elevator" lever, so those
+// blocks run against this variant instead — same isolation idiom as
+// lineWithoutBatchTreater/lineWithoutPackaging below (both now built on top
+// of this one), restoring treatDrumFeeder to a plain, directly rate-controlled
+// meteredFeeder and treatingElevator to an uninterlocked transport delay,
+// exactly their pre-#60 behaviour. The schedule/derivation's own real-line
+// behaviour gets its own dedicated coverage against the real `line`, in the
+// "treater pre-bin's graded feed schedule (issue #60)" describe block below.
+const lineWithoutFeedSchedule = {
   ...line,
-  machines: line.machines.map((m) =>
+  interlocks: line.interlocks.filter((i) => i.kind !== "gradedFeedSchedule"),
+  feedRateDerivations: (line.feedRateDerivations ?? []).filter((d) => d.feeder.machine !== "treatDrumFeeder"),
+};
+
+const lineWithoutPackaging = {
+  ...lineWithoutFeedSchedule,
+  machines: lineWithoutFeedSchedule.machines.map((m) =>
     m.id === "inletDrumFeeder2" || m.id === "scalpingDischargeHopper" ? { ...m, sim: undefined } : m
   ),
-  interlocks: line.interlocks.filter((i) => i.action.machine !== "inletDrumFeeder2"),
+  interlocks: lineWithoutFeedSchedule.interlocks.filter((i) => i.action.machine !== "inletDrumFeeder2"),
 };
 
 describe("createSim / stepSim (real Treater Line 2 data)", () => {
   it("creates a sim and steps it by a fixed timestep", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     expect(sim.t).toBe(0);
     stepSim(sim, DT);
     expect(sim.t).toBeCloseTo(DT);
@@ -80,19 +104,19 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
   });
 
   it("reads a machine's current state back", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     expect(getMachineState(sim, BUFFER_BIN_ID).kind).toBe("accumulator");
     expect(getMachineState(sim, "notAMachine")).toBeUndefined();
   });
 
   it("reads an interlock's current state back by its sensor machine", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     expect(getInterlockState(sim, BUFFER_BIN_ID).phase).toBe("open");
     expect(getInterlockState(sim, "notAMachine")).toBeUndefined();
   });
 
   it("source injects at its configured rate, accumulating in the empty bin", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(12));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this test is about the source/bin fill, not the feeder's own auto-start (issue #42)
     for (let i = 0; i < 100; i++) stepSim(sim, DT);
@@ -103,7 +127,7 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
   });
 
   it("source rate can be changed while the sim is running", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, 0);
     stepSim(sim, DT);
     expect(getMachineState(sim, SOURCE_ID).fed).toBe(0);
@@ -114,7 +138,7 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
   });
 
   it("metal remover holds zero volume at all times", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(12));
     for (let i = 0; i < 50; i++) {
       stepSim(sim, DT);
@@ -123,7 +147,7 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
   });
 
   it("buffer bin reports its level as a fraction of working volume, starting empty (issue #55)", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     const bin = getMachineState(sim, BUFFER_BIN_ID);
     expect(bin.stored / bin.capacity).toBe(0);
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55);
@@ -131,7 +155,7 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
   });
 
   it("buffer bin fills and rejects once full; rejected material backs up to the source instead of vanishing", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20)); // fast enough to fill it
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this test is about the bin's own backpressure, not the feeder's own auto-start (issue #42)
     setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 2); // unreachable: isolates raw accumulator backpressure from the issue #19 interlock
@@ -194,7 +218,7 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
   });
 
   it("setAccumulatorLevel jumps the live level and stays conserved", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(12));
     for (let i = 0; i < 100; i++) stepSim(sim, DT); // some fed volume in the mix already
 
@@ -216,14 +240,14 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
   });
 
   it("setAccumulatorLevel rejects a non-accumulator machine", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     expect(() => setAccumulatorLevel(sim, SOURCE_ID, 0.5)).toThrow(/not an accumulator/);
   });
 });
 
 describe("buffer bin's high-set-point interlock closes the source valve, late (issue #19)", () => {
   it("keeps the valve fully open through the signal delay after the high set point trips", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; restore this block's own pre-#55 starting premise
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
@@ -245,7 +269,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
   });
 
   it("grain released before the valve fully closes still arrives at the bin, and conservation holds throughout", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; restore this block's own pre-#55 starting premise
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
@@ -267,7 +291,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
   });
 
   it("the bin overshoots the high set point rather than stopping exactly at it", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; restore this block's own pre-#55 starting premise
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
@@ -281,7 +305,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
 
   it("a larger signal delay produces a larger overshoot", () => {
     function peakOvershoot(signalDelaySec) {
-      const sim = createSim(line);
+      const sim = createSim(lineWithoutFeedSchedule);
       // Faster than the demo default so the trip arrives well inside the
       // step budget below, but still slow enough relative to the 15% of
       // capacity above the set point that neither run saturates the bin
@@ -306,7 +330,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
   // device can run again — the sim's former auto-reopen at the low set point
   // was a modelling convenience, not plant behaviour (docs/OPEN_QUESTIONS.md).
   it("the valve stays closed once the level falls past the low set point — no automatic reopen", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; restore this block's own pre-#55 starting premise
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
@@ -329,7 +353,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
   });
 
   it("resetTrips reopens the valve once the level has actually cleared the high set point", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; restore this block's own pre-#55 starting premise
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
@@ -353,7 +377,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
   });
 
   it("records the trip, the delayed action, the re-latched reset attempt and the eventual reset in the buffer bin's event log, each with its simulated time", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; restore this block's own pre-#55 starting premise
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
@@ -375,7 +399,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
   });
 
   it("publishes the same trip through getCombinedEvents, tagged with the buffer bin's real id and display name (issue #29)", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; restore this block's own pre-#55 starting premise
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
@@ -395,7 +419,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
   });
 
   it("high set point, low set point and signal delay are live controls that take effect while the sim is running", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; restore this block's own pre-#55 starting premise
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
@@ -415,68 +439,23 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
 });
 
 describe("inlet drum feeder meters the buffer bin's discharge (issue #20)", () => {
-  it("starts at 0 t/h at t=0, confirmed plant behaviour, before anything has had a chance to auto-start it (issue #42)", () => {
-    const sim = createSim(line);
+  // This block runs against lineWithoutFeedSchedule (a plain, directly
+  // rate-controlled meteredFeeder with no interlock of its own): issue #42's
+  // own auto-start-on-running interlock, and the graded feed schedule that
+  // superseded it (issue #56/#58/#60), each get their own dedicated coverage
+  // elsewhere — auto-start no longer exists on the real line at all, and the
+  // schedule's own real-line behaviour is covered against the real `line` in
+  // the "treater pre-bin's graded feed schedule" describe block below.
+  it("starts at 0 t/h at t=0 and stays there with no presenter action", () => {
+    const sim = createSim(lineWithoutFeedSchedule);
     expect(getMachineState(sim, FEEDER_ID).rate).toBe(0);
     expect(getMachineState(sim, FEEDER_ID).drawn).toBe(0);
-  });
-
-  // Issue #42: the engineer confirmed the real feeder starts itself as soon
-  // as the bucket elevator is confirmed running — no `setFeederRate` call
-  // here at all, unlike every other test in this file. The elevator reads
-  // as running from t=0 by default (both its manual VFD dial and its
-  // interlock throttle default to a settled, nonzero fraction), so the
-  // auto-start interlock fires on the very first control tick.
-  it("auto-starts at its configured rate the instant the treating elevator is confirmed running, with no presenter intervention", () => {
-    const sim = createSim(line);
-    setSourceRate(sim, SOURCE_ID, 0); // isolate the draw from the bin's own stock
-    setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; give the feeder real stock to draw down
-    const startStored = getMachineState(sim, BUFFER_BIN_ID).stored;
-
-    stepSim(sim, DT); // the elevator is already confirmed running at boot: this is the tick the interlock fires
-
-    const feeder = getMachineState(sim, FEEDER_ID);
-    expect(feeder.rate).toBeGreaterThan(0);
-    expect(feeder.manualOverride).toBe(false); // auto-started, not presenter-driven
-
-    for (let i = 0; i < 200; i++) stepSim(sim, DT);
-    expect(feeder.drawn).toBeGreaterThan(0);
-    expect(getMachineState(sim, BUFFER_BIN_ID).stored).toBeLessThan(startStored); // the bin genuinely drains on its own now
-  });
-
-  // Acceptance criterion: a presenter setting a rate before the elevator has
-  // confirmed running is a deliberate, documented choice (honoured
-  // immediately), not an accidental side effect of the interlock racing the
-  // presenter. Holding the elevator off with setElevatorSpeed(0) keeps
-  // `confirmedRunning` false until the presenter brings it back up.
-  it("honours a presenter's own feed rate set before the elevator confirms running, rather than overwriting it once the interlock fires", () => {
-    const sim = createSim(line);
-    setElevatorSpeed(sim, ELEVATOR_ID, 0); // hold the elevator off: confirmedRunning stays false
-    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(5)); // presenter starts the feeder early, at a rate of their own choosing
     for (let i = 0; i < 20; i++) stepSim(sim, DT);
-    expect(getMachineState(sim, FEEDER_ID).rate).toBeCloseTo(tPerHourToM3PerSec(5));
-
-    setElevatorSpeed(sim, ELEVATOR_ID, 1); // elevator now confirmed running
-    for (let i = 0; i < 20; i++) stepSim(sim, DT);
-    // auto-start sees the feeder already under presenter control and leaves it alone
-    expect(getMachineState(sim, FEEDER_ID).rate).toBeCloseTo(tPerHourToM3PerSec(5));
-  });
-
-  // The existing live control still works after auto-start (acceptance
-  // criterion): once the rule has latched "started", it never touches the
-  // feeder again, so a presenter's own slider change mid-run sticks.
-  it("the presenter's feed-rate slider still works as a live control after auto-start", () => {
-    const sim = createSim(line);
-    stepSim(sim, DT); // auto-start fires
-    expect(getMachineState(sim, FEEDER_ID).rate).toBeGreaterThan(0);
-
-    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(2)); // presenter demos a rate change mid-run
-    for (let i = 0; i < 20; i++) stepSim(sim, DT);
-    expect(getMachineState(sim, FEEDER_ID).rate).toBeCloseTo(tPerHourToM3PerSec(2));
+    expect(getMachineState(sim, FEEDER_ID).rate).toBe(0);
   });
 
   it("draws from the bin at its configured rate once started, and the two reconcile exactly", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, 0); // isolate the draw from any inflow
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; give the feeder real stock to draw down
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(12));
@@ -492,7 +471,7 @@ describe("inlet drum feeder meters the buffer bin's discharge (issue #20)", () =
   });
 
   it("draws nothing once the bin runs dry, and never drives it negative", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, 0);
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0);
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(20));
@@ -506,7 +485,7 @@ describe("inlet drum feeder meters the buffer bin's discharge (issue #20)", () =
   });
 
   it("draws down to empty and then stops, without ever going negative or fabricating material", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, 0);
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.05); // a little stock, drains fast
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(20));
@@ -520,14 +499,14 @@ describe("inlet drum feeder meters the buffer bin's discharge (issue #20)", () =
   });
 
   it("feed exceeding draw fills the bin; draw exceeding feed empties it; the crossover behaves correctly", () => {
-    const filling = createSim(line);
+    const filling = createSim(lineWithoutFeedSchedule);
     setSourceRate(filling, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(filling, FEEDER_ID, tPerHourToM3PerSec(2));
     const fillingStart = getMachineState(filling, BUFFER_BIN_ID).stored;
     for (let i = 0; i < 500; i++) stepSim(filling, DT);
     expect(getMachineState(filling, BUFFER_BIN_ID).stored).toBeGreaterThan(fillingStart);
 
-    const draining = createSim(line);
+    const draining = createSim(lineWithoutFeedSchedule);
     setSourceRate(draining, SOURCE_ID, tPerHourToM3PerSec(2));
     setAccumulatorLevel(draining, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; give the feeder real stock to draw down net of the source
     setFeederRate(draining, FEEDER_ID, tPerHourToM3PerSec(20));
@@ -537,7 +516,7 @@ describe("inlet drum feeder meters the buffer bin's discharge (issue #20)", () =
   });
 
   it("feed rate is a live control that takes effect while running", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, 0);
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; give the feeder real stock to draw once its rate goes live
     setFeederRate(sim, FEEDER_ID, 0);
@@ -550,7 +529,7 @@ describe("inlet drum feeder meters the buffer bin's discharge (issue #20)", () =
   });
 
   it("conserves volume across the fill/draw pair (fed + initialStored = stored + delivered + spilled)", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(12));
     setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 2); // isolate from the #19 interlock
@@ -582,7 +561,7 @@ describe("inlet drum feeder meters the buffer bin's discharge (issue #20)", () =
   });
 
   it("setFeederRate rejects a non-feeder machine", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     expect(() => setFeederRate(sim, SOURCE_ID, tPerHourToM3PerSec(10))).toThrow(/not a metered feeder/);
   });
 });
@@ -612,9 +591,9 @@ function feedElevator(sim, tPerHour = 12) {
 // stripped alongside the machine's own sim block — otherwise stepControl
 // would resolve an actuator with no sim state at all and throw.
 const lineWithoutBatchTreater = {
-  ...line,
-  machines: line.machines.map((m) => (m.id === "batchTreater" ? { ...m, sim: undefined } : m)),
-  interlocks: line.interlocks.filter((r) => r.action.machine !== "batchTreater"),
+  ...lineWithoutFeedSchedule,
+  machines: lineWithoutFeedSchedule.machines.map((m) => (m.id === "batchTreater" ? { ...m, sim: undefined } : m)),
+  interlocks: lineWithoutFeedSchedule.interlocks.filter((r) => r.action.machine !== "batchTreater"),
 };
 
 describe("treating elevator carries grain with a real transport delay (issue #21)", () => {
@@ -623,7 +602,7 @@ describe("treating elevator carries grain with a real transport delay (issue #21
   });
 
   it("nothing arrives at the discharge until the derived transit delay has elapsed", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     feedElevator(sim);
     for (let i = 0; i < Math.round((EXPECTED_TRANSIT_SEC - 5) / DT); i++) stepSim(sim, DT);
 
@@ -633,7 +612,7 @@ describe("treating elevator carries grain with a real transport delay (issue #21
   });
 
   it("material arrives at the discharge once the derived transit delay has elapsed", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     feedElevator(sim);
     for (let i = 0; i < Math.round((EXPECTED_TRANSIT_SEC + 15) / DT); i++) stepSim(sim, DT);
 
@@ -641,7 +620,7 @@ describe("treating elevator carries grain with a real transport delay (issue #21
   });
 
   it("material already in transit keeps discharging after the feeder stops, until the elevator clears", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     feedElevator(sim);
     for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // 10s of feed, well under the ~52s transit
     setFeederRate(sim, FEEDER_ID, 0); // feeder stops
@@ -655,7 +634,7 @@ describe("treating elevator carries grain with a real transport delay (issue #21
   });
 
   it("enforces a throughput ceiling regardless of how fast the feeder tries to push material in", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     feedElevator(sim, 1000); // wildly over the elevator's ceiling
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
 
@@ -665,7 +644,7 @@ describe("treating elevator carries grain with a real transport delay (issue #21
   });
 
   it("speed is a live control, and slowing it scales the transit delay", () => {
-    const half = createSim(line);
+    const half = createSim(lineWithoutFeedSchedule);
     feedElevator(half);
     setElevatorSpeed(half, ELEVATOR_ID, 0.5);
     for (let i = 0; i < Math.round((EXPECTED_TRANSIT_SEC + 15) / DT); i++) stepSim(half, DT);
@@ -677,7 +656,7 @@ describe("treating elevator carries grain with a real transport delay (issue #21
   });
 
   it("a live speed change re-paces material already in transit, not just newly fed material", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     feedElevator(sim);
     for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // some material already mid-lift
     setFeederRate(sim, FEEDER_ID, 0); // isolate: no new material enters during the stall
@@ -691,12 +670,12 @@ describe("treating elevator carries grain with a real transport delay (issue #21
   });
 
   it("setElevatorSpeed rejects a non-transport-delay machine", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     expect(() => setElevatorSpeed(sim, SOURCE_ID, 0.5)).toThrow(/not a transport-delay/);
   });
 
   it("conserves volume through the fill / feed / lift chain, with in-transit material neither delivered nor lost", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     feedElevator(sim);
     for (let i = 0; i < Math.round(120 / DT); i++) {
       stepSim(sim, DT);
@@ -768,143 +747,205 @@ function preBinInterlock(sim) {
 
 // These tests drive the pre-bin's own level directly via setAccumulatorLevel
 // and expect it to hold exactly where set except for what the elevator
-// feeds in — the two-stage interlock's own timing is what's under test,
+// feeds in — the graded feed schedule's own timing is what's under test,
 // independent of whatever sits on the pre-bin's discharge side. Since issue
 // #24 wired a real batch treater onto that discharge, it would draw the
 // level down the instant a full charge is available and confound these
-// thresholds, so this describe block runs against the `lineWithoutBatchTreater`
-// variant declared above, same as the "real backpressure cascades" test. The
-// full chain, treater included, gets its own conservation coverage in issue
-// #24's own tests.
-describe("treater pre-bin slows the elevator, then stops it (issue #22)", () => {
+// thresholds, so this describe block runs against a variant with the batch
+// treater stripped, same isolation idiom as lineWithoutBatchTreater above —
+// but, unlike that variant, keeping the real schedule/derivation intact,
+// since that's exactly what's under test here. The full chain, treater
+// included, gets its own conservation coverage in issue #24's own tests.
+const lineWithScheduleWithoutBatchTreater = {
+  ...line,
+  machines: line.machines.map((m) => (m.id === "batchTreater" ? { ...m, sim: undefined } : m)),
+  interlocks: line.interlocks.filter((r) => r.action.machine !== "batchTreater"),
+};
+
+// Bands per issue #56/#58: boost (14 TPH), normal (12 TPH), throttle (6
+// TPH), each reproduced from the pre-bin's own nominal (85% speed / 55%
+// gate) operating point — see units.test.js's own worked band examples,
+// which these mirror.
+const BOOST_TPH = 14, NORMAL_TPH = 12, THROTTLE_TPH = 6;
+
+describe("treater pre-bin's graded feed schedule (issue #56/#58/#60)", () => {
   it("reuses the accumulator behaviour verbatim: no new material physics for the pre-bin", () => {
-    const sim = createSim(lineWithoutBatchTreater);
+    const sim = createSim(lineWithScheduleWithoutBatchTreater);
     expect(getMachineState(sim, PRE_BIN_ID).kind).toBe("accumulator");
   });
 
-  it("a rising level first commands a reduced speed, and only a further rise commands a full stop", () => {
-    const sim = createSim(lineWithoutBatchTreater);
-    setAccumulatorLevel(sim, PRE_BIN_ID, 0.65); // above the slow set point (0.6), below stop (0.85)
-    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // past the 3s slow delay + 4s ramp
+  it("is already commanding the boost band's own real targets at t=0, not the actuators' own (1, 1) default", () => {
+    const sim = createSim(lineWithScheduleWithoutBatchTreater);
     const elevator = getMachineState(sim, ELEVATOR_ID);
-    expect(preBinInterlock(sim).phase).toBe("slow");
-    expect(elevator.throttleFraction).toBeCloseTo(0.5); // slowed, not stopped
+    const feeder = getMachineState(sim, FEEDER_ID);
+    expect(elevator.throttleFraction).toBeCloseTo(0.8525);
+    expect(feeder.gateThrottleFraction).toBeCloseTo(0.5516);
 
-    setAccumulatorLevel(sim, PRE_BIN_ID, 0.9); // now above the stop set point too
-    for (let i = 0; i < Math.round(15 / DT); i++) stepSim(sim, DT); // past the 5s stop delay + 6s ramp
-    expect(preBinInterlock(sim).phase).toBe("stopped");
-    expect(elevator.throttleFraction).toBe(0);
+    stepSim(sim, DT); // the rate derivation runs as part of a tick, not at creation
+    expect(m3PerSecToTPerHour(getMachineState(sim, FEEDER_ID).rate)).toBeCloseTo(BOOST_TPH, 1);
   });
 
-  it("each stage has its own threshold and its own delay", () => {
-    const sim = createSim(lineWithoutBatchTreater);
-    const rule = preBinInterlock(sim);
-    expect(rule.slowSetpoint).not.toBe(rule.stopSetpoint);
-    expect(rule.slowDelaySec).not.toBe(rule.stopDelaySec);
-  });
+  it("cycles through boost, normal and throttle as the live level rises, with no trip below LSHH", () => {
+    const sim = createSim(lineWithScheduleWithoutBatchTreater);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.5); // between LSL (0.35) and LSH (0.85)
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // past the 3s band delay + 4s ramp
+    expect(preBinInterlock(sim).phase).toBe("normal");
+    let feeder = getMachineState(sim, FEEDER_ID);
+    expect(m3PerSecToTPerHour(feeder.rate)).toBeCloseTo(NORMAL_TPH, 1);
 
-  it("the elevator ramps between speeds rather than changing instantaneously", () => {
-    const sim = createSim(lineWithoutBatchTreater);
-    setAccumulatorLevel(sim, PRE_BIN_ID, 0.9); // straight to above both set points
-    for (let i = 0; i < Math.round(3.5 / DT); i++) stepSim(sim, DT); // just past the 3s slow delay, mid-ramp
-    const elevator = getMachineState(sim, ELEVATOR_ID);
-    expect(elevator.throttleFraction).toBeGreaterThan(0); // ramping down, not yet at 0.5
-    expect(elevator.throttleFraction).toBeLessThan(1); // ramping down, not still at full speed
-  });
-
-  it("material already on the elevator chain during the slow-down and the stop still arrives, and conservation holds through the full cycle", () => {
-    const sim = createSim(lineWithoutBatchTreater);
-    feedElevator(sim); // 12 t/h into the elevator
-    for (let i = 0; i < Math.round(10 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
-    const elevator = getMachineState(sim, ELEVATOR_ID);
-    const inTransitBeforeStop = elevator.queue.reduce((a, p) => a + p.vol, 0) + elevator.backlog;
-    expect(inTransitBeforeStop).toBeGreaterThan(0); // genuinely mid-lift when the stop is forced
-
-    setFeederRate(sim, FEEDER_ID, 0); // isolate: no further material enters from here on
-    setAccumulatorLevel(sim, PRE_BIN_ID, 0.9); // force straight through slow to the stop stage
-    for (let i = 0; i < Math.round(25 / DT); i++) { stepSim(sim, DT); assertConserved(sim); } // past the 3+4s slow stage and the 5+6s stop stage
-    expect(preBinInterlock(sim).phase).toBe("stopped");
-    expect(elevator.throttleFraction).toBe(0);
-
-    const preBinBeforeRecover = getMachineState(sim, PRE_BIN_ID).stored;
-    for (let i = 0; i < Math.round(200 / DT); i++) { stepSim(sim, DT); assertConserved(sim); } // stays stopped: a frozen chain moves nothing
-    expect(getMachineState(sim, PRE_BIN_ID).stored).toBeCloseTo(preBinBeforeRecover); // frozen, not lost
-
-    setAccumulatorLevel(sim, PRE_BIN_ID, 0.3); // presenter drags the level down below the recovery set point
-    resetTrips(sim); // issue #45: recovery no longer happens on its own, it needs the plant reset
-    const preBinAtRecoverStart = getMachineState(sim, PRE_BIN_ID).stored;
-    for (let i = 0; i < Math.round(60 / DT); i++) { stepSim(sim, DT); assertConserved(sim); } // past the recovery ramp, long enough for the frozen packet to finish arriving
-    expect(preBinInterlock(sim).phase).toBe("full");
-    expect(elevator.throttleFraction).toBe(1);
-    expect(getMachineState(sim, PRE_BIN_ID).stored).toBeGreaterThan(preBinAtRecoverStart); // the material frozen mid-lift did eventually arrive
-    expect(() => assertConserved(sim)).not.toThrow();
-  });
-
-  // Issue #45: no automatic recovery. The bin draining is no longer enough
-  // on its own — the plant control's RESET TRIPS clears the latch.
-  it("stays stopped once the bin drains — no automatic recovery", () => {
-    const sim = createSim(lineWithoutBatchTreater);
-    setAccumulatorLevel(sim, PRE_BIN_ID, 0.9);
-    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
-    expect(preBinInterlock(sim).phase).toBe("stopped");
-
-    setAccumulatorLevel(sim, PRE_BIN_ID, 0.2); // presenter drags the level back down
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.9); // between LSH (0.85) and LSHH (0.95)
     for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
-    expect(preBinInterlock(sim).phase).toBe("stopped");
+    expect(preBinInterlock(sim).phase).toBe("throttle");
+    feeder = getMachineState(sim, FEEDER_ID);
+    expect(m3PerSecToTPerHour(feeder.rate)).toBeCloseTo(THROTTLE_TPH, 1);
+    expect(getMachineState(sim, ELEVATOR_ID).throttleFraction).toBeGreaterThan(0); // throttled, not tripped
+  });
+
+  it("tracks back down freely, with no latching, from throttle through normal to boost", () => {
+    const sim = createSim(lineWithScheduleWithoutBatchTreater);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.9);
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(preBinInterlock(sim).phase).toBe("throttle");
+
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.5); // presenter drags the level back down, no reset involved
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(preBinInterlock(sim).phase).toBe("normal");
+
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.1);
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(preBinInterlock(sim).phase).toBe("boost");
+  });
+
+  it("trips once the level reaches LSHH, stopping the elevator — the feeder's own gate is left where the schedule last set it", () => {
+    const sim = createSim(lineWithScheduleWithoutBatchTreater);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.97); // above LSHH (0.95)
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // past the 5s trip delay + 6s ramp
+    expect(preBinInterlock(sim).phase).toBe("tripped");
+    const elevator = getMachineState(sim, ELEVATOR_ID);
+    expect(elevator.throttleFraction).toBe(0);
+    const feeder = getMachineState(sim, FEEDER_ID);
+    expect(feeder.gateThrottleFraction).toBeCloseTo(0.5516); // still boost's own value — never touched by the trip
+  });
+
+  it("stays tripped once the level falls back below LSHH on its own — no automatic reopen", () => {
+    const sim = createSim(lineWithScheduleWithoutBatchTreater);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.97);
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+    expect(preBinInterlock(sim).phase).toBe("tripped");
+
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.5); // presenter drags the level back down
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(preBinInterlock(sim).phase).toBe("tripped");
     expect(getMachineState(sim, ELEVATOR_ID).throttleFraction).toBe(0);
   });
 
-  it("resetTrips returns the elevator to full speed once the bin has actually drained", () => {
-    const sim = createSim(lineWithoutBatchTreater);
-    setAccumulatorLevel(sim, PRE_BIN_ID, 0.9);
+  it("resetTrips clears the LSHH trip once the level has actually cleared it, and resumes the band the live level is actually in — not a fixed state", () => {
+    const sim = createSim(lineWithScheduleWithoutBatchTreater);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.97);
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
-    expect(preBinInterlock(sim).phase).toBe("stopped");
+    expect(preBinInterlock(sim).phase).toBe("tripped");
 
-    setAccumulatorLevel(sim, PRE_BIN_ID, 0.2); // presenter drags the level back down
+    resetTrips(sim); // still above LSHH: re-latches
+    expect(preBinInterlock(sim).phase).toBe("tripped");
+    expect(getMachineState(sim, ELEVATOR_ID).throttleFraction).toBe(0);
+
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.5); // presenter drags the level down into the normal band
     resetTrips(sim);
     for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // past the recovery ramp
-    expect(preBinInterlock(sim).phase).toBe("full");
-    expect(getMachineState(sim, ELEVATOR_ID).throttleFraction).toBe(1);
+    expect(preBinInterlock(sim).phase).toBe("normal");
+    const elevator = getMachineState(sim, ELEVATOR_ID);
+    expect(elevator.throttleFraction).toBeCloseTo(0.7893);
   });
 
-  it("both stage thresholds and delays are live controls that take effect while running", () => {
-    const sim = createSim(lineWithoutBatchTreater);
-    setInterlockSlowSetpoint(sim, PRE_BIN_ID, 0.5);
-    setInterlockSlowDelay(sim, PRE_BIN_ID, 1);
-    setInterlockStopSetpoint(sim, PRE_BIN_ID, 0.55);
-    setInterlockStopDelay(sim, PRE_BIN_ID, 1);
-    setAccumulatorLevel(sim, PRE_BIN_ID, 0.6); // above both of the newly-lowered set points at once
-
+  it("LSH is display-only: crossing it alone commands no stop, only the schedule's own normal->throttle band transition", () => {
+    const sim = createSim(lineWithScheduleWithoutBatchTreater);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.86); // just past LSH (0.85), well short of LSHH (0.95)
     for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
-    expect(preBinInterlock(sim).phase).toBe("stopped"); // reached on the new, tighter set points
+    expect(preBinInterlock(sim).phase).toBe("throttle"); // throttled...
+    expect(getMachineState(sim, ELEVATOR_ID).throttleFraction).toBeGreaterThan(0); // ...never stopped
+    const readings = instrumentReadings(preBinInterlock(sim), 0.86);
+    expect(readings.LSH.tripped).toBe(true);
+    expect(readings.LSHH.tripped).toBe(false);
   });
 
-  it("the pre-bin's event log records the slow-down and the stop as distinct entries, each with its simulated time", () => {
-    const sim = createSim(lineWithoutBatchTreater);
-    setAccumulatorLevel(sim, PRE_BIN_ID, 0.9);
+  it("LSHH set point is a live control that takes effect while running", () => {
+    const sim = createSim(lineWithScheduleWithoutBatchTreater);
+    setInterlockHighHighSetpoint(sim, PRE_BIN_ID, 0.5); // lower the trip well into what was the normal band
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.6);
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+    expect(preBinInterlock(sim).phase).toBe("tripped");
+  });
+
+  it("the pre-bin's event log records each band transition and the trip as distinct entries", () => {
+    const sim = createSim(lineWithScheduleWithoutBatchTreater);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.97);
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
 
     const log = preBinInterlock(sim).log;
-    expect(log.length).toBeGreaterThanOrEqual(4); // slow-armed, slow-commanded, stop-armed, stop-commanded
+    const messages = log.map((e) => e.message);
     for (const entry of log) {
       expect(typeof entry.t).toBe("number");
       expect(typeof entry.message).toBe("string");
     }
-    const messages = log.map((e) => e.message);
     expect(new Set(messages).size).toBe(messages.length); // no two entries say the same thing
-    expect(messages.some((m) => m.includes("slow"))).toBe(true);
+    expect(messages.some((m) => m.includes("high-high"))).toBe(true);
     expect(messages.some((m) => m.includes("stop"))).toBe(true);
+  });
+});
+
+describe("drum feeder Gate Position % and elevator Speed % drive the derived feed rate (issue #56/#59/#60)", () => {
+  it("dialling the Gate Position % dial changes the derived rate immediately while the bin sits in the normal band", () => {
+    const sim = createSim(lineWithScheduleWithoutBatchTreater);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.5);
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // settle into normal
+    expect(preBinInterlock(sim).phase).toBe("normal");
+    const rateBefore = getMachineState(sim, FEEDER_ID).rate;
+
+    setGateFraction(sim, FEEDER_ID, 0.5); // presenter halves the gate dial
+    stepSim(sim, DT);
+    expect(getMachineState(sim, FEEDER_ID).rate).toBeLessThan(rateBefore);
+  });
+
+  it("dialling the elevator Speed % dial changes the derived rate immediately while the bin sits in the normal band", () => {
+    const sim = createSim(lineWithScheduleWithoutBatchTreater);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.5);
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(preBinInterlock(sim).phase).toBe("normal");
+    const rateBefore = getMachineState(sim, FEEDER_ID).rate;
+
+    setElevatorSpeed(sim, ELEVATOR_ID, 0.5);
+    stepSim(sim, DT);
+    expect(getMachineState(sim, FEEDER_ID).rate).toBeLessThan(rateBefore);
+  });
+
+  it("the Gate Position % dial itself (gateFraction) is never touched by the schedule — only gateThrottleFraction, its own layer on top", () => {
+    const sim = createSim(lineWithScheduleWithoutBatchTreater);
+    setGateFraction(sim, FEEDER_ID, 0.8); // presenter's own last-dialled value
+
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.9); // schedule commands throttle
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(preBinInterlock(sim).phase).toBe("throttle");
+    expect(getMachineState(sim, FEEDER_ID).gateFraction).toBeCloseTo(0.8); // presenter's dial preserved
+
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.1); // schedule releases back toward boost
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(getMachineState(sim, FEEDER_ID).gateFraction).toBeCloseTo(0.8); // still exactly as last dragged
+  });
+
+  it("setGateFraction rejects a non-gated machine", () => {
+    const sim = createSim(lineWithScheduleWithoutBatchTreater);
+    expect(() => setGateFraction(sim, ELEVATOR_ID, 0.5)).toThrow();
   });
 });
 
 describe("batch treater takes a fixed charge every cycle and discharges it as a pulse (issue #24)", () => {
   it("is declared as a batch cycle, the primitive later reused by the bagging scale, filler and big-bag head", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     expect(getMachineState(sim, TREATER_ID).kind).toBe("batchCycle");
   });
 
   it("draws a fixed charge from the pre-bin, holds it for the cycle time, then discharges the whole charge as a pulse", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.4); // issue #55: the line now starts empty; restore this test's own pre-#55 "more than one charge already in the pre-bin" premise
     const treater = getMachineState(sim, TREATER_ID);
     const chargeM3 = treater.chargeM3;
@@ -934,7 +975,7 @@ describe("batch treater takes a fixed charge every cycle and discharges it as a 
   // that ever being treated as a completed charge — no partial batch is ever
   // held for a cycle or discharged.
   it("never starts a partial batch when the pre-bin can't supply a full charge, even though it will accept whatever trickle is offered", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, 0);
     setFeederRate(sim, FEEDER_ID, 0);
     const treater = getMachineState(sim, TREATER_ID);
@@ -950,7 +991,7 @@ describe("batch treater takes a fixed charge every cycle and discharges it as a 
   });
 
   it("the pre-bin drains in a step, not a smooth trickle, when it already holds a full charge", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.4); // issue #55: the line now starts empty; restore this test's own pre-#55 starting level
     const preBin = getMachineState(sim, PRE_BIN_ID);
     const treater = getMachineState(sim, TREATER_ID);
@@ -964,7 +1005,7 @@ describe("batch treater takes a fixed charge every cycle and discharges it as a 
   });
 
   it("batch size and cycle time are live controls", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.4); // issue #55: the line now starts empty; give the treater an ample pre-bin to draw several batches from
     setBatchSize(sim, TREATER_ID, 0.05);
     setBatchCycleSec(sim, TREATER_ID, 1);
@@ -979,13 +1020,13 @@ describe("batch treater takes a fixed charge every cycle and discharges it as a 
   });
 
   it("setBatchSize / setBatchCycleSec reject a non-batch-cycle machine", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     expect(() => setBatchSize(sim, SOURCE_ID, 1)).toThrow(/not a batch-cycle/);
     expect(() => setBatchCycleSec(sim, SOURCE_ID, 1)).toThrow(/not a batch-cycle/);
   });
 
   it("material inside the treater mid-cycle is accounted for as neither delivered nor lost, and conservation holds across many consecutive cycles", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     feedElevator(sim, 20); // keep the pre-bin well supplied so cycles keep completing
     setBatchCycleSec(sim, TREATER_ID, 2); // short cycle so many complete within the test window
     const treater = getMachineState(sim, TREATER_ID);
@@ -1017,19 +1058,23 @@ function afterBinInterlock(sim) {
 // downstream, matching the physics these tests were written against. The
 // screen's own behaviour — including its interaction with a live after-bin —
 // gets its own coverage in the "scalping screen" describe block below.
+// Built on lineWithoutFeedSchedule, not `line` directly, same reasoning as
+// lineWithoutBatchTreater/lineWithoutPackaging above (see that variant's own
+// comment): these after-bin tests use setFeederRate/feedElevator as their
+// generic supply lever, which the real schedule would otherwise govern.
 const lineWithoutScalpingScreen = {
-  ...line,
-  machines: line.machines.map((m) => (m.id === "scalpingScreen" ? { ...m, sim: undefined } : m)),
+  ...lineWithoutFeedSchedule,
+  machines: lineWithoutFeedSchedule.machines.map((m) => (m.id === "scalpingScreen" ? { ...m, sim: undefined } : m)),
 };
 
 describe("treater after-bin holds the next batch (issue #25)", () => {
   it("reuses the accumulator behaviour verbatim: no new material physics for the after-bin", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     expect(getMachineState(sim, AFTER_BIN_ID).kind).toBe("accumulator");
   });
 
   it("is wired to a holdNextBatch interlock reading the after-bin and commanding the treater", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     const rule = afterBinInterlock(sim);
     expect(rule.kind).toBe("holdNextBatch");
     expect(rule.actuatorId).toBe(TREATER_ID);
@@ -1088,7 +1133,7 @@ describe("treater after-bin holds the next batch (issue #25)", () => {
   // is necessary for resetTrips to succeed, but resetTrips itself is what
   // actually resumes the treater now — the level falling alone is not enough.
   it("stays held even once the level has fallen back below the high set point — no automatic release", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     feedElevator(sim, 20);
     setAccumulatorLevel(sim, AFTER_BIN_ID, 0.9);
     for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
@@ -1103,7 +1148,7 @@ describe("treater after-bin holds the next batch (issue #25)", () => {
   });
 
   it("resetTrips re-latches while the level is still above the high set point, then resumes the treater once it has actually cleared", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.4); // issue #55: the line now starts empty; the treater needs a charge on hand to actually resume
     feedElevator(sim, 20);
     setAccumulatorLevel(sim, AFTER_BIN_ID, 0.9);
@@ -1169,13 +1214,13 @@ describe("treater after-bin holds the next batch (issue #25)", () => {
 
 describe("scalping screen splits product from oversize, completing the treating zone (issue #26)", () => {
   it("is declared as a splitter, and the discard bin as a terminal sink", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     expect(getMachineState(sim, SCREEN_ID).kind).toBe("splitter");
     expect(getMachineState(sim, DISCARD_BIN_ID).kind).toBe("terminalSink");
   });
 
   it("divides its infeed between a product output and a waste output by the configured fraction", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.4); // issue #55: the line now starts empty; the treater needs a charge on hand well within the 60s budget below
     feedElevator(sim, 20);
     setBatchCycleSec(sim, TREATER_ID, 2); // completes several batches quickly
@@ -1189,7 +1234,7 @@ describe("scalping screen splits product from oversize, completing the treating 
   });
 
   it("the oversize fraction is a live control", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.4); // issue #55: the line now starts empty; the treater needs a charge on hand well within the 60s budget below
     feedElevator(sim, 20);
     setBatchCycleSec(sim, TREATER_ID, 2);
@@ -1202,12 +1247,12 @@ describe("scalping screen splits product from oversize, completing the treating 
   });
 
   it("setSplitterWasteFraction rejects a non-splitter machine", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     expect(() => setSplitterWasteFraction(sim, SOURCE_ID, 0.1)).toThrow(/not a splitter/);
   });
 
   it("the discard bin accumulates waste and reports a running total that matches the screen's own waste total exactly", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.4); // issue #55: the line now starts empty; the treater needs a charge on hand well within the 60s budget below
     feedElevator(sim, 20);
     setBatchCycleSec(sim, TREATER_ID, 2);
@@ -1220,7 +1265,7 @@ describe("scalping screen splits product from oversize, completing the treating 
   });
 
   it("the discard bin's published fill visibly rises over a run, rather than sitting frozen at its static decoration", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     // Issue #57: this bin defaults to a 1% starting fill, not the empty-at-
     // load every other bin uses since #55 (see the dedicated default-level
     // test below) — read back whatever that seed is rather than assuming 0,
@@ -1237,13 +1282,13 @@ describe("scalping screen splits product from oversize, completing the treating 
   });
 
   it("starts at a 1% fill by default, unlike every other bin's empty-at-load (issue #57)", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     expect(BEHAVIORS.terminalSink.snapshot(getMachineState(sim, DISCARD_BIN_ID)).fill).toBeCloseTo(0.01);
     expect(() => assertConserved(sim)).not.toThrow();
   });
 
   it("EMPTY DISCARD BIN zeroes the fill without breaking conservation (issue #57)", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.4);
     feedElevator(sim, 20);
     setBatchCycleSec(sim, TREATER_ID, 2);
@@ -1257,7 +1302,7 @@ describe("scalping screen splits product from oversize, completing the treating 
   });
 
   it("the screen's snapshot reports 'flowing' while material is actively passing through, so the scene can show it isn't idle", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     expect(BEHAVIORS.splitter.snapshot(getMachineState(sim, SCREEN_ID)).flowing).toBe(false); // nothing has reached it yet
 
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.4); // issue #55: the line now starts empty; the treater needs a charge on hand well within the 60s budget below
@@ -1272,7 +1317,7 @@ describe("scalping screen splits product from oversize, completing the treating 
   });
 
   it("product and waste totals sum exactly to what the screen received from the after-bin", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     feedElevator(sim, 20);
     setBatchCycleSec(sim, TREATER_ID, 2);
     for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
@@ -1283,7 +1328,7 @@ describe("scalping screen splits product from oversize, completing the treating 
   });
 
   it("holds negligible material and does not become the line's bottleneck at its confirmed oversized capacity, under ordinary feeding", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     feedElevator(sim, 20); // default 40s batch cycle (~14.4 t/h average): well under the screen's 64.4 t/h rating
     for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT);
 
@@ -1300,7 +1345,7 @@ describe("scalping screen splits product from oversize, completing the treating 
   // directly (same technique its own tests use) to isolate and prove the
   // ceiling itself is real, rather than an unmodelled infinity.
   it("a near-full after-bin drains at the screen's own bounded ceiling rather than in a single tick", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, AFTER_BIN_ID, 0.95);
     const afterBin = getMachineState(sim, AFTER_BIN_ID);
     const startStored = afterBin.stored;
@@ -1313,7 +1358,7 @@ describe("scalping screen splits product from oversize, completing the treating 
   });
 
   it("conservation holds across the entire treating zone, from the source valve to both terminal destinations", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(20));
     setBatchCycleSec(sim, TREATER_ID, 5);
@@ -1325,8 +1370,8 @@ describe("scalping screen splits product from oversize, completing the treating 
     expect(getMachineState(sim, DISCARD_BIN_ID).total).toBeGreaterThan(0); // the waste terminal genuinely received material this run
   });
 
-  it("a single run demonstrates the full chain end to end: fill, trip, delayed valve closure, metered draw, transport lag, two-stage slow-then-stop, batch pulsing, smoothing and splitting", () => {
-    const sim = createSim(line);
+  it("a single run demonstrates the full chain end to end: fill, trip, delayed valve closure, metered draw, transport lag, batch pulsing, smoothing and splitting", () => {
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20)); // fast enough to fill and trip the buffer bin
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; restore this test's own pre-#55 starting premise so the 600s budget below still reaches the trip
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(2)); // slow draw, well below the source: nets a genuine fill toward the trip
@@ -1344,28 +1389,18 @@ describe("scalping screen splits product from oversize, completing the treating 
     expect(getMachineState(sim, SCREEN_ID).wasteTotal).toBeGreaterThan(0);
     expect(getMachineState(sim, DISCARD_BIN_ID).total).toBeGreaterThan(0);
 
-    // The pre-bin's own two-stage slow-then-stop is demonstrated directly,
-    // same technique issue #22's own tests use: the line's confirmed rates
-    // make the treater, not the pre-bin, the real bottleneck
-    // (REAL_LINE_SPECS.md §9-10), so nothing in ordinary feeding organically
-    // overwhelms it.
-    setAccumulatorLevel(sim, PRE_BIN_ID, 0.65);
-    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
-    expect(getInterlockState(sim, PRE_BIN_ID).phase).toBe("slow");
-    expect(getMachineState(sim, ELEVATOR_ID).throttleFraction).toBeLessThan(1);
-
-    setAccumulatorLevel(sim, PRE_BIN_ID, 0.9);
-    for (let i = 0; i < Math.round(15 / DT); i++) stepSim(sim, DT);
-    expect(getInterlockState(sim, PRE_BIN_ID).phase).toBe("stopped");
-    expect(getMachineState(sim, ELEVATOR_ID).throttleFraction).toBe(0);
-
+    // The pre-bin's own graded feed schedule (issue #56/#58/#60) gets its
+    // own dedicated coverage in the "treater pre-bin's graded feed schedule"
+    // describe block above, against the real, schedule-active `line` — this
+    // variant deliberately runs without it (see lineWithoutFeedSchedule's
+    // own comment).
     expect(() => assertConserved(sim)).not.toThrow();
   });
 });
 
 describe("engine publishes each machine's live outflow rate generically (issue #28)", () => {
   it("reports rate = actual volume moved this tick / dt, for a plain single-output machine", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(12));
     const fedBefore = getMachineState(sim, SOURCE_ID).fed;
     stepSim(sim, DT);
@@ -1376,7 +1411,7 @@ describe("engine publishes each machine's live outflow rate generically (issue #
   });
 
   it("tracks actual movement tick by tick through a transport delay, not just a cumulative average", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     feedElevator(sim, 20);
     let deliveredBefore = getMachineState(sim, ELEVATOR_ID).delivered;
     for (let i = 0; i < Math.round((EXPECTED_TRANSIT_SEC + 5) / DT); i++) {
@@ -1389,7 +1424,7 @@ describe("engine publishes each machine's live outflow rate generically (issue #
   });
 
   it("sums across every port for a multi-output machine (the splitter), matching its combined outflow this tick", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.4); // issue #55: the line now starts empty; the treater needs a charge on hand well within the 60s budget below
     feedElevator(sim, 20);
     setBatchCycleSec(sim, TREATER_ID, 2);
@@ -1406,7 +1441,7 @@ describe("engine publishes each machine's live outflow rate generically (issue #
   });
 
   it("reports zero, not undefined or stale, once a starved machine has nothing left to draw", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, 0);
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(12));
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0); // nothing for the feeder to draw
@@ -1419,7 +1454,7 @@ describe("engine publishes each machine's live outflow rate generically (issue #
   });
 
   it("reports zero once a full downstream blocks a machine entirely, even though it was flowing moments before", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this test is about the bin filling to capacity, not the feeder's own auto-start (issue #42)
     setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 2); // isolate raw backpressure from the issue #19 interlock
@@ -1440,7 +1475,7 @@ describe("engine publishes each machine's live outflow rate generically (issue #
   // conserveTransportDelay), not a gap specific to this issue: a machine
   // with no downstream simply has nothing to report an outflow rate onto.
   it("a terminal sink (nothing sim-enabled ever sits downstream of it) reports zero outflow even while actively filling", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.4); // issue #55: the line now starts empty; the treater needs a charge on hand well within the 60s budget below
     feedElevator(sim, 20);
     setBatchCycleSec(sim, TREATER_ID, 2);
@@ -1623,7 +1658,7 @@ describe("the treating zone keeps cycling indefinitely under steady supply, neve
 
 describe("resetSim (presenter reset, no page reload needed)", () => {
   it("puts every live-adjusted control and every machine's state back to the line's authored defaults", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(20));
     setElevatorSpeed(sim, ELEVATOR_ID, 0.3);
@@ -1651,14 +1686,14 @@ describe("resetSim (presenter reset, no page reload needed)", () => {
   });
 
   it("keeps the same object reference so a caller holding onto `sim` sees the reset without re-fetching it", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     stepSim(sim, DT);
     const result = resetSim(sim);
     expect(result).toBe(sim);
   });
 
   it("the sim is fully usable again after a reset", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(12));
     for (let i = 0; i < Math.round(80 / DT); i++) stepSim(sim, DT);
     resetSim(sim);
@@ -1706,7 +1741,7 @@ const PALLET_STUB_ID = "palletStub";
 
 describe("Pro Box source and the source selector (issue #46)", () => {
   it("the Pro Box is a live source with a presenter-settable rate, same as the treating-line stub", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSource(sim, "proBox");
     setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(12));
     for (let i = 0; i < 100; i++) stepSim(sim, DT);
@@ -1716,14 +1751,14 @@ describe("Pro Box source and the source selector (issue #46)", () => {
   });
 
   it("defaults to the treating line, matching the line's own authored feeder enable/disable state", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     expect(getSource(sim)).toBe("treatingLine");
     expect(getMachineState(sim, TREATING_FEEDER_ID).enabled).toBe(true);
     expect(getMachineState(sim, PRO_BOX_FEEDER_ID).enabled).toBe(false);
   });
 
   it("selecting the Pro Box arms only its own feeder, and selecting the treating line arms only the other", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSource(sim, "proBox");
     expect(getSource(sim)).toBe("proBox");
     expect(getMachineState(sim, PRO_BOX_FEEDER_ID).enabled).toBe(true);
@@ -1736,12 +1771,12 @@ describe("Pro Box source and the source selector (issue #46)", () => {
   });
 
   it("rejects an unknown source", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     expect(() => setSource(sim, "somewhereElse")).toThrow(/unknown source/);
   });
 
   it("exactly one drum feeder ever draws product, whichever source is selected", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSource(sim, "proBox");
     setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(15));
     for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
@@ -1750,7 +1785,7 @@ describe("Pro Box source and the source selector (issue #46)", () => {
   });
 
   it("a presenter's own feed-rate dial survives being deselected and reselected", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setFeederRate(sim, PRO_BOX_FEEDER_ID, tPerHourToM3PerSec(7)); // dialled in while still deselected
     expect(getMachineState(sim, PRO_BOX_FEEDER_ID).rate).toBeCloseTo(tPerHourToM3PerSec(7));
 
@@ -1772,7 +1807,7 @@ describe("Pro Box source and the source selector (issue #46)", () => {
   // inletDrumFeeder2 removes the scalping screen's only real discharge, the
   // after-bin backs up behind it, and the interlock trips on its own.
   it("selecting the Pro Box backs up the scalping screen and eventually holds the batch treater, idling the treating zone", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSource(sim, "proBox");
     setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15)); // treating zone's own feeder still well-supplied internally
@@ -1784,13 +1819,13 @@ describe("Pro Box source and the source selector (issue #46)", () => {
 
 describe("the packaging conveyor carries product to the outload buffer bin (issue #46)", () => {
   it("derives its transport lag from the sheet 52-13 geometry (carrying-side path / chain speed), not a tuned constant", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     const snap = BEHAVIORS.routedTransportDelay.snapshot(getMachineState(sim, CONVEYOR_ID));
     expect(snap.transitTimeSec).toBeCloseTo(185, 0); // (7.084 + 9.157 + 14.846) m / (10.08 m/min)
   });
 
   it("nothing reaches the outload buffer bin until the full derived transit lag has elapsed", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     // Issue #47 wires a real, live downstream all the way to metal bin 1
     // (the diverter, then the bin itself), so the buffer bin no longer
     // accumulates anything on its own — it passes straight through to
@@ -1815,7 +1850,7 @@ describe("the packaging conveyor carries product to the outload buffer bin (issu
   });
 
   it("speed is a live control, re-pacing material already in transit, not just new material", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setDestination(sim, "metalBin1"); // this test is about the metal-bin branch specifically (issue #56 default is Concetti)
     setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0); // same zeroing as above, isolates newly-arrived material
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
@@ -1832,7 +1867,7 @@ describe("the packaging conveyor carries product to the outload buffer bin (issu
   });
 
   it("a full metal bin trips the conveyor rather than spilling, and the buffer bin ahead of it backpressures too", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     // Issue #47: overflow protection on this branch is now the metal bin's
     // own high-level trip (metalBin1HighTrip, lineData.js), which stops the
     // conveyor well before hard accumulator capacity is ever reached (its
@@ -1861,7 +1896,7 @@ describe("the packaging conveyor carries product to the outload buffer bin (issu
   }, 10000);
 
   it("every new packaging machine publishes a live snapshot once its own upstream is running, not frozen decoration", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setDestination(sim, "metalBin1"); // this test is about the metal-bin branch specifically (issue #56 default is Concetti)
     setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0); // isolates newly-arrived material, see the lag test's own comment
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
@@ -1886,7 +1921,7 @@ describe("the packaging conveyor carries product to the outload buffer bin (issu
   });
 
   it("conserves volume across a mid-run source switch, the case most likely to leak", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15));
     for (let i = 0; i < Math.round(300 / DT); i++) stepSim(sim, DT);
@@ -1908,13 +1943,13 @@ describe("the packaging conveyor carries product to the outload buffer bin (issu
 // demonstrate.
 describe("destination selector (issue #47)", () => {
   it("defaults to Concetti, matching the conveyor's own authored default port (issue #56: the real most-used destination)", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     expect(getDestination(sim)).toBe("concetti");
     expect(getMachineState(sim, CONVEYOR_ID).selected).toBe("outConcetti");
   });
 
   it("has four positions, each commanding the two routers correctly", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setDestination(sim, "concetti");
     expect(getDestination(sim)).toBe("concetti");
     expect(getMachineState(sim, CONVEYOR_ID).selected).toBe("outConcetti");
@@ -1934,12 +1969,12 @@ describe("destination selector (issue #47)", () => {
   });
 
   it("rejects an unknown destination", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     expect(() => setDestination(sim, "somewhereElse")).toThrow(/unknown destination/);
   });
 
   it("switching destination mid-run sends nothing new to the new destination until material already in transit has cleared, and material already in transit still arrives at the old one", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     // Issue #56: destination now defaults to Concetti, not metal bin 1 —
     // this test is specifically about material riding the conveyor toward
     // metal bin 1 at the moment of a switch, so route there explicitly.
@@ -1982,7 +2017,7 @@ describe("destination selector (issue #47)", () => {
   });
 
   it("conserves volume across a mid-run destination switch, the case most likely to leak", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15));
     for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT);
@@ -2000,7 +2035,7 @@ describe("destination selector (issue #47)", () => {
   });
 
   it("the outload diverter routes the whole of its inflow to whichever metal bin is selected, never both", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setDestination(sim, "metalBin1"); // issue #56: destination now defaults to Concetti, not metal bin 1
     setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0.9); // plenty ready to discharge immediately
     for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
@@ -2013,7 +2048,7 @@ describe("destination selector (issue #47)", () => {
   });
 
   it("the grain break holds no material at any point", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15));
     for (let i = 0; i < Math.round(300 / DT); i++) {
@@ -2025,7 +2060,7 @@ describe("destination selector (issue #47)", () => {
 
 describe("arming: a full pre-bin does not trip anything while routed elsewhere (issue #47)", () => {
   it("a disarmed metal bin trip never fires: routing to Concetti with metal bin 1 already over its own high set point leaves the conveyor running", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 1); // already well past its own 85% trip point
     setDestination(sim, "concetti"); // but not the selected destination
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
@@ -2035,7 +2070,7 @@ describe("arming: a full pre-bin does not trip anything while routed elsewhere (
   });
 
   it("the same full bin trips the conveyor once its own destination is (re-)selected", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 1);
     setDestination(sim, "concetti");
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
@@ -2050,7 +2085,7 @@ describe("arming: a full pre-bin does not trip anything while routed elsewhere (
 
 describe("the full outload cascade: a full metal bin stops the conveyor, then both drum feeders, then starves the treating zone (issue #47)", () => {
   it("cascades in the documented order: conveyor stops, both drum feeders stop 1s later, and the treating zone eventually backs up and holds the treater", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setDestination(sim, "metalBin1"); // issue #56: destination now defaults to Concetti, not metal bin 1
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 1); // already tripped once armed
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
@@ -2080,7 +2115,7 @@ describe("the full outload cascade: a full metal bin stops the conveyor, then bo
   }, 20000);
 
   it("the cascade latches: resetting trips clears it only once the metal bin has actually been emptied", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setDestination(sim, "metalBin1"); // issue #56: destination now defaults to Concetti, not metal bin 1
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 1);
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
@@ -2099,7 +2134,7 @@ describe("the full outload cascade: a full metal bin stops the conveyor, then bo
   });
 
   it("both packaging drum feeders resume, unlatched, the instant the conveyor is confirmed running again — no reset needed for that half of the cascade", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setDestination(sim, "metalBin1"); // issue #56: destination now defaults to Concetti, not metal bin 1
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 1);
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // trips, both feeders lose run permit
@@ -2123,7 +2158,7 @@ describe("the full outload cascade: a full metal bin stops the conveyor, then bo
 // against a single-condition arming instead of two.
 describe("the Flexicon big-bag branch completes (issue #48)", () => {
   it("selecting Flexicon routes product down this branch and nowhere else", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0);
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
     setAccumulatorLevel(sim, METAL_BIN_2_ID, 0);
@@ -2140,7 +2175,7 @@ describe("the Flexicon big-bag branch completes (issue #48)", () => {
   }, 10000);
 
   it("the auto sampler holds no material at any point", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setDestination(sim, "flexicon");
     setSource(sim, "proBox");
     setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
@@ -2151,7 +2186,7 @@ describe("the Flexicon big-bag branch completes (issue #48)", () => {
   }, 10000);
 
   it("the pre-bin fills, and backpressures upstream when full rather than spilling", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setDestination(sim, "flexicon");
     setFeederRate(sim, VIBRATING_CONVEYOR_ID, 0); // nothing draining the pre-bin
     setSource(sim, "proBox");
@@ -2176,7 +2211,7 @@ describe("the Flexicon big-bag branch completes (issue #48)", () => {
   }, 15000);
 
   it("the vibrating conveyor meters the pre-bin's discharge at a presenter-settable rate", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 1); // plenty stored, isolates the feeder's own metering
     setFeederRate(sim, VIBRATING_CONVEYOR_ID, tPerHourToM3PerSec(6));
     for (let i = 0; i < Math.round(5 / DT); i++) stepSim(sim, DT);
@@ -2184,7 +2219,7 @@ describe("the Flexicon big-bag branch completes (issue #48)", () => {
   });
 
   it("the filling head takes a charge, holds it for a cycle, and discharges a completed bag, reusing the batch cycle behaviour", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 1); // plenty of supply
     // Synthetic, well past the slider's own 0-20 t/h range: isolates the
     // filling head's own cycle timing from how long a realistic vibrating-
@@ -2205,7 +2240,7 @@ describe("the Flexicon big-bag branch completes (issue #48)", () => {
   });
 
   it("the terminus reports a running count of big bags delivered alongside its volume total", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 1); // ~1.8 bags' worth stored, enough for one full cycle
     setFeederRate(sim, VIBRATING_CONVEYOR_ID, tPerHourToM3PerSec(500)); // see the batch-cycle test's own comment
     const bag = () => getMachineState(sim, BIG_BAG_ID);
@@ -2218,7 +2253,7 @@ describe("the Flexicon big-bag branch completes (issue #48)", () => {
   });
 
   it("every branch machine publishes a live snapshot once its own upstream is running, not frozen decoration", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setDestination(sim, "flexicon");
     setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 1);
     // The default authored rate (10 t/h, lineData.js), not the other tests'
@@ -2240,7 +2275,7 @@ describe("the Flexicon big-bag branch completes (issue #48)", () => {
 
 describe("arming: a full Flexicon pre-bin does not trip anything while routed elsewhere (issue #48)", () => {
   it("a disarmed pre-bin trip never fires: leaving the destination at metal bin 1 with the pre-bin already over its own high set point leaves the conveyor running", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 1); // already well past its own 85% trip point
     // Explicit: destination defaults to concetti (issue #56), not metal
     // bin 1 or flexicon — either is "elsewhere" for this test, but pin it
@@ -2253,7 +2288,7 @@ describe("arming: a full Flexicon pre-bin does not trip anything while routed el
   });
 
   it("the same full pre-bin trips the conveyor once Flexicon is (re-)selected", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 1);
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
     expect(getInterlockState(sim, FLEXICON_PRE_BIN_ID).phase).toBe("running");
@@ -2267,7 +2302,7 @@ describe("arming: a full Flexicon pre-bin does not trip anything while routed el
 
 describe("the Flexicon pre-bin's own high-level trip cascades and latches like the metal bins' (issue #48)", () => {
   it("trips the conveyor, then both packaging drum feeders lose run permit — the same shared cascade the outload branch's own trips drive", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setDestination(sim, "flexicon");
     setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 1);
 
@@ -2286,7 +2321,7 @@ describe("the Flexicon pre-bin's own high-level trip cascades and latches like t
   });
 
   it("latches: resetting trips clears it only once the pre-bin has actually been emptied, and the presenter's reset recovers it", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setDestination(sim, "flexicon");
     setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 1);
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
@@ -2305,7 +2340,7 @@ describe("the Flexicon pre-bin's own high-level trip cascades and latches like t
   });
 
   it("conserves volume across a switch onto and off the Flexicon branch mid-run", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSource(sim, "proBox");
     setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(15));
     for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT);
@@ -2337,7 +2372,7 @@ describe("the Flexicon pre-bin's own high-level trip cascades and latches like t
 // the dedicated cascade describe block below, not just to the conveyor.
 describe("the Concetti bagging branch completes (issue #49)", () => {
   it("selecting Concetti routes product down this branch and nowhere else", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0);
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
     setAccumulatorLevel(sim, METAL_BIN_2_ID, 0);
@@ -2356,7 +2391,7 @@ describe("the Concetti bagging branch completes (issue #49)", () => {
   }, 10000);
 
   it("the auto sampler holds no material at any point", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setDestination(sim, "concetti");
     setSource(sim, "proBox");
     setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
@@ -2367,7 +2402,7 @@ describe("the Concetti bagging branch completes (issue #49)", () => {
   }, 10000);
 
   it("the pre-bin fills, and backpressures upstream when full rather than spilling", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setDestination(sim, "concetti");
     setSource(sim, "proBox");
     setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
@@ -2393,7 +2428,7 @@ describe("the Concetti bagging branch completes (issue #49)", () => {
   }, 15000);
 
   it("the bagging scale takes a charge, holds it for a cycle, and discharges a completed bag, reusing the batch cycle behaviour", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1); // plenty of supply; no metering feeder sits between the pre-bin and the scale
     const scale = () => getMachineState(sim, CONCETTI_SCALE_ID);
     expect(scale().phase).toBe("charging");
@@ -2414,7 +2449,7 @@ describe("the Concetti bagging branch completes (issue #49)", () => {
   });
 
   it("filling and sewing, and palletising, hold no material at any point", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1);
     for (let i = 0; i < Math.round(40 / DT); i++) {
       stepSim(sim, DT);
@@ -2424,7 +2459,7 @@ describe("the Concetti bagging branch completes (issue #49)", () => {
   });
 
   it("the terminus reports a running count of bags delivered alongside its volume total", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1);
     const pallet = () => getMachineState(sim, PALLET_STUB_ID);
     const scale = () => getMachineState(sim, CONCETTI_SCALE_ID);
@@ -2436,7 +2471,7 @@ describe("the Concetti bagging branch completes (issue #49)", () => {
   });
 
   it("every branch machine publishes a live snapshot once its own upstream is running, not frozen decoration", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setDestination(sim, "concetti");
     setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1);
     for (let i = 0; i < Math.round(30 / DT); i++) stepSim(sim, DT); // several bagging-scale cycles at 15s each
@@ -2450,7 +2485,7 @@ describe("the Concetti bagging branch completes (issue #49)", () => {
 
 describe("arming: a full Concetti pre-bin does not trip anything while routed elsewhere (issue #49)", () => {
   it("a disarmed pre-bin trip never fires: leaving the destination at metal bin 1 with the pre-bin already over its own high set point leaves the conveyor running", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1); // already well past its own 85% trip point
     // Explicit: destination now defaults to concetti itself (issue #56),
     // so this test must actively route elsewhere rather than ride the
@@ -2463,7 +2498,7 @@ describe("arming: a full Concetti pre-bin does not trip anything while routed el
   });
 
   it("the same full pre-bin trips the conveyor once Concetti is (re-)selected", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     // Start elsewhere: the destination now defaults to concetti itself
     // (issue #56), so this test must route away first to exercise the
     // "re-selected" transition it's named for.
@@ -2496,7 +2531,13 @@ describe("arming: a full Concetti pre-bin does not trip anything while routed el
 // spanning both zones, in one combined event feed with its real delays.
 describe("the Concetti pre-bin's own high-level trip cascades the full length of the line and latches (issue #49)", () => {
   it("cascades in the documented order — conveyor stops, both drum feeders stop 1s later, and the treating zone eventually backs up and holds the treater — logged in the combined event feed with the real delays between them", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
+    // Issue #60 removed the treating-side feeder's own auto-start (its rate
+    // is derived on the real line now), so this test — the one test in this
+    // block that needs the treating zone genuinely backing up all the way to
+    // the after-bin/treater — supplies it explicitly, at the old auto-start's
+    // own rate.
+    feedElevator(sim, 15);
     setDestination(sim, "concetti");
     setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1);
 
@@ -2548,7 +2589,7 @@ describe("the Concetti pre-bin's own high-level trip cascades the full length of
   }, 20000);
 
   it("the cascade latches: resetting trips clears it only once the pre-bin has actually been emptied, and the presenter's reset recovers it", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setDestination(sim, "concetti");
     setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1);
     // Freezes the bagging scale after its first charge, same reasoning as
@@ -2574,7 +2615,7 @@ describe("the Concetti pre-bin's own high-level trip cascades the full length of
   });
 
   it("conserves volume across a switch onto and off the Concetti branch mid-run", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     // Issue #56: destination now defaults to Concetti itself, so start
     // elsewhere first — otherwise the "switch onto" at 200s below is a
     // no-op and this stops testing what its name says it tests.
@@ -2674,7 +2715,7 @@ describe("controlled stop (issue #50)", () => {
   });
 
   it("does not touch either real transport-delay chain's throttle in the first tick, even once real material is already moving", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     for (let i = 0; i < Math.round(5 / DT); i++) stepSim(sim, DT); // get real flow going first
 
     controlledStop(sim);
@@ -2693,6 +2734,10 @@ describe("controlled stop (issue #50)", () => {
 
   it("reaches 'stopped' once a real (isolated) zone has fully drained, and conservation holds throughout", () => {
     const sim = createSim(lineWithoutPackaging); // isolates the treating zone, same convention as this file's own zone tests
+    // Issue #60 removed the treating-side feeder's own auto-start, so real
+    // flow (and so real stock for the walk to actually drain) needs supplying
+    // explicitly here, same as the Concetti cascade test above.
+    feedElevator(sim, 15);
     for (let i = 0; i < Math.round(10 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
 
     controlledStop(sim);
@@ -2754,7 +2799,7 @@ describe("controlled stop (issue #50)", () => {
   });
 
   it("writes its own commands to the combined event feed, tagged by the machine each one commands", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     controlledStop(sim);
     stepSim(sim, DT);
     const events = getCombinedEvents(sim);
@@ -2785,7 +2830,7 @@ describe("controlled stop (issue #50)", () => {
   });
 
   it("resuming mid-drain restores exactly the actuators the walk had already touched", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     controlledStop(sim);
     stepSim(sim, DT); // one tick: both sources and the Pro Box feeder commanded; the buffer bin still gates everything after it
     expect(getMachineState(sim, PRO_BOX_FEEDER_ID).enabled).toBe(false);
@@ -2798,7 +2843,7 @@ describe("controlled stop (issue #50)", () => {
   });
 
   it("resuming with the Pro Box selected restores the Pro Box, not the treating line", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSource(sim, "proBox");
     expect(getSource(sim)).toBe("proBox");
 
@@ -2831,7 +2876,7 @@ describe("controlled stop (issue #50)", () => {
 // full line at once.
 describe("utilities trip against the real line (issue #51)", () => {
   it("trips both packaging feeders regardless of which source was selected, and a reset restores only the one that was actually selected", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSource(sim, "proBox");
     for (let i = 0; i < Math.round(5 / DT); i++) stepSim(sim, DT);
 
@@ -2853,7 +2898,7 @@ describe("utilities trip against the real line (issue #51)", () => {
   });
 
   it("conservation holds across a full-line utilities trip and recovery", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     for (let i = 0; i < Math.round(30 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
 
     setUtilitiesHealthy(sim, false);
@@ -2869,7 +2914,7 @@ describe("utilities trip against the real line (issue #51)", () => {
 
 describe("clearPlant (issue #55 — CLEAR PLANT)", () => {
   it("empties every machine's held material in one click, leaving counters, the event log, latched trips, selectors and conservation untouched", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(12)); // slower than the source: nets a genuine buildup in the buffer bin too
     setDestination(sim, "metalBin2");
@@ -2948,7 +2993,7 @@ describe("clearPlant (issue #55 — CLEAR PLANT)", () => {
   });
 
   it("clearing while genuinely paused (no stepSim calls around it) works identically", () => {
-    const sim = createSim(line);
+    const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(12)); // slower than the source: nets a genuine buildup
     for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT);

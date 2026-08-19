@@ -4,7 +4,7 @@
 import { describe, it, expect } from "vitest";
 import {
   initControl, stepControl, resetTrips, combineEventLogs, instrumentReadings, primeInstruments,
-  initFeedRateDerivations, stepFeedRateDerivation,
+  primeFeedSchedules, initFeedRateDerivations, stepFeedRateDerivation,
 } from "./control";
 import { BEHAVIORS } from "./behaviors";
 import { simatekFeedRateTph, tPerHourToM3PerSec } from "./units";
@@ -1049,6 +1049,45 @@ describe("initControl (gradedFeedSchedule)", () => {
     expect(sim.control[0].kind).toBe("gradedFeedSchedule");
     expect(sim.control[0].phase).toBe("boost");
     expect(sim.control[0].log).toEqual([]);
+  });
+});
+
+// primeFeedSchedules (issue #60): the rule starts already "in" boost without
+// ever arming into it (see initGradedFeedSchedule's own comment), so without
+// this the actuators would sit at their own generic (1, 1) default instead
+// of boost's real target until the level first left and re-entered boost.
+describe("primeFeedSchedules", () => {
+  it("snaps both actuators straight to the starting band's own targets, settled, no ramp", () => {
+    // Boost deliberately set away from both actuators' own (1, 1) default —
+    // GRADED_FEED_SCHEDULE_CFG's own boost band happens to equal that
+    // default, which would let this test pass even unprimed.
+    const capacity = 10;
+    const bin = { kind: "accumulator", capacity, stored: 0.1 * capacity, initialStored: 0, spill: 0 };
+    const elevator = BEHAVIORS.transportDelay.init({ sim: { distanceM: 10, speedMPerMin: 60, ceilingM3PerSec: 1 } });
+    const feeder = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 1, hasGate: true } });
+    const machines = new Map([["bin", bin], ["elevator", elevator], ["feeder", feeder]]);
+    const cfg = { ...GRADED_FEED_SCHEDULE_CFG, boost: { speedFraction: 0.7, gateFraction: 0.6, delaySec: 1, rampTimeSec: 1 } };
+    const control = initControl({ interlocks: [cfg] });
+
+    primeFeedSchedules(control, machines);
+
+    expect(elevator.throttleFraction).toBe(0.7);
+    expect(elevator.throttleTarget).toBe(0.7);
+    expect(feeder.gateThrottleFraction).toBe(0.6);
+    expect(feeder.gateThrottleTarget).toBe(0.6);
+  });
+
+  it("leaves every other rule kind's actuators untouched", () => {
+    const capacity = 10;
+    const bin = { kind: "accumulator", capacity, stored: 0, initialStored: 0, spill: 0 };
+    const valve = BEHAVIORS.source.init({ sim: { rateM3PerSec: 1 } });
+    const machines = new Map([["bin", bin], ["valve", valve]]);
+    const control = initControl({
+      interlocks: [{ id: "r", sensor: { machine: "bin" }, highSetpoint: 0.85, lowSetpoint: 0.35, signalDelaySec: 1, action: { machine: "valve", rampTimeSec: 1 } }],
+    });
+    primeFeedSchedules(control, machines);
+    expect(valve.openness).toBe(1);
+    expect(valve.opennessTarget).toBe(1);
   });
 });
 

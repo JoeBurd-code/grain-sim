@@ -4,7 +4,7 @@
 // not part of this seam.
 import { BEHAVIORS, REGISTERED_KINDS, unregisteredKindMessage } from "./behaviors";
 import {
-  initControl, stepControl, combineEventLogs, primeInstruments, resetTrips as resetControlTrips,
+  initControl, stepControl, combineEventLogs, primeInstruments, primeFeedSchedules, resetTrips as resetControlTrips,
   initFeedRateDerivations, stepFeedRateDerivation,
 } from "./control";
 import {
@@ -88,6 +88,9 @@ export function createSim(line) {
   // the sensor's initial level right away, so the very first published
   // snapshot — before the sim has ever ticked — already shows real values.
   primeInstruments(control, machines);
+  // Issue #60: seed every gradedFeedSchedule rule's own two actuators to its
+  // starting band's real targets — see primeFeedSchedules' own comment.
+  primeFeedSchedules(control, machines);
   // Issue #50: the controlled stop's own runtime state, walking the stop
   // order computed once off this same `line`'s topology (see
   // sim/controlledStop.js and line/stopOrder.js).
@@ -468,25 +471,25 @@ export function setInterlockSignalDelay(sim, sensorMachineId, seconds) {
   findInterlock(sim, sensorMachineId).signalDelaySec = seconds;
 }
 
-// Live controls (issue #22, the two-stage interlock): the pre-bin's slow and
-// stop set points and delays are each independent, unlike thresholdTrip's
-// single highSetpoint/signalDelaySec pair — `setInterlockLowSetpoint` above
-// is reused as-is for this rule kind's recovery threshold, since both rule
-// kinds happen to name that field `lowSetpoint`.
-export function setInterlockSlowSetpoint(sim, sensorMachineId, fraction) {
-  findInterlock(sim, sensorMachineId).slowSetpoint = fraction;
+// Live control (issue #60, gradedFeedSchedule's own third instrument): the
+// pre-bin's LSHH trip set point, alongside `setInterlockHighSetpoint`/
+// `setInterlockLowSetpoint` above, which gradedFeedSchedule reuses unchanged
+// for LSH/LSL (see control.js's own INSTRUMENT_FIELDS table).
+export function setInterlockHighHighSetpoint(sim, sensorMachineId, fraction) {
+  findInterlock(sim, sensorMachineId).highHighSetpoint = fraction;
 }
 
-export function setInterlockStopSetpoint(sim, sensorMachineId, fraction) {
-  findInterlock(sim, sensorMachineId).stopSetpoint = fraction;
-}
-
-export function setInterlockSlowDelay(sim, sensorMachineId, seconds) {
-  findInterlock(sim, sensorMachineId).slowDelaySec = seconds;
-}
-
-export function setInterlockStopDelay(sim, sensorMachineId, seconds) {
-  findInterlock(sim, sensorMachineId).stopDelaySec = seconds;
+// Live control (issue #60): the presenter's own Gate Position % dial —
+// mirrors setElevatorSpeed's own `speedFraction` shape, but on a gated
+// feeder's `gateFraction`, the layer the graded feed schedule's own
+// gateThrottleFraction never touches (see initMeteredFeeder's own comment,
+// behaviors.js).
+export function setGateFraction(sim, id, fraction) {
+  const state = sim.machines.get(id);
+  if (!state || state.gateFraction === undefined) {
+    throw new Error(`machine "${id}" is not a gated feeder`);
+  }
+  state.gateFraction = Math.max(0, Math.min(1, fraction));
 }
 
 // Live controls (issue #24): the batch treater's charge size and cycle time

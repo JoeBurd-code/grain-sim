@@ -11,7 +11,7 @@
 // file — only that `assertConserved` never trips across the whole sequence.
 import { describe, it, expect } from "vitest";
 import {
-  createSim, stepSim, resetTrips, getMachineState, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
+  createSim, stepSim, resetTrips, getMachineState, setSourceRate, setAccumulatorLevel, DT,
   setSource, setDestination, controlledStop, resumeLine, setUtilitiesHealthy, getUtilitiesTripPhase,
 } from "./engine";
 import { assertConserved } from "./conservation";
@@ -20,7 +20,6 @@ import { line } from "../line/lineData";
 
 const SOURCE_ID = "upstreamStub";
 const PRO_BOX_ID = "proBoxStation";
-const FEEDER_ID = "treatDrumFeeder";
 const METAL_BIN_2_ID = "metalBin2";
 const OUTLOAD_DIVERTER_ID = "outloadDiverter";
 const CONVEYOR_ID = "pendulumConveyor";
@@ -36,7 +35,10 @@ describe("whole-line conservation across every route at once (issue #52)", () =>
   it("holds continuously through a combined destination switch, source switch, latching trip, controlled stop and utilities trip, over a long run", () => {
     const sim = createSim(line);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
-    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15));
+    // treatDrumFeeder's own rate is continuously derived (issue #60) from
+    // the treating elevator's speed and this feeder's own gate, not a
+    // presenter dial — setFeederRate has no lasting effect on it now, so
+    // this test leans on the schedule's own boost-band feed instead.
 
     // Populate every zone at once — treating, then packaging — with the
     // conveyor genuinely loaded before anything starts switching.

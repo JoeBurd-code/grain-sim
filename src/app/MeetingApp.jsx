@@ -31,17 +31,19 @@ const PARAM_BINDERS = {
   levelJump: (engine, machineId, value) => engine.setLevel(machineId, value / 100),
   interlockHighSetpoint: (engine, machineId, value) => engine.setInterlockHigh(machineId, value / 100),
   interlockLowSetpoint: (engine, machineId, value) => engine.setInterlockLow(machineId, value / 100),
+  // Pre-bin graded feed schedule (issue #56/#58/#60): LSHH, the schedule's
+  // own latched trip set point, alongside LSH/LSL above, which
+  // gradedFeedSchedule reuses unchanged.
+  interlockHighHighSetpoint: (engine, machineId, value) => engine.setInterlockHighHigh(machineId, value / 100),
   interlockSignalDelay: (engine, machineId, value) => engine.setInterlockDelay(machineId, value),
   // Elevator VFD (issue #21): re-paces the transport delay live, including
   // material already in transit, not just newly fed material.
   elevatorSpeed: (engine, machineId, value) => engine.setElevatorSpeed(machineId, value / 100),
-  // Pre-bin two-stage interlock (issue #22): the recovery threshold reuses
-  // interlockLowSetpoint above, since both rule kinds name that field the
-  // same; slow/stop each get their own set point and delay.
-  interlockSlowSetpoint: (engine, machineId, value) => engine.setInterlockSlow(machineId, value / 100),
-  interlockStopSetpoint: (engine, machineId, value) => engine.setInterlockStop(machineId, value / 100),
-  interlockSlowDelay: (engine, machineId, value) => engine.setInterlockSlowDelay(machineId, value),
-  interlockStopDelay: (engine, machineId, value) => engine.setInterlockStopDelay(machineId, value),
+  // Drum feeder gate position (issue #56/#57/#60): the presenter's own dial,
+  // never touched by the feed schedule (see setGateFraction's own comment,
+  // engine.js) — mirrors elevatorSpeed above, on the feeder's gate rather
+  // than the elevator's chain.
+  gatePosition: (engine, machineId, value) => engine.setGateFraction(machineId, value / 100),
   // Batch treater (issue #24): the slider is in kg, the engineer's own unit;
   // converted to m3 at this edge, same pattern as sourceRate/feederRate's
   // t/h -> m3/s conversion. Cycle time is already in seconds.
@@ -75,6 +77,10 @@ const PARAM_READERS = {
   // multiplier layered on top — both already published by
   // snapshotTransportDelay, combined here the same way chainSpeedMPerMin is.
   elevatorSpeedActual: (dynamic) => (dynamic ? (dynamic.speedFraction ?? 1) * (dynamic.throttleFraction ?? 1) * 100 : null),
+  // Drum feeder gate (issue #60): same shape as elevatorSpeedActual above —
+  // gateFraction is the presenter's own dial, gateThrottleFraction the feed
+  // schedule's own multiplier layered on top.
+  gatePositionActual: (dynamic) => (dynamic ? (dynamic.gateFraction ?? 1) * (dynamic.gateThrottleFraction ?? 1) * 100 : null),
 };
 
 const validation = validateLine(line);
