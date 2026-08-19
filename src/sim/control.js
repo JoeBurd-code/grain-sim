@@ -14,7 +14,7 @@
 // to `thresholdTrip` so every interlock authored before this registry
 // existed (issue #19) needs no `lineData.js` change.
 import { BEHAVIORS } from "./behaviors";
-import { m3PerSecToTPerHour } from "./units";
+import { m3PerSecToTPerHour, simatekFeedRateTph, tPerHourToM3PerSec } from "./units";
 
 function readLevel(machines, machineId) {
   const state = machines.get(machineId);
@@ -806,6 +806,71 @@ function disarmGradedFeedSchedule(rule) {
   if (FEED_SCHEDULE_ARM_TARGET[rule.phase] || rule.phase === "armingTrip") {
     rule.phase = rule.settledBand;
     rule.fireAt = null;
+  }
+}
+
+// Continuous feed-rate derivation (issue #59): what actually makes a dial
+// change visible in the feeder's commanded rate. Every rule kind above is a
+// phase machine — a sensor crossing a setpoint arms a delayed command — but
+// this isn't one: it has no sensor, no setpoint, no phase, and no delay. It
+// reads two actuators' *live effective* values (issue #56's own wording:
+// elevator speed dial x elevator interlock throttle, feeder gate dial x
+// feeder interlock throttle — exactly the (speedFraction x throttleFraction,
+// gateFraction x gateThrottleFraction) pair gradedFeedSchedule's own bands
+// already command above) straight through #57's TPH formula, and writes the
+// result as the feeder's commanded rate, unconditionally, every tick this
+// function runs. That's why it's not folded into CONTROL_KINDS: stepControl's
+// own dispatch loop below skips a disarmed rule's `step` entirely (isArmed),
+// which is exactly the gating this derivation must never be subject to — a
+// presenter's slider drag has to show up in the flow rate whether or not any
+// interlock governing that elevator/feeder pair happens to be armed this
+// tick. So it lives as its own top-level list on `sim`
+// (`sim.feedRateDerivations`), stepped by stepFeedRateDerivation, called
+// unconditionally from stepSim (engine.js) — never gated on a level
+// threshold or a rule's phase.
+//
+// `line.feedRateDerivations` is empty on the real line for now (issue #59 is
+// standalone, matching #57/#58's own "not yet wired" scope) — this function
+// is verified here against a fabricated elevator/feeder pair, with no
+// gradedFeedSchedule rule involved at all, per the parent issue's "verified
+// standalone, independent of the rule kind in #58" acceptance criterion.
+export function initFeedRateDerivations(line) {
+  return (line.feedRateDerivations ?? []).map((cfg) => ({
+    id: cfg.id,
+    elevatorId: cfg.elevator.machine,
+    feederId: cfg.feeder.machine,
+  }));
+}
+
+// Both transportDelay and routedTransportDelay (behaviors.js) carry the same
+// speedFraction/throttleFraction pair, and a gated meteredFeeder carries the
+// same-shaped gateFraction/gateThrottleFraction pair (issue #57) — one
+// shared field convention across every kind this can ever link, so this
+// reads the fields directly rather than through a per-kind behavior method,
+// same as control.test.js's own fabricated shells already read them back
+// directly to assert on.
+//
+// Deliberately unguarded by `manualOverride` — unlike stepAutoStartOnRunning
+// above, the one other place this file commands a feeder's rate directly.
+// That guard exists so a one-shot command doesn't clobber a presenter's own
+// dial; this step is the opposite of one-shot; per issue #56's own wording
+// it must overwrite the feeder's rate "with or without an active schedule
+// band overriding anything", every tick, for as long as a link exists.
+// Under this rule kind's own architecture the presenter's live dial is
+// `gateFraction`, read on the line above, not the feeder's `rate` field
+// this function writes — so there is no presenter intent here to protect.
+// Nor does it log (contrast every other actuator command in this file):
+// logging every tick would flood the presenter-facing event log with
+// nothing new to report, so this is an intentional exception, not simply
+// forgotten.
+export function stepFeedRateDerivation(sim) {
+  for (const link of sim.feedRateDerivations) {
+    const elevator = sim.machines.get(link.elevatorId);
+    const feeder = sim.machines.get(link.feederId);
+    const effectiveSpeed = elevator.speedFraction * elevator.throttleFraction;
+    const effectiveGate = feeder.gateFraction * feeder.gateThrottleFraction;
+    const tph = simatekFeedRateTph(effectiveSpeed, effectiveGate);
+    BEHAVIORS[feeder.kind].command(feeder, tPerHourToM3PerSec(tph));
   }
 }
 

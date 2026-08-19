@@ -2,8 +2,12 @@
 // behaviors.test.js exercises a behaviour: fabricated machine states and a
 // fabricated sim shell, no real line data, no engine.js involved.
 import { describe, it, expect } from "vitest";
-import { initControl, stepControl, resetTrips, combineEventLogs, instrumentReadings, primeInstruments } from "./control";
+import {
+  initControl, stepControl, resetTrips, combineEventLogs, instrumentReadings, primeInstruments,
+  initFeedRateDerivations, stepFeedRateDerivation,
+} from "./control";
 import { BEHAVIORS } from "./behaviors";
+import { simatekFeedRateTph, tPerHourToM3PerSec } from "./units";
 
 const RULE_CFG = {
   id: "testTrip",
@@ -1296,5 +1300,88 @@ describe("arming (armedWhen) — gradedFeedSchedule", () => {
     stepSchedule(sim, 0.05, 200);
     expect(sim.control[0].phase).toBe("tripped"); // frozen, not auto-cleared
     expect(sim.machines.get("elevator").throttleTarget).toBe(0); // the trip's own command still stands
+  });
+});
+
+// Continuous feed-rate derivation (issue #59): unlike every kind above, this
+// has no sensor, no setpoint, no phase — just an elevator/feeder pair, read
+// and re-commanded fresh every call. Verified standalone against a fabricated
+// elevator (transportDelay) and gated feeder (meteredFeeder), with no
+// gradedFeedSchedule rule and no `sim.control` at all, per issue #59's own
+// "independent of the rule kind in #58" acceptance criterion.
+const FEED_RATE_DERIVATION_CFG = {
+  id: "testDerivation",
+  elevator: { machine: "elevator" },
+  feeder: { machine: "feeder" },
+};
+
+function makeFeedRateDerivationSim() {
+  const elevator = BEHAVIORS.transportDelay.init({ sim: { distanceM: 10, speedMPerMin: 60, ceilingM3PerSec: 1 } });
+  const feeder = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 0, hasGate: true } });
+  const machines = new Map([["elevator", elevator], ["feeder", feeder]]);
+  const feedRateDerivations = initFeedRateDerivations({ feedRateDerivations: [FEED_RATE_DERIVATION_CFG] });
+  return { t: 0, machines, feedRateDerivations };
+}
+
+describe("initFeedRateDerivations", () => {
+  it("builds one runtime link per declared config, resolving the elevator/feeder machine ids", () => {
+    const sim = makeFeedRateDerivationSim();
+    expect(sim.feedRateDerivations).toEqual([{ id: "testDerivation", elevatorId: "elevator", feederId: "feeder" }]);
+  });
+});
+
+describe("stepFeedRateDerivation", () => {
+  it("commands the feeder's rate from the elevator's and feeder's dials, matching the #57 formula exactly", () => {
+    const sim = makeFeedRateDerivationSim();
+    sim.machines.get("elevator").speedFraction = 0.85;
+    sim.machines.get("feeder").gateFraction = 0.55;
+    stepFeedRateDerivation(sim);
+    const expectedTph = simatekFeedRateTph(0.85, 0.55);
+    expect(sim.machines.get("feeder").rate).toBeCloseTo(tPerHourToM3PerSec(expectedTph));
+  });
+
+  it("matches the formula across a range of speed/gate combinations, including an interlock throttle layered on the manual dial", () => {
+    const sim = makeFeedRateDerivationSim();
+    const cases = [
+      { speedFraction: 1, throttleFraction: 1, gateFraction: 1, gateThrottleFraction: 1 },
+      { speedFraction: 0.95, throttleFraction: 1, gateFraction: 0.65, gateThrottleFraction: 1 },
+      { speedFraction: 1, throttleFraction: 0.6, gateFraction: 1, gateThrottleFraction: 0.4 }, // e.g. gradedFeedSchedule's own throttle band layered on top
+      { speedFraction: 0.5, throttleFraction: 0.5, gateFraction: 0.8, gateThrottleFraction: 0.25 },
+    ];
+    for (const c of cases) {
+      const elevator = sim.machines.get("elevator");
+      const feeder = sim.machines.get("feeder");
+      elevator.speedFraction = c.speedFraction;
+      elevator.throttleFraction = c.throttleFraction;
+      feeder.gateFraction = c.gateFraction;
+      feeder.gateThrottleFraction = c.gateThrottleFraction;
+      stepFeedRateDerivation(sim);
+      const expectedTph = simatekFeedRateTph(c.speedFraction * c.throttleFraction, c.gateFraction * c.gateThrottleFraction);
+      expect(feeder.rate).toBeCloseTo(tPerHourToM3PerSec(expectedTph));
+    }
+  });
+
+  it("updates the commanded rate on the very next call after either dial changes, with no band transition or interlock rule involved at all", () => {
+    const sim = makeFeedRateDerivationSim();
+    sim.machines.get("elevator").speedFraction = 1;
+    sim.machines.get("feeder").gateFraction = 1;
+    stepFeedRateDerivation(sim);
+    const initialRate = sim.machines.get("feeder").rate;
+
+    sim.machines.get("elevator").speedFraction = 0.5; // presenter drags the elevator speed dial alone
+    stepFeedRateDerivation(sim);
+    expect(sim.machines.get("feeder").rate).toBeCloseTo(tPerHourToM3PerSec(simatekFeedRateTph(0.5, 1)));
+    expect(sim.machines.get("feeder").rate).not.toBeCloseTo(initialRate, 5);
+
+    sim.machines.get("elevator").speedFraction = 1;
+    sim.machines.get("feeder").gateFraction = 0.3; // then the feeder gate dial alone
+    stepFeedRateDerivation(sim);
+    expect(sim.machines.get("feeder").rate).toBeCloseTo(tPerHourToM3PerSec(simatekFeedRateTph(1, 0.3)));
+  });
+
+  it("never touches manualOverride — the same command path autoStartOnRunning already uses, distinct from the presenter's own setFeederRate", () => {
+    const sim = makeFeedRateDerivationSim();
+    stepFeedRateDerivation(sim);
+    expect(sim.machines.get("feeder").manualOverride).toBe(false);
   });
 });
