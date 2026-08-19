@@ -181,6 +181,91 @@ describe("meteredFeeder (issue #20)", () => {
     expect(state.rate).toBe(10);
     expect(BEHAVIORS.meteredFeeder.capacityAvailable(state, 0.05, Infinity)).toBeCloseTo(0.5);
   });
+
+  // Issue #57: gate-position state, opt-in via `hasGate`, mirroring how
+  // transportDelay's own speedFraction/throttleFraction are tested above
+  // (issue #21/#22) — no engine.js, no lineData, direct state and BEHAVIORS
+  // calls only.
+  describe("gate-position state (issue #57)", () => {
+    it("a feeder with no `hasGate` carries none of the gate fields, and its snapshot omits them", () => {
+      const state = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10 } });
+      expect(state.gateFraction).toBeUndefined();
+      expect(state.gateThrottleFraction).toBeUndefined();
+      expect(BEHAVIORS.meteredFeeder.snapshot(state)).toEqual({ rate: 10, enabled: true, runPermit: true });
+    });
+
+    it("`hasGate: true` starts both gateFraction (manual dial) and gateThrottleFraction (interlock layer) fully open", () => {
+      const state = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10, hasGate: true } });
+      expect(state.gateFraction).toBe(1);
+      expect(state.gateThrottleFraction).toBe(1);
+    });
+
+    it("gateFraction is a plain presenter dial: setting it directly takes effect instantly, with no ramp", () => {
+      const state = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10, hasGate: true } });
+      state.gateFraction = 0.55; // presenter drags the Gate Position % slider
+      expect(state.gateFraction).toBe(0.55);
+      expect(state.gateThrottleFraction).toBe(1); // the interlock layer is untouched by the manual dial
+    });
+
+    it("commandGate(target, rampTimeSec) slews gateThrottleFraction toward target over the ramp time, not instantly", () => {
+      const state = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10, hasGate: true } });
+      BEHAVIORS.meteredFeeder.commandGate(state, 0.5, 2); // 2s ramp -> 0.5/s slew
+      BEHAVIORS.meteredFeeder.apply(state, 0.05, 0, Infinity);
+      expect(state.gateThrottleFraction).toBeCloseTo(1 - 0.5 * 0.05);
+      expect(BEHAVIORS.meteredFeeder.isSettledGate(state)).toBe(false);
+
+      for (let i = 0; i < 100; i++) BEHAVIORS.meteredFeeder.apply(state, 0.05, 0, Infinity);
+      expect(state.gateThrottleFraction).toBeCloseTo(0.5);
+      expect(BEHAVIORS.meteredFeeder.isSettledGate(state)).toBe(true);
+    });
+
+    it("commandGate(0, 0) closes the gate instantly (0s ramp -> infinite slew)", () => {
+      const state = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10, hasGate: true } });
+      BEHAVIORS.meteredFeeder.commandGate(state, 0, 0);
+      BEHAVIORS.meteredFeeder.apply(state, 0.05, 0, Infinity);
+      expect(state.gateThrottleFraction).toBe(0);
+      expect(BEHAVIORS.meteredFeeder.isSettledGate(state)).toBe(true);
+    });
+
+    it("gateFraction (manual dial) and gateThrottleFraction (interlock layer) coexist without one overwriting the other", () => {
+      const state = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10, hasGate: true } });
+      state.gateFraction = 0.55; // presenter's own dial
+      BEHAVIORS.meteredFeeder.commandGate(state, 0.5, 0); // interlock throttles instantly
+      BEHAVIORS.meteredFeeder.apply(state, 0.05, 0, Infinity);
+      expect(state.gateFraction).toBe(0.55); // untouched by the interlock
+      expect(state.gateThrottleFraction).toBe(0.5); // untouched by the manual dial
+    });
+
+    it("snapshot publishes both gate fields once hasGate is set", () => {
+      const state = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10, hasGate: true } });
+      state.gateFraction = 0.55;
+      BEHAVIORS.meteredFeeder.commandGate(state, 0.5, 0);
+      BEHAVIORS.meteredFeeder.apply(state, 0.05, 0, Infinity);
+      expect(BEHAVIORS.meteredFeeder.snapshot(state)).toEqual({
+        rate: 10, enabled: true, runPermit: true, gateFraction: 0.55, gateThrottleFraction: 0.5,
+      });
+    });
+
+    it("does not affect draw/forward behaviour: apply still forwards min(inflow, cap) unchanged", () => {
+      const gated = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10, hasGate: true } });
+      const ungated = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10 } });
+      gated.gateFraction = 0.2; // even a nearly-closed gate dial changes nothing yet — issue #56's own job
+      const gatedOut = BEHAVIORS.meteredFeeder.apply(gated, 0.05, 0.3, 0.5);
+      const ungatedOut = BEHAVIORS.meteredFeeder.apply(ungated, 0.05, 0.3, 0.5);
+      expect(gatedOut).toBe(ungatedOut);
+      expect(gatedOut).toBe(0.3);
+    });
+
+    it("independent per-machine: two gated feeders never share state", () => {
+      const feeder1 = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10, hasGate: true } });
+      const feeder2 = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 10, hasGate: true } });
+      feeder1.gateFraction = 0.55;
+      BEHAVIORS.meteredFeeder.commandGate(feeder1, 0.2, 0);
+      BEHAVIORS.meteredFeeder.apply(feeder1, 0.05, 0, Infinity);
+      expect(feeder2.gateFraction).toBe(1);
+      expect(feeder2.gateThrottleFraction).toBe(1);
+    });
+  });
 });
 
 describe("passThrough", () => {
