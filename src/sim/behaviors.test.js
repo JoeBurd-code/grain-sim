@@ -330,10 +330,20 @@ describe("terminalSink (issue #26)", () => {
     expect(state.total).toBeCloseTo(3);
   });
 
-  it("reports its running total as delivered for conservation", () => {
+  it("reports its running total as delivered for conservation, alongside any seeded initialStored", () => {
     const state = BEHAVIORS.terminalSink.init({ sim: { displayCapacityM3: 0.3 } });
     BEHAVIORS.terminalSink.apply(state, 0.05, 4.5, Infinity);
-    expect(BEHAVIORS.terminalSink.conserve(state)).toEqual({ delivered: 4.5 });
+    expect(BEHAVIORS.terminalSink.conserve(state)).toEqual({ initialStored: 0, delivered: 4.5 });
+  });
+
+  // Issue #57: initialLevelFraction mirrors accumulator's own t=0 seed —
+  // tracked separately as initialStored so the whole-line conservation
+  // invariant (fed + initialStored = ...) stays true for a terminus that
+  // starts non-empty, e.g. the discard bin's own 1% default (lineData.js).
+  it("seeds a nonzero starting total from initialLevelFraction, tracked as initialStored", () => {
+    const state = BEHAVIORS.terminalSink.init({ sim: { displayCapacityM3: 0.3, initialLevelFraction: 0.01 } });
+    expect(state.total).toBeCloseTo(0.003);
+    expect(BEHAVIORS.terminalSink.conserve(state)).toEqual({ initialStored: state.total, delivered: state.total });
   });
 
   it("reports a fill ratio scaled to its presenter-facing display capacity, saturating at 1", () => {

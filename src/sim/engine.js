@@ -417,6 +417,23 @@ export function setAccumulatorLevel(sim, id, fraction) {
   state.stored = nextStored;
 }
 
+// Presenter/demo control (issue #57): the discard-scalpings bin's own EMPTY
+// BIN affordance, a terminalSink counterpart to setAccumulatorLevel above —
+// the real bin is emptied by a truck, an operator event out of scope for the
+// sim (REAL_LINE_SPECS.md §5), so this is presenter staging, not a modelled
+// discharge. Zeroes `total` and folds the removed volume out of
+// `initialStored`, the same "never really supplied" bookkeeping
+// setAccumulatorLevel uses, so conservation stays true without a separate
+// discarded counter.
+export function emptyTerminalSink(sim, id) {
+  const state = sim.machines.get(id);
+  if (!state || state.kind !== "terminalSink") {
+    throw new Error(`machine "${id}" is not a terminal sink`);
+  }
+  state.initialStored -= state.total;
+  state.total = 0;
+}
+
 function findInterlock(sim, sensorMachineId) {
   const rule = getInterlockState(sim, sensorMachineId);
   if (!rule) throw new Error(`machine "${sensorMachineId}" has no interlock`);

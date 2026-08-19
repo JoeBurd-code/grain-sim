@@ -32,12 +32,7 @@ describe("line reachability (trace by arrows alone)", () => {
 
   it("leaves no machine stranded (every machine is on a source path)", () => {
     const reach = reachableFrom(SOURCES);
-    // chemStub feeds in but is itself a source of chemical, not fed by product;
-    // it is a legitimate scope-edge source.
-    const exemptSources = new Set(["chemStub"]);
-    const stranded = line.machines
-      .filter((m) => !reach.has(m.id) && !exemptSources.has(m.id))
-      .map((m) => m.id);
+    const stranded = line.machines.filter((m) => !reach.has(m.id)).map((m) => m.id);
     expect(stranded).toEqual([]);
   });
 });

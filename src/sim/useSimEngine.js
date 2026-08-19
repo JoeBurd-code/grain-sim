@@ -4,7 +4,7 @@
 // consumed per wall-clock second, never the fixed timestep itself.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  createSim, stepSim, resetSim, resetTrips as resetTripsSim, clearPlant as clearPlantSim, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
+  createSim, stepSim, resetSim, resetTrips as resetTripsSim, clearPlant as clearPlantSim, setSourceRate, setFeederRate, setAccumulatorLevel, emptyTerminalSink, DT,
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, setElevatorSpeed,
   setInterlockSlowSetpoint, setInterlockStopSetpoint,
   setInterlockSlowDelay as engineSetInterlockSlowDelay, setInterlockStopDelay as engineSetInterlockStopDelay,
@@ -193,6 +193,14 @@ export function useSimEngine(line) {
     publish();
   }, [sim, publish]);
 
+  // Issue #57: the discard-scalpings bin's own EMPTY BIN affordance —
+  // terminalSink's counterpart to setLevel above, same immediate-publish
+  // shape since this too takes effect while paused.
+  const emptySink = useCallback((machineId) => {
+    emptyTerminalSink(sim, machineId);
+    publish();
+  }, [sim, publish]);
+
   const setInterlockHigh = useCallback((machineId, fraction) => {
     setInterlockHighSetpoint(sim, machineId, fraction);
     publish();
@@ -289,7 +297,7 @@ export function useSimEngine(line) {
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
   return {
-    snap, running, start, pause, stepOnce, restart, resetTrips, clearPlant, speed, setSpeed, setRate, setFeedRate, setLevel,
+    snap, running, start, pause, stepOnce, restart, resetTrips, clearPlant, speed, setSpeed, setRate, setFeedRate, setLevel, emptySink,
     setInterlockHigh, setInterlockLow, setInterlockDelay, setElevatorSpeed: setElevatorSpeedFraction,
     setInterlockSlow, setInterlockStop, setInterlockSlowDelay, setInterlockStopDelay,
     setBatchSize: setBatchSizeM3, setBatchCycleTime, setWasteFraction, setSource, setDestination,

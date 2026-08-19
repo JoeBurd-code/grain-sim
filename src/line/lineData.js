@@ -305,43 +305,6 @@ export const line = {
       },
     },
     {
-      id: "chemStub",
-      type: "stub",
-      name: "future: powder dosing station",
-      tag: "STUB.CHEM",
-      status: "stub",
-      zone: "treating",
-      x: 800, y: 450, w: 8, h: 8,
-      ports: { inputs: [], outputs: ["out"] },
-      anchors: { out: { x: 4, y: 4 } },
-    },
-    {
-      id: "wasteWaterIbc",
-      type: "ibc",
-      name: "WASTE WATER IBC",
-      tag: "TBC-06",
-      status: "new",
-      zone: "treating",
-      x: 730, y: 560, w: 60, h: 46,
-      ports: { inputs: ["in"], outputs: [] },
-      anchors: { in: { x: 30, y: 0 } },
-      smallLabel: true,
-      labelAt: { x: 70, y: 28 },
-      // Deliberately un-simulated, permanently, not just not-yet-built:
-      // waste water is a ~monthly cleaning event, not a per-batch flow, and
-      // the engineer confirmed it "does not need to be shown"
-      // [CONFIRMED 2026-06-30, REAL_LINE_SPECS.md §12 item 21 and its own
-      // "Headline corrections" summary]. Unlike the dead-end `type: "stub"`
-      // machines (metalRejectStub1, dischargeStub1/
-      // 2, chemStub), this one is a real, visible component the mimic
-      // should keep drawing accurately — hence its own `ibc` symbol and
-      // label, not a tiny stub marker — so the exemption is recorded here
-      // instead of by changing its `type`. `simExempt` is what
-      // validateLine.js and behaviorCensus.js both check (issue #52) so
-      // this doesn't count as a real "not yet engined" gap.
-      simExempt: true,
-    },
-    {
       id: "treaterAfterBin",
       type: "bin",
       name: "TREATER AFTER-BIN",
@@ -419,20 +382,29 @@ export const line = {
       x: 620, y: 790, w: 100, h: 80,
       ports: { inputs: ["in"], outputs: [] },
       anchors: { in: { x: 50, y: 0 } },
-      fill: 0.2,
+      fill: 0.01,
       labelAt: { x: 0, y: 106 },
       // Terminal sink (issue #26): the treating zone's waste destination,
       // holding an unbounded running total rather than a working volume —
       // emptied "when full" is an operator/truck event out of scope, not a
-      // capacity the sim needs to model (REAL_LINE_SPECS.md §5).
+      // capacity the sim needs to model (REAL_LINE_SPECS.md §5). Issue #57
+      // adds a dedicated EMPTY DISCARD BIN control for that truck event
+      // (PlantControls.jsx, engine.js's own emptyTerminalSink), so a
+      // presenter can demo it directly rather than only ever watching this
+      // bin climb.
       // `displayCapacityM3` is presenter-facing only (see behaviors.js
       // `snapshotTerminalSink`): the real bin's working volume was never
       // confirmed, so this just scales the fill bar to visibly rise over a
       // demo run rather than sitting frozen — it gates no physics.
+      // `initialLevelFraction` (issue #57) starts the bin at 1%, not the
+      // empty-at-load every other bin uses since #55 — a presenter request,
+      // not a plant fact: this bin visibly holds a token amount from the
+      // moment the page loads rather than reading as pristine/unused.
       sim: {
         kind: "terminalSink",
         displayCapacityM3: 0.3,
-        provenance: { displayCapacityM3: "assumed" },
+        initialLevelFraction: 0.01,
+        provenance: { displayCapacityM3: "assumed", initialLevelFraction: "assumed" },
       },
     },
 
@@ -1128,8 +1100,6 @@ export const line = {
     { from: { machine: "treatDrumFeeder", port: "out" }, to: { machine: "treatingElevator", port: "in" }, kind: "product" },
     { from: { machine: "treatingElevator", port: "out" }, to: { machine: "treaterPreBin", port: "in" }, kind: "product" },
     { from: { machine: "treaterPreBin", port: "out" }, to: { machine: "batchTreater", port: "in" }, kind: "product" },
-    { from: { machine: "chemStub", port: "out" }, to: { machine: "batchTreater", port: "chemIn" }, kind: "chemical" },
-    { from: { machine: "batchTreater", port: "wasteOut" }, to: { machine: "wasteWaterIbc", port: "in" }, kind: "waste" },
     { from: { machine: "batchTreater", port: "out" }, to: { machine: "treaterAfterBin", port: "in" }, kind: "product" },
     { from: { machine: "treaterAfterBin", port: "out" }, to: { machine: "scalpingScreen", port: "in" }, kind: "product" },
     { from: { machine: "scalpingScreen", port: "waste" }, to: { machine: "discardBin", port: "in" }, kind: "waste" },
