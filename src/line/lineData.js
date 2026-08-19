@@ -379,12 +379,16 @@ export const line = {
       tag: "52.603.H00",
       status: "new",
       zone: "treating",
-      x: 950, y: 695, w: 60, h: 46,
+      // Sited directly under the scalping screen (its real position — a
+      // discharge hopper catches what the screen above it drops), centred
+      // on the screen's own footprint (620-760). DISCARD SCALPINGS BIN,
+      // below, moved left to make room.
+      x: 660, y: 790, w: 60, h: 46,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 30, y: 0 }, out: { x: 30, y: 46 } },
       fill: 0,
       instruments: ["LSH"],
-      labelAt: { x: -30, y: -16 },
+      labelAt: { x: 70, y: 15 },
       params: [{ id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" }],
       // Issue #62: a small catch tray under the Treatment Scalping Screen
       // (52.602.F00, above), feeding Inlet Drum Feeder 2 (52.603.L00 —
@@ -424,7 +428,10 @@ export const line = {
       tag: "52.801.L00",
       status: "new",
       zone: "treating",
-      x: 620, y: 790, w: 100, h: 80,
+      // Shifted left from 620 (issue #62) so the scalping discharge hopper
+      // can sit directly under the screen above, where the discard bin used
+      // to be.
+      x: 440, y: 790, w: 100, h: 80,
       ports: { inputs: ["in"], outputs: [] },
       anchors: { in: { x: 50, y: 0 } },
       fill: 0.01,
@@ -1147,13 +1154,15 @@ export const line = {
     { from: { machine: "treaterPreBin", port: "out" }, to: { machine: "batchTreater", port: "in" }, kind: "product" },
     { from: { machine: "batchTreater", port: "out" }, to: { machine: "treaterAfterBin", port: "in" }, kind: "product" },
     { from: { machine: "treaterAfterBin", port: "out" }, to: { machine: "scalpingScreen", port: "in" }, kind: "product" },
-    { from: { machine: "scalpingScreen", port: "waste" }, to: { machine: "discardBin", port: "in" }, kind: "waste" },
+    { from: { machine: "scalpingScreen", port: "waste" }, to: { machine: "discardBin", port: "in" }, kind: "waste", via: [{ x: 490, y: 750 }] },
     // treating -> packaging (the cross-zone product run). Issue #62 inserts
     // the scalping screen's own discharge hopper between the screen and
     // inletDrumFeeder2 — the cross-zone hop is now the hopper's own outlet,
-    // not the screen's.
-    { from: { machine: "scalpingScreen", port: "out" }, to: { machine: "scalpingDischargeHopper", port: "in" }, kind: "product" },
-    { from: { machine: "scalpingDischargeHopper", port: "out" }, to: { machine: "inletDrumFeeder2", port: "in" }, kind: "product", via: [{ x: 1200, y: 741 }] },
+    // not the screen's. The hopper sits directly under the screen, so its
+    // own infeed drops straight down off the screen's product port before
+    // heading into the hopper.
+    { from: { machine: "scalpingScreen", port: "out" }, to: { machine: "scalpingDischargeHopper", port: "in" }, kind: "product", via: [{ x: 760, y: 790 }] },
+    { from: { machine: "scalpingDischargeHopper", port: "out" }, to: { machine: "inletDrumFeeder2", port: "in" }, kind: "product", via: [{ x: 1200, y: 836 }] },
     // packaging infeed. The two via points on each connection sketch the
     // pendulum conveyor's own floor run + climb (see its comment above):
     // down to floor level, across to the climb point, up into the
