@@ -54,9 +54,10 @@ function resolveActuator(rule, sim) {
 // level or a low one) is read off the code itself below, not off the rule
 // kind, so this table only needs to say which field holds which code's
 // setpoint. twoStageThrottle's `slowSetpoint` has no entry: the FD's own
-// cause-and-effect matrix names LSH0 as the stop stage's switch (see
-// preBinSlowStopTrip's own comment in lineData.js) — the slow stage is an
-// engineer-described addition with no physical instrument tag of its own.
+// cause-and-effect matrix names LSH0 as the stop stage's switch — the slow
+// stage is an engineer-described addition with no physical instrument tag of
+// its own (issue #22; superseded on the real line by gradedFeedSchedule,
+// issue #60, but this kind stays a generic, independently reusable primitive).
 const INSTRUMENT_FIELDS = {
   thresholdTrip: { LSH: "highSetpoint", LSL: "lowSetpoint" },
   twoStageThrottle: { LSH: "stopSetpoint", LSL: "lowSetpoint" },
@@ -138,6 +139,34 @@ export function primeInstruments(control, machines) {
     rule.instruments = Object.fromEntries(
       Object.entries(readings).map(([code, reading]) => [code, { code, ...reading, pulseGen: 0 }])
     );
+  }
+}
+
+// Issue #60: primes each gradedFeedSchedule rule's two actuators to its
+// starting band's own (speedFraction, gateFraction) targets, snapped rather
+// than ramped. Every other kind's fixed starting phase (thresholdTrip's
+// "open", twoStageThrottle's "full", ...) happens to already match its
+// actuator's own generic default (fully open / full speed), so nothing else
+// in this file has ever needed a priming step for actuator state — only for
+// instruments (primeInstruments above). gradedFeedSchedule breaks that
+// coincidence: the bin always starts empty (issue #55), so the rule always
+// starts already "in" the boost band (initGradedFeedSchedule's own comment)
+// without ever arming into it, and boost's real target is the real line's
+// own derived (speedFraction, gateFraction) pair, not the actuators' shared
+// (1, 1) default. Without this, the elevator/feeder would sit at that (1, 1)
+// default — and the continuous rate derivation (stepFeedRateDerivation
+// below) would compute way more than the boost band's own intended TPH from
+// it — until the level first crossed out of and back into boost for real.
+export function primeFeedSchedules(control, machines) {
+  for (const rule of control) {
+    if (rule.kind !== "gradedFeedSchedule") continue;
+    const band = rule[rule.phase];
+    const elevator = machines.get(rule.actuatorId);
+    const feeder = machines.get(rule.feederId);
+    elevator.throttleFraction = band.speedFraction;
+    elevator.throttleTarget = band.speedFraction;
+    feeder.gateThrottleFraction = band.gateFraction;
+    feeder.gateThrottleTarget = band.gateFraction;
   }
 }
 
@@ -422,10 +451,14 @@ function resetHoldNextBatch(rule, sim) {
 // rule never touches the feeder again regardless.
 // Like every other rule kind here, the log this rule writes is attributed
 // to `sensorId` (the elevator), not `actuatorId` (the feeder it commands) —
-// same convention as e.g. preBinSlowStopTrip's "elevator commanded to 50%
-// speed" living on the pre-bin's own popup, not the elevator's. A presenter
-// looking for "why did the feeder start" finds it on the elevator's popup,
-// since the elevator's own state is what the crossing/trip is about.
+// same convention as any rule whose sensor and actuator are different
+// machines (e.g. gradedFeedSchedule's own "elevator commanded to stop" living
+// on the pre-bin's own popup, not the elevator's). A presenter looking for
+// "why did the feeder start" finds it on the elevator's popup, since the
+// elevator's own state is what the crossing/trip is about. (This kind's own
+// real-line use, treatDrumFeeder auto-starting on treatingElevator, was
+// superseded by gradedFeedSchedule's continuous feed-rate derivation —
+// issue #60 — but it stays a generic, independently reusable primitive.)
 function initAutoStartOnRunning(cfg) {
   return {
     kind: "autoStartOnRunning",
@@ -798,10 +831,12 @@ function resetGradedFeedSchedule(rule, sim) {
 // with a pending, not-yet-committed timer — the three band arms and the trip
 // arm — have anything to cancel; "stopping"/"recovering"/"tripped" each
 // represent a command already issued and must survive being disarmed
-// unchanged. Not exercised by any `armedWhen` config yet (issue #58 is
-// standalone, not wired to the real line), but every other kind with a
-// cancellable arm declares this unconditionally rather than waiting for a
-// config that happens to use it — see stepControl's own comment on why.
+// unchanged. Not exercised by any `armedWhen` config on the real line (the
+// real preBinFeedSchedule rule, issue #60, has none — nothing routes away
+// from the treating zone's own dedicated upstream path), but every other
+// kind with a cancellable arm declares this unconditionally rather than
+// waiting for a config that happens to use it — see stepControl's own
+// comment on why.
 function disarmGradedFeedSchedule(rule) {
   if (FEED_SCHEDULE_ARM_TARGET[rule.phase] || rule.phase === "armingTrip") {
     rule.phase = rule.settledBand;
@@ -829,11 +864,12 @@ function disarmGradedFeedSchedule(rule) {
 // unconditionally from stepSim (engine.js) — never gated on a level
 // threshold or a rule's phase.
 //
-// `line.feedRateDerivations` is empty on the real line for now (issue #59 is
-// standalone, matching #57/#58's own "not yet wired" scope) — this function
-// is verified here against a fabricated elevator/feeder pair, with no
-// gradedFeedSchedule rule involved at all, per the parent issue's "verified
-// standalone, independent of the rule kind in #58" acceptance criterion.
+// `line.feedRateDerivations` held no entries until issue #60 wired the real
+// treatingElevator/treatDrumFeeder pair onto it — this function's own tests
+// (control.test.js) still verify it against a fabricated elevator/feeder
+// pair, with no gradedFeedSchedule rule involved at all, per issue #59's own
+// "verified standalone, independent of the rule kind in #58" acceptance
+// criterion; the real-line wiring gets its own coverage in engine.test.js.
 export function initFeedRateDerivations(line) {
   return (line.feedRateDerivations ?? []).map((cfg) => ({
     id: cfg.id,

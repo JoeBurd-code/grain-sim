@@ -5,9 +5,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createSim, stepSim, resetSim, resetTrips as resetTripsSim, clearPlant as clearPlantSim, setSourceRate, setFeederRate, setAccumulatorLevel, emptyTerminalSink, DT,
-  setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockSignalDelay, setElevatorSpeed,
-  setInterlockSlowSetpoint, setInterlockStopSetpoint,
-  setInterlockSlowDelay as engineSetInterlockSlowDelay, setInterlockStopDelay as engineSetInterlockStopDelay,
+  setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockHighHighSetpoint, setInterlockSignalDelay, setElevatorSpeed,
+  setGateFraction,
   setBatchSize, setBatchCycleSec, setSplitterWasteFraction, getCombinedEvents,
   setSource as setSourceSim, getSource,
   setDestination as setDestinationSim, getDestination,
@@ -216,26 +215,16 @@ export function useSimEngine(line) {
     publish();
   }, [sim, publish]);
 
-  // Live controls (issue #22, the pre-bin's two-stage interlock).
-  const setInterlockSlow = useCallback((machineId, fraction) => {
-    setInterlockSlowSetpoint(sim, machineId, fraction);
+  // Live control (issue #60): the pre-bin's LSHH trip set point.
+  const setInterlockHighHigh = useCallback((machineId, fraction) => {
+    setInterlockHighHighSetpoint(sim, machineId, fraction);
     publish();
   }, [sim, publish]);
 
-  const setInterlockStop = useCallback((machineId, fraction) => {
-    setInterlockStopSetpoint(sim, machineId, fraction);
-    publish();
-  }, [sim, publish]);
-
-  const setInterlockSlowDelay = useCallback((machineId, seconds) => {
-    engineSetInterlockSlowDelay(sim, machineId, seconds);
-    publish();
-  }, [sim, publish]);
-
-  const setInterlockStopDelay = useCallback((machineId, seconds) => {
-    engineSetInterlockStopDelay(sim, machineId, seconds);
-    publish();
-  }, [sim, publish]);
+  // Live control (issue #60): the presenter's own Gate Position % dial.
+  const setGateFractionValue = useCallback((machineId, fraction) => {
+    setGateFraction(sim, machineId, fraction);
+  }, [sim]);
 
   // Live controls (issue #24): the batch treater's charge size and cycle time.
   const setBatchSizeM3 = useCallback((machineId, m3) => {
@@ -298,8 +287,8 @@ export function useSimEngine(line) {
 
   return {
     snap, running, start, pause, stepOnce, restart, resetTrips, clearPlant, speed, setSpeed, setRate, setFeedRate, setLevel, emptySink,
-    setInterlockHigh, setInterlockLow, setInterlockDelay, setElevatorSpeed: setElevatorSpeedFraction,
-    setInterlockSlow, setInterlockStop, setInterlockSlowDelay, setInterlockStopDelay,
+    setInterlockHigh, setInterlockLow, setInterlockHighHigh, setInterlockDelay, setElevatorSpeed: setElevatorSpeedFraction,
+    setGateFraction: setGateFractionValue,
     setBatchSize: setBatchSizeM3, setBatchCycleTime, setWasteFraction, setSource, setDestination,
     controlledStop, resumeLine, setUtilitiesHealthy,
     history, togglePlotSeries,

@@ -36,3 +36,25 @@ controlled stop, and a utilities trip within one continuous run for exactly
 this reason. `docs/OPEN_QUESTIONS.md` records the auto-reopen removal as the
 one item in this register that was a correctness fix rather than a precision
 one.
+
+## Addendum (issue #58/#60): a rule kind with a trip phase layered on top of non-latching bands
+
+`gradedFeedSchedule` (`control.js`) is this codebase's first `CONTROL_KINDS`
+entry whose phases don't all follow the same latching rule. Three of its four
+phases — boost, normal, throttle — are a live, continuously-tracking response
+to the sensor's level, deliberately **not** a trip: they move freely in
+either direction as the level rises or falls, with no reset needed between
+them, closer in spirit to the plain process interlocks
+(`autoStopOnNotRunning`) than to any of the three stop mechanisms above. Its
+fourth phase, `tripped` (LSHH), is a genuine **trip** exactly as this ADR
+defines the term — instant, latched, released only by `resetTrips`, and only
+once the underlying condition has actually cleared.
+
+This isn't a fourth stop mechanism; it's one rule kind whose non-trip phases
+happen to share a sensor and an actuator with its own trip phase, so they're
+authored together rather than as two independent rules that could otherwise
+race for control of the same actuator on the same tick (see `control.js`'s
+own comment on `gradedFeedSchedule` for why one rule, not two, was the
+explicit design goal). The trip phase's own latching still follows this ADR's
+rule verbatim; only the three bands underneath it are the exception, and only
+because they were never trips to begin with.
