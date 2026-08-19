@@ -380,10 +380,11 @@ export const line = {
       status: "new",
       zone: "treating",
       // Sited directly under the scalping screen (its real position — a
-      // discharge hopper catches what the screen above it drops), centred
-      // on the screen's own footprint (620-760). DISCARD SCALPINGS BIN,
-      // below, moved left to make room.
-      x: 660, y: 790, w: 60, h: 46,
+      // discharge hopper catches what the screen above it drops), x aligned
+      // with the screen's own product ("out") anchor at 760 so the
+      // connection between them is a straight vertical drop, not an elbow.
+      // DISCARD SCALPINGS BIN, below, moved left to make room.
+      x: 730, y: 790, w: 60, h: 46,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 30, y: 0 }, out: { x: 30, y: 46 } },
       fill: 0,
@@ -507,8 +508,10 @@ export const line = {
       // Positioned right of inletDrumFeeder2 (swapped 2026-08-14): with the
       // Pro Box directly above, drawing this feeder to the right keeps its
       // own infeed line from crossing the scalping screen's long incoming
-      // line into inletDrumFeeder2, which sits closer to the screen.
-      x: 1290, y: 730, w: 80, h: 36,
+      // line into inletDrumFeeder2, which sits closer to the screen. Moved
+      // down (issue #62 follow-up) by the same amount as inletDrumFeeder2,
+      // to keep the two feeders paired at the same height.
+      x: 1290, y: 818, w: 80, h: 36,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 36 } },
       labelAt: { x: 90, y: 24 },
@@ -540,10 +543,15 @@ export const line = {
       zone: "packaging",
       // Positioned left of inletDrumFeeder1 (swapped 2026-08-14), closer to
       // the scalping screen its own product actually comes from — see
-      // inletDrumFeeder1's comment above for why.
-      x: 1160, y: 730, w: 80, h: 36,
+      // inletDrumFeeder1's comment above for why. Moved down (issue #62
+      // follow-up) so its own inlet sits level with the scalping discharge
+      // hopper's discharge, with a left-side `in` anchor instead of the
+      // usual top-centre one, so the hopper's own product line runs
+      // straight across into this feeder's left side rather than dropping
+      // in from above.
+      x: 1160, y: 818, w: 80, h: 36,
       ports: { inputs: ["in"], outputs: ["out"] },
-      anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 36 } },
+      anchors: { in: { x: 0, y: 18 }, out: { x: 40, y: 36 } },
       labelAt: { x: -160, y: 24 },
       // Issue #46: the treating line's own feeder, downstream of the
       // scalping screen. `enabled` defaults true — the source selector
@@ -1154,22 +1162,30 @@ export const line = {
     { from: { machine: "treaterPreBin", port: "out" }, to: { machine: "batchTreater", port: "in" }, kind: "product" },
     { from: { machine: "batchTreater", port: "out" }, to: { machine: "treaterAfterBin", port: "in" }, kind: "product" },
     { from: { machine: "treaterAfterBin", port: "out" }, to: { machine: "scalpingScreen", port: "in" }, kind: "product" },
-    { from: { machine: "scalpingScreen", port: "waste" }, to: { machine: "discardBin", port: "in" }, kind: "waste", via: [{ x: 490, y: 750 }] },
+    // A plain diagonal, not a right-angle elbow — the discard bin sits down
+    // and to the left of the screen's own waste port, and there's nothing
+    // else in that gap for a right-angle routing to dodge.
+    { from: { machine: "scalpingScreen", port: "waste" }, to: { machine: "discardBin", port: "in" }, kind: "waste" },
     // treating -> packaging (the cross-zone product run). Issue #62 inserts
     // the scalping screen's own discharge hopper between the screen and
     // inletDrumFeeder2 — the cross-zone hop is now the hopper's own outlet,
-    // not the screen's. The hopper sits directly under the screen, so its
-    // own infeed drops straight down off the screen's product port before
-    // heading into the hopper.
-    { from: { machine: "scalpingScreen", port: "out" }, to: { machine: "scalpingDischargeHopper", port: "in" }, kind: "product", via: [{ x: 760, y: 790 }] },
-    { from: { machine: "scalpingDischargeHopper", port: "out" }, to: { machine: "inletDrumFeeder2", port: "in" }, kind: "product", via: [{ x: 1200, y: 836 }] },
+    // not the screen's. The hopper's own x is aligned with the screen's
+    // product ("out") anchor, so this is a plain straight drop, no via
+    // needed.
+    { from: { machine: "scalpingScreen", port: "out" }, to: { machine: "scalpingDischargeHopper", port: "in" }, kind: "product" },
+    // inletDrumFeeder2 is levelled with the hopper's own discharge and given
+    // a left-side `in` anchor (see its own comment) specifically so this run
+    // is a plain straight line into its left side, not a drop from above.
+    { from: { machine: "scalpingDischargeHopper", port: "out" }, to: { machine: "inletDrumFeeder2", port: "in" }, kind: "product" },
     // packaging infeed. The two via points on each connection sketch the
     // pendulum conveyor's own floor run + climb (see its comment above):
     // down to floor level, across to the climb point, up into the
     // ceiling run.
     { from: { machine: "proBoxStation", port: "out" }, to: { machine: "inletDrumFeeder1", port: "in" }, kind: "product" },
-    { from: { machine: "inletDrumFeeder1", port: "out" }, to: { machine: "pendulumConveyor", port: "in1" }, kind: "product", via: [{ x: 1330, y: 800 }, { x: 1440, y: 800 }, { x: 1440, y: 148 }] },
-    { from: { machine: "inletDrumFeeder2", port: "out" }, to: { machine: "pendulumConveyor", port: "in2" }, kind: "product", via: [{ x: 1200, y: 800 }, { x: 1440, y: 800 }, { x: 1440, y: 160 }] },
+    // Floor-run height (the first/second via y) follows the two feeders'
+    // own move down (issue #62 follow-up, +88 from the original 800).
+    { from: { machine: "inletDrumFeeder1", port: "out" }, to: { machine: "pendulumConveyor", port: "in1" }, kind: "product", via: [{ x: 1330, y: 888 }, { x: 1440, y: 888 }, { x: 1440, y: 148 }] },
+    { from: { machine: "inletDrumFeeder2", port: "out" }, to: { machine: "pendulumConveyor", port: "in2" }, kind: "product", via: [{ x: 1200, y: 888 }, { x: 1440, y: 888 }, { x: 1440, y: 160 }] },
     // branch B: outload metal bins. No lift here (issue #44): the phantom
     // packaging bucket elevator is gone, so the buffer bin discharges
     // straight into the diverter by gravity.
