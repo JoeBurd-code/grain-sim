@@ -1763,6 +1763,10 @@ describe("the packaging conveyor carries product to the outload buffer bin (issu
     // whichever bin is selected. Both authored initial inventories are
     // zeroed here so the only thing that can raise either bin's `stored` is
     // material the conveyor itself delivers.
+    // Destination now defaults to Concetti (issue #56), so this test — which
+    // is specifically about the metal-bin outload branch — must route there
+    // explicitly instead of riding the default.
+    setDestination(sim, "metalBin1");
     setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0);
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
     setSource(sim, "proBox");
@@ -1778,6 +1782,7 @@ describe("the packaging conveyor carries product to the outload buffer bin (issu
 
   it("speed is a live control, re-pacing material already in transit, not just new material", () => {
     const sim = createSim(line);
+    setDestination(sim, "metalBin1"); // this test is about the metal-bin branch specifically (issue #56 default is Concetti)
     setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0); // same zeroing as above, isolates newly-arrived material
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
     setSource(sim, "proBox");
@@ -1805,6 +1810,8 @@ describe("the packaging conveyor carries product to the outload buffer bin (issu
     // Issue #55: the line now starts empty; restore this test's own pre-#55
     // starting levels along the conveyor's own path so the 400s budget below
     // still reaches metal bin 1's own 85% trip.
+    // Issue #56: destination now defaults to Concetti, not metal bin 1.
+    setDestination(sim, "metalBin1");
     setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0.62);
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 0.35);
     setSource(sim, "proBox");
@@ -1821,6 +1828,7 @@ describe("the packaging conveyor carries product to the outload buffer bin (issu
 
   it("every new packaging machine publishes a live snapshot once its own upstream is running, not frozen decoration", () => {
     const sim = createSim(line);
+    setDestination(sim, "metalBin1"); // this test is about the metal-bin branch specifically (issue #56 default is Concetti)
     setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0); // isolates newly-arrived material, see the lag test's own comment
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
     setSource(sim, "proBox");
@@ -1865,11 +1873,10 @@ describe("the packaging conveyor carries product to the outload buffer bin (issu
 // interlocks, and the full outload-branch cascade the parent spec exists to
 // demonstrate.
 describe("destination selector (issue #47)", () => {
-  it("defaults to metal bin 1, matching the conveyor's and diverter's own authored default ports", () => {
+  it("defaults to Concetti, matching the conveyor's own authored default port (issue #56: the real most-used destination)", () => {
     const sim = createSim(line);
-    expect(getDestination(sim)).toBe("metalBin1");
-    expect(getMachineState(sim, CONVEYOR_ID).selected).toBe("outBuffer");
-    expect(getMachineState(sim, OUTLOAD_DIVERTER_ID).selected).toBe("out1");
+    expect(getDestination(sim)).toBe("concetti");
+    expect(getMachineState(sim, CONVEYOR_ID).selected).toBe("outConcetti");
   });
 
   it("has four positions, each commanding the two routers correctly", () => {
@@ -1899,6 +1906,10 @@ describe("destination selector (issue #47)", () => {
 
   it("switching destination mid-run sends nothing new to the new destination until material already in transit has cleared, and material already in transit still arrives at the old one", () => {
     const sim = createSim(line);
+    // Issue #56: destination now defaults to Concetti, not metal bin 1 —
+    // this test is specifically about material riding the conveyor toward
+    // metal bin 1 at the moment of a switch, so route there explicitly.
+    setDestination(sim, "metalBin1");
     setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0); // both zeroed: isolates newly-arrived material, see other #46 tests
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
     // Issue #55: the line now starts empty. This test is about material
@@ -1956,9 +1967,10 @@ describe("destination selector (issue #47)", () => {
 
   it("the outload diverter routes the whole of its inflow to whichever metal bin is selected, never both", () => {
     const sim = createSim(line);
+    setDestination(sim, "metalBin1"); // issue #56: destination now defaults to Concetti, not metal bin 1
     setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0.9); // plenty ready to discharge immediately
     for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
-    expect(getMachineState(sim, METAL_BIN_2_ID).flowRateM3PerSec).toBe(0); // bin 1 selected by default
+    expect(getMachineState(sim, METAL_BIN_2_ID).flowRateM3PerSec).toBe(0); // bin 1 selected explicitly above
 
     setDestination(sim, "metalBin2");
     setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0.9);
@@ -2005,6 +2017,7 @@ describe("arming: a full pre-bin does not trip anything while routed elsewhere (
 describe("the full outload cascade: a full metal bin stops the conveyor, then both drum feeders, then starves the treating zone (issue #47)", () => {
   it("cascades in the documented order: conveyor stops, both drum feeders stop 1s later, and the treating zone eventually backs up and holds the treater", () => {
     const sim = createSim(line);
+    setDestination(sim, "metalBin1"); // issue #56: destination now defaults to Concetti, not metal bin 1
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 1); // already tripped once armed
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15));
@@ -2034,6 +2047,7 @@ describe("the full outload cascade: a full metal bin stops the conveyor, then bo
 
   it("the cascade latches: resetting trips clears it only once the metal bin has actually been emptied", () => {
     const sim = createSim(line);
+    setDestination(sim, "metalBin1"); // issue #56: destination now defaults to Concetti, not metal bin 1
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 1);
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
     expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
@@ -2052,6 +2066,7 @@ describe("the full outload cascade: a full metal bin stops the conveyor, then bo
 
   it("both packaging drum feeders resume, unlatched, the instant the conveyor is confirmed running again — no reset needed for that half of the cascade", () => {
     const sim = createSim(line);
+    setDestination(sim, "metalBin1"); // issue #56: destination now defaults to Concetti, not metal bin 1
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 1);
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // trips, both feeders lose run permit
     expect(getMachineState(sim, TREATING_FEEDER_ID).runPermit).toBe(false);
@@ -2193,8 +2208,10 @@ describe("arming: a full Flexicon pre-bin does not trip anything while routed el
   it("a disarmed pre-bin trip never fires: leaving the destination at metal bin 1 with the pre-bin already over its own high set point leaves the conveyor running", () => {
     const sim = createSim(line);
     setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 1); // already well past its own 85% trip point
-    // destination defaults to metalBin1, not flexicon — see setDestination's
-    // own DESTINATIONS table (engine.js)
+    // Explicit: destination defaults to concetti (issue #56), not metal
+    // bin 1 or flexicon — either is "elsewhere" for this test, but pin it
+    // down rather than ride the default.
+    setDestination(sim, "metalBin1");
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
 
     expect(getInterlockState(sim, FLEXICON_PRE_BIN_ID).phase).toBe("running"); // never even armed
@@ -2401,8 +2418,10 @@ describe("arming: a full Concetti pre-bin does not trip anything while routed el
   it("a disarmed pre-bin trip never fires: leaving the destination at metal bin 1 with the pre-bin already over its own high set point leaves the conveyor running", () => {
     const sim = createSim(line);
     setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1); // already well past its own 85% trip point
-    // destination defaults to metalBin1, not concetti — see setDestination's
-    // own DESTINATIONS table (engine.js)
+    // Explicit: destination now defaults to concetti itself (issue #56),
+    // so this test must actively route elsewhere rather than ride the
+    // default the way it could when the default was metal bin 1.
+    setDestination(sim, "metalBin1");
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
 
     expect(getInterlockState(sim, CONCETTI_PRE_BIN_ID).phase).toBe("running"); // never even armed
@@ -2411,6 +2430,10 @@ describe("arming: a full Concetti pre-bin does not trip anything while routed el
 
   it("the same full pre-bin trips the conveyor once Concetti is (re-)selected", () => {
     const sim = createSim(line);
+    // Start elsewhere: the destination now defaults to concetti itself
+    // (issue #56), so this test must route away first to exercise the
+    // "re-selected" transition it's named for.
+    setDestination(sim, "metalBin1");
     setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1);
     // Freezes the bagging scale after its first charge (see the branch's
     // own "fills, and backpressures" test above for the full reasoning):
@@ -2518,6 +2541,10 @@ describe("the Concetti pre-bin's own high-level trip cascades the full length of
 
   it("conserves volume across a switch onto and off the Concetti branch mid-run", () => {
     const sim = createSim(line);
+    // Issue #56: destination now defaults to Concetti itself, so start
+    // elsewhere first — otherwise the "switch onto" at 200s below is a
+    // no-op and this stops testing what its name says it tests.
+    setDestination(sim, "metalBin1");
     setSource(sim, "proBox");
     setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(15));
     for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT);

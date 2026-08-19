@@ -568,13 +568,15 @@ export const line = {
       // through whichever of the three outlets the destination selector
       // (setDestination, engine.js) currently has open, with everything
       // already on the chain still travelling to whichever outlet it was
-      // accepted for. Defaults to `outBuffer` (its own first declared
-      // output port, per routedTransportDelay's own fallback), the same
-      // branch issue #46 built and every engine test predating this ticket
-      // already assumes, so no prior test needed to change. All three
-      // outlets are genuinely wired now (see the connections below) —
-      // issue #46's own "only outBuffer is sim-enabled this ticket" is
-      // superseded.
+      // accepted for. All three outlets are genuinely wired now (see the
+      // connections below) — issue #46's own "only outBuffer is sim-enabled
+      // this ticket" is superseded. Defaults to `outConcetti` via the sim
+      // block's own `defaultPort` below (overriding routedTransportDelay's
+      // plain outputs[0] fallback, behaviors.js initRoutedTransportDelay):
+      // Concetti is the destination actually used in real operation, so
+      // it's what a fresh load and every RESTART (resetSim rebuilding
+      // machines straight off this line data) should open on, not the
+      // outBuffer/metal-bin branch issue #46 originally defaulted to.
       //
       // Transit is derived from the sheet 52-13 spec block (PDF text-layer
       // exact, REAL_LINE_SPECS.md §8), not tuned: `distanceM` is the
@@ -604,6 +606,7 @@ export const line = {
       params: [{ id: "speed", label: "speed", min: 0, max: 100, value: 100, unit: "%", bind: "elevatorSpeed", readBind: "elevatorSpeedActual" }],
       sim: {
         kind: "routedTransportDelay",
+        defaultPort: "outConcetti",
         distanceM: 7.084 + 9.157 + 14.846,
         speedMPerMin: 10.08,
         ceilingM3PerSec: tPerHourToM3PerSec(20.84),
@@ -690,7 +693,9 @@ export const line = {
       // whole of its inflow to whichever metal bin the destination selector
       // currently has chosen (setDestination, engine.js), never both at
       // once. Defaults to `out1`/metal bin 1, its own first declared output
-      // port, matching the destination selector's own default.
+      // port — only reachable once the conveyor's own destination is
+      // switched to the outload branch at all (its default is Concetti,
+      // issue #56), so this default only matters from that point on.
       sim: { kind: "router" },
     },
     {

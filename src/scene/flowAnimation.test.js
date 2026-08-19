@@ -163,12 +163,12 @@ describe("computeConnectionFlowRatios", () => {
     setAccumulatorLevel(sim, "treaterAfterBin", 0.3);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15));
-    for (let i = 0; i < Math.round(210 / DT); i++) stepSim(sim, DT); // past the ~185s transit lag, default destination (metal bin 1)
+    for (let i = 0; i < Math.round(210 / DT); i++) stepSim(sim, DT); // past the ~185s transit lag, default destination (issue #56: concetti)
 
     const ratios = computeConnectionFlowRatios(line, snapshotOf(sim));
-    const selectedRatio = ratios.get(indexOfConnection("pendulumConveyor", "grainBreak"));
+    const selectedRatio = ratios.get(indexOfConnection("pendulumConveyor", "concettiSampler"));
     const otherRatio1 = ratios.get(indexOfConnection("pendulumConveyor", "binSegSampler"));
-    const otherRatio2 = ratios.get(indexOfConnection("pendulumConveyor", "concettiSampler"));
+    const otherRatio2 = ratios.get(indexOfConnection("pendulumConveyor", "grainBreak"));
     expect(selectedRatio).toBeGreaterThan(0);
     expect(otherRatio1).toBe(0);
     expect(otherRatio2).toBe(0);
