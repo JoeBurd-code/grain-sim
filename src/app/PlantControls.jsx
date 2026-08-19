@@ -28,6 +28,14 @@
 // nothing this control could act on), so the section never shows a button
 // with nothing to do.
 //
+// DISCARD BIN (issue #57) is the treating zone's own housekeeping control,
+// its own section rather than folded into SOURCE — the discard scalpings
+// bin isn't a source, destination, or safety concept, just a terminal waste
+// total a presenter periodically wants to zero out (the real bin's own
+// truck-emptying event, out of scope per REAL_LINE_SPECS.md §5). Unlike
+// DESTINATION's own EMPTY BIN, it renders unconditionally: there's no
+// precondition gating whether this bin is the "current" one.
+//
 // CONTROLLED STOP (issue #50) sits in the safety section: the demonstrable
 // counterpart to RESET TRIPS — a trip strands product, a controlled stop
 // drains the line — so it sits right beside it. One button, two states (the
@@ -146,6 +154,7 @@ const METAL_BIN_DESTINATIONS = new Set(["metalBin1", "metalBin2"]);
 
 export default function PlantControls({
   onResetTrips, source, onSetSource, destination, onSetDestination, onEmptyBin,
+  onEmptyDiscardBin,
   controlledStopPhase, onControlledStop, onResumeLine,
   utilitiesHealthy, utilitiesTripPhase, onSetUtilitiesHealthy,
   onClearPlant,
@@ -206,6 +215,15 @@ export default function PlantControls({
               EMPTY BIN
             </button>
           )}
+        </div>
+      </div>
+
+      <div style={sectionStyle(C.line)}>
+        <span style={sectionTitleStyle(C.muted)}>DISCARD BIN</span>
+        <div style={sectionRowStyle}>
+          <button style={neutralBtnStyle} onClick={onEmptyDiscardBin}>
+            EMPTY DISCARD BIN
+          </button>
         </div>
       </div>
 

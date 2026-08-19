@@ -930,10 +930,19 @@ function selectPortRouter(state, port) {
 // unlike the plain waste volume every other terminalSink (discardBin) only
 // ever reports. Left undefined for every terminus that doesn't configure it,
 // so discardBin's own shape is untouched.
+// `initialLevelFraction` (issue #57, optional) mirrors the accumulator's own
+// field: a t=0 seed level, expressed against `displayCapacityM3` the same
+// way this kind's own fill bar already reads. Tracked separately as
+// `initialStored`, exactly as accumulator does with `stored`, so
+// conserveTerminalSink below can report it and the whole-line invariant
+// (fed + initialStored = ...) stays true for material that was never fed by
+// any source this run.
 function initTerminalSink(m) {
+  const displayCapacityM3 = m.sim.displayCapacityM3;
+  const initialStored = (m.sim.initialLevelFraction ?? 0) * (displayCapacityM3 ?? 0);
   return {
-    kind: "terminalSink", total: 0,
-    displayCapacityM3: m.sim.displayCapacityM3,
+    kind: "terminalSink", total: initialStored, initialStored,
+    displayCapacityM3,
     bagSizeM3: m.sim.bagSizeM3,
   };
 }
@@ -945,7 +954,7 @@ function applyTerminalSink(state, dt, inflow, cap) {
   return 0;
 }
 function conserveTerminalSink(state) {
-  return { delivered: state.total };
+  return { initialStored: state.initialStored, delivered: state.total };
 }
 // `displayCapacityM3` is a presenter-facing scale, not a physical limit —
 // the real bin's working volume was never confirmed (REAL_LINE_SPECS.md

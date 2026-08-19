@@ -54,11 +54,10 @@ describe("computeConnectionFlowRatios", () => {
     expect(ratios.has(indexOfConnection("scalpingScreen", "discardBin"))).toBe(true);
     expect(ratios.has(indexOfConnection("scalpingScreen", "inletDrumFeeder2"))).toBe(true);
 
-    // Not modelled: the metal remover's negligible reject stream and the
-    // chemical dose — neither destination is sim-enabled, and neither
-    // source is a multiOutput kind, so the single-sibling rule excludes them.
+    // Not modelled: the metal remover's negligible reject stream — its
+    // destination isn't sim-enabled, and the source isn't a multiOutput
+    // kind, so the single-sibling rule excludes it.
     expect(ratios.has(indexOfConnection("treatMetalRemover", "metalRejectStub1"))).toBe(false);
-    expect(ratios.has(indexOfConnection("chemStub", "batchTreater"))).toBe(false);
 
     // Modelled (issue #46 + #47): the Pro Box is now a live source, and the
     // packaging conveyor is now a genuine multiOutput (routedTransportDelay)

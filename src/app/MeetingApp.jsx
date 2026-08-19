@@ -190,6 +190,7 @@ export default function MeetingApp() {
           destination={engine.snap.destination}
           onSetDestination={engine.setDestination}
           onEmptyBin={(binId) => engine.setLevel(binId, 0)}
+          onEmptyDiscardBin={() => engine.emptySink("discardBin")}
           controlledStopPhase={engine.snap.controlledStopPhase}
           onControlledStop={engine.controlledStop}
           onResumeLine={engine.resumeLine}

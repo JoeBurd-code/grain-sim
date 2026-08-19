@@ -8,7 +8,7 @@ import {
   setDestination, getDestination,
   controlledStop, resumeLine, getControlledStopPhase,
   setUtilitiesHealthy, getUtilitiesTripPhase,
-  clearPlant,
+  clearPlant, emptyTerminalSink,
 } from "./engine";
 import { assertConserved, conservationTotals } from "./conservation";
 import { tPerHourToM3PerSec } from "./units";
@@ -1210,8 +1210,11 @@ describe("scalping screen splits product from oversize, completing the treating 
 
   it("the discard bin's published fill visibly rises over a run, rather than sitting frozen at its static decoration", () => {
     const sim = createSim(line);
+    // Issue #57: this bin defaults to a 1% starting fill, not the empty-at-
+    // load every other bin uses since #55 (see the dedicated default-level
+    // test below) — read back whatever that seed is rather than assuming 0,
+    // since this test is about rising, not the seed value itself.
     const initialFill = BEHAVIORS.terminalSink.snapshot(getMachineState(sim, DISCARD_BIN_ID)).fill;
-    expect(initialFill).toBe(0);
 
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.4); // issue #55: the line now starts empty; the treater needs a charge on hand well within the 60s budget below
     feedElevator(sim, 20);
@@ -1220,6 +1223,26 @@ describe("scalping screen splits product from oversize, completing the treating 
 
     const fill = BEHAVIORS.terminalSink.snapshot(getMachineState(sim, DISCARD_BIN_ID)).fill;
     expect(fill).toBeGreaterThan(initialFill);
+  });
+
+  it("starts at a 1% fill by default, unlike every other bin's empty-at-load (issue #57)", () => {
+    const sim = createSim(line);
+    expect(BEHAVIORS.terminalSink.snapshot(getMachineState(sim, DISCARD_BIN_ID)).fill).toBeCloseTo(0.01);
+    expect(() => assertConserved(sim)).not.toThrow();
+  });
+
+  it("EMPTY DISCARD BIN zeroes the fill without breaking conservation (issue #57)", () => {
+    const sim = createSim(line);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.4);
+    feedElevator(sim, 20);
+    setBatchCycleSec(sim, TREATER_ID, 2);
+    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
+    expect(getMachineState(sim, DISCARD_BIN_ID).total).toBeGreaterThan(0);
+
+    emptyTerminalSink(sim, DISCARD_BIN_ID);
+    expect(getMachineState(sim, DISCARD_BIN_ID).total).toBe(0);
+    expect(BEHAVIORS.terminalSink.snapshot(getMachineState(sim, DISCARD_BIN_ID)).fill).toBe(0);
+    expect(() => assertConserved(sim)).not.toThrow();
   });
 
   it("the screen's snapshot reports 'flowing' while material is actively passing through, so the scene can show it isn't idle", () => {
