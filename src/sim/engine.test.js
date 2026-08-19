@@ -52,9 +52,20 @@ function interlockRule(sim) {
 // each packaging feeder) — stripped alongside the feeder itself, since a
 // rule commanding a machine that no longer exists in this fixture isn't
 // meaningful here either.
+// Issue #62 inserts a real accumulator (scalpingDischargeHopper) between the
+// screen and inletDrumFeeder2, so stripping the feeder alone no longer
+// restores the screen's own product port as the unconstrained "delivered"
+// sink this fixture relies on — the hopper is still sim-enabled, and an
+// accumulator with nothing sim-enabled downstream of it fills once and
+// blocks for good (issue #18's own fill-only convention), not the
+// unconstrained passthrough a splitter falls back to. The hopper's sim block
+// is stripped alongside the feeder's so the screen's product port is once
+// again the un-engined frontier this fixture's isolation depends on.
 const lineWithoutPackaging = {
   ...line,
-  machines: line.machines.map((m) => (m.id === "inletDrumFeeder2" ? { ...m, sim: undefined } : m)),
+  machines: line.machines.map((m) =>
+    m.id === "inletDrumFeeder2" || m.id === "scalpingDischargeHopper" ? { ...m, sim: undefined } : m
+  ),
   interlocks: line.interlocks.filter((i) => i.action.machine !== "inletDrumFeeder2"),
 };
 

@@ -52,7 +52,7 @@ describe("computeConnectionFlowRatios", () => {
     // Modelled: the treating chain's product edges, and the screen's waste edge.
     expect(ratios.has(indexOfConnection("upstreamStub", "treatMetalRemover"))).toBe(true);
     expect(ratios.has(indexOfConnection("scalpingScreen", "discardBin"))).toBe(true);
-    expect(ratios.has(indexOfConnection("scalpingScreen", "inletDrumFeeder2"))).toBe(true);
+    expect(ratios.has(indexOfConnection("scalpingScreen", "scalpingDischargeHopper"))).toBe(true);
 
     // Not modelled: the metal remover's negligible reject stream — its
     // destination isn't sim-enabled, and the source isn't a multiOutput
@@ -140,7 +140,7 @@ describe("computeConnectionFlowRatios", () => {
     expect(found).toBe(true); // sanity: the run window was long enough to see it flowing at all
 
     const ratios = computeConnectionFlowRatios(line, snapshotOf(sim));
-    const productRatio = ratios.get(indexOfConnection(SCREEN_ID, "inletDrumFeeder2"));
+    const productRatio = ratios.get(indexOfConnection(SCREEN_ID, "scalpingDischargeHopper"));
     const wasteRatio = ratios.get(indexOfConnection(SCREEN_ID, "discardBin"));
     expect(productRatio).toBeGreaterThan(0);
     expect(wasteRatio).toBeCloseTo(productRatio, 6);

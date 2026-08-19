@@ -373,6 +373,51 @@ export const line = {
       },
     },
     {
+      id: "scalpingDischargeHopper",
+      type: "bin",
+      name: "SCALPING SCREEN DISCHARGE HOPPER",
+      tag: "52.603.H00",
+      status: "new",
+      zone: "treating",
+      x: 950, y: 695, w: 60, h: 46,
+      ports: { inputs: ["in"], outputs: ["out"] },
+      anchors: { in: { x: 30, y: 0 }, out: { x: 30, y: 46 } },
+      fill: 0,
+      instruments: ["LSH"],
+      labelAt: { x: -30, y: -16 },
+      params: [{ id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" }],
+      // Issue #62: a small catch tray under the Treatment Scalping Screen
+      // (52.602.F00, above), feeding Inlet Drum Feeder 2 (52.603.L00 —
+      // the feeder inletDrumFeeder2's own comment already confirms as "fed
+      // by the scalping screen"), not Inlet Drum Feeder 1, which is fed by
+      // the Pro Box instead. Tag `52.603.H00` and 0.2 m3 / 0.14 t capacity
+      // confirmed by the engineer 2026-08-19; 0.14 t / 0.2 m3 is in line
+      // with the project's own 0.72 t/m3 bulk density figure, so no
+      // separate density number was needed. Carries hammer `52.603.X00`
+      // and an `LSH0` instrument already on record [FD-INFERRED,
+      // PLC_FUNCTIONAL_DESCRIPTION.md §8.2] — the hammer itself isn't
+      // modelled, same as every other bin's hammer on this line (e.g.
+      // outloadBufferBin above). No `LSL0` is named in the FD, and no
+      // numeric `LSH0` setpoint is confirmed anywhere, so unlike the bins
+      // with a real interlock behind them (treaterAfterBin etc.), this one
+      // gets no highSetpoint/lowSetpoint dial and no thresholdStopTrip rule
+      // — the engineer was explicit that it's "not a control point of its
+      // own," just the standard accumulator fill/backpressure behaviour
+      // every bin on the line already gets by default (issue #18). No
+      // OPEN_QUESTIONS.md row is added for the unconfirmed LSH0 value: that
+      // register only tracks gaps the sim engine actually reads
+      // (OPEN_QUESTIONS.md's own opening line), and nothing here reads it —
+      // if this bin is ever wired up, it would get a dial and a row at that
+      // point, the same assumed ~85%-of-capacity convention every other
+      // bin's LSH0 uses. Starts empty (issue #55), same as every other bin
+      // on the line.
+      sim: {
+        kind: "accumulator",
+        capacityM3: 0.2,
+        provenance: { capacityM3: "confirmed" },
+      },
+    },
+    {
       id: "discardBin",
       type: "metalBin",
       name: "DISCARD SCALPINGS BIN",
@@ -1103,8 +1148,12 @@ export const line = {
     { from: { machine: "batchTreater", port: "out" }, to: { machine: "treaterAfterBin", port: "in" }, kind: "product" },
     { from: { machine: "treaterAfterBin", port: "out" }, to: { machine: "scalpingScreen", port: "in" }, kind: "product" },
     { from: { machine: "scalpingScreen", port: "waste" }, to: { machine: "discardBin", port: "in" }, kind: "waste" },
-    // treating -> packaging (the cross-zone product run)
-    { from: { machine: "scalpingScreen", port: "out" }, to: { machine: "inletDrumFeeder2", port: "in" }, kind: "product", via: [{ x: 1200, y: 715 }] },
+    // treating -> packaging (the cross-zone product run). Issue #62 inserts
+    // the scalping screen's own discharge hopper between the screen and
+    // inletDrumFeeder2 — the cross-zone hop is now the hopper's own outlet,
+    // not the screen's.
+    { from: { machine: "scalpingScreen", port: "out" }, to: { machine: "scalpingDischargeHopper", port: "in" }, kind: "product" },
+    { from: { machine: "scalpingDischargeHopper", port: "out" }, to: { machine: "inletDrumFeeder2", port: "in" }, kind: "product", via: [{ x: 1200, y: 741 }] },
     // packaging infeed. The two via points on each connection sketch the
     // pendulum conveyor's own floor run + climb (see its comment above):
     // down to floor level, across to the climb point, up into the
