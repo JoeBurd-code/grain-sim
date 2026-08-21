@@ -1091,6 +1091,60 @@ describe("primeFeedSchedules", () => {
   });
 });
 
+// Issue #61: the Concetti pre-bin's own schedule commands two feeders
+// (inletDrumFeeder1/2) uniformly, since only one is ever `enabled` at a time
+// (the source selector, issue #46) — `action.feeder` accepts an array of
+// `{ machine }` for exactly this, standalone here per this file's own
+// "verified independent of the real line" convention (see
+// GRADED_FEED_SCHEDULE_CFG's own comment).
+describe("stepControl / primeFeedSchedules (gradedFeedSchedule) — array-valued action.feeder (issue #61)", () => {
+  function makeTwoFeederSim(fillFraction) {
+    const capacity = 10;
+    const bin = { kind: "accumulator", capacity, stored: fillFraction * capacity, initialStored: 0, spill: 0 };
+    const elevator = BEHAVIORS.transportDelay.init({ sim: { distanceM: 10, speedMPerMin: 60, ceilingM3PerSec: 1 } });
+    const feeder1 = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 1, hasGate: true } });
+    const feeder2 = BEHAVIORS.meteredFeeder.init({ sim: { rateM3PerSec: 1, hasGate: true, enabled: false } });
+    const machines = new Map([["bin", bin], ["elevator", elevator], ["feeder1", feeder1], ["feeder2", feeder2]]);
+    const cfg = { ...GRADED_FEED_SCHEDULE_CFG, action: { elevator: { machine: "elevator" }, feeder: [{ machine: "feeder1" }, { machine: "feeder2" }] } };
+    const control = initControl({ interlocks: [cfg] });
+    return { t: 0, machines, control };
+  }
+  function stepTwoFeederSchedule(sim, dt, n = 1) {
+    for (let i = 0; i < n; i++) {
+      BEHAVIORS.transportDelay.apply(sim.machines.get("elevator"), dt, 0, Infinity);
+      BEHAVIORS.meteredFeeder.apply(sim.machines.get("feeder1"), dt, 0, Infinity);
+      BEHAVIORS.meteredFeeder.apply(sim.machines.get("feeder2"), dt, 0, Infinity);
+      sim.t += dt;
+      stepControl(sim);
+    }
+  }
+
+  it("primes every feeder in the array to the starting band's own gate target", () => {
+    const sim = makeTwoFeederSim(0.1);
+    expect(sim.machines.get("feeder1").gateThrottleFraction).toBe(1);
+    expect(sim.machines.get("feeder2").gateThrottleFraction).toBe(1);
+  });
+
+  it("commands every feeder in the array uniformly, whether or not it's the currently enabled one", () => {
+    const sim = makeTwoFeederSim(0.5); // between lowSetpoint (0.35) and highSetpoint (0.85)
+    stepTwoFeederSchedule(sim, 0.05); // arms toward normal
+    stepTwoFeederSchedule(sim, 0.05, 22); // consume the 1s band delay
+    expect(sim.control[0].phase).toBe("normal");
+    expect(sim.machines.get("feeder1").gateThrottleTarget).toBe(0.55);
+    expect(sim.machines.get("feeder2").gateThrottleTarget).toBe(0.55); // disabled feeder commanded too, harmlessly
+  });
+
+  it("only reports settled once every feeder in the array has actually ramped to target", () => {
+    const sim = makeTwoFeederSim(0.5);
+    stepTwoFeederSchedule(sim, 0.05); // arms toward normal
+    stepTwoFeederSchedule(sim, 0.05, 22); // commanded, ramp in flight
+    expect(sim.machines.get("feeder1").gateThrottleFraction).not.toBeCloseTo(0.55);
+    stepTwoFeederSchedule(sim, 0.05, 22); // consume the 1s ramp
+    expect(sim.machines.get("feeder1").gateThrottleFraction).toBeCloseTo(0.55);
+    expect(sim.machines.get("feeder2").gateThrottleFraction).toBeCloseTo(0.55);
+  });
+});
+
 describe("stepControl (gradedFeedSchedule) — non-latching bands", () => {
   it("does nothing while the level stays in the boost band, already matching both actuators' defaults", () => {
     const sim = makeGradedFeedScheduleSim(0.1); // below lowSetpoint (0.35): the first tick logs the LSL crossing itself, nothing else

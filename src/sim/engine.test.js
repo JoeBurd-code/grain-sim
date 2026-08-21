@@ -79,10 +79,18 @@ function interlockRule(sim) {
 // exactly their pre-#60 behaviour. The schedule/derivation's own real-line
 // behaviour gets its own dedicated coverage against the real `line`, in the
 // "treater pre-bin's graded feed schedule (issue #60)" describe block below.
+// Issue #61 lands the exact same wiring on the Concetti pre-bin
+// (inletDrumFeeder1/2 + pendulumConveyor) — every `feedRateDerivations`
+// entry is stripped here, not just treatDrumFeeder's own, so this fixture's
+// name keeps meaning what it says: no schedule, no derivation, every feeder
+// on the line directly rate-controlled. The Concetti schedule/derivation's
+// own real-line coverage lives in the "Concetti pre-bin's graded feed
+// schedule (issue #61)" describe block below, the same pattern as the
+// Treater's.
 const lineWithoutFeedSchedule = {
   ...line,
   interlocks: line.interlocks.filter((i) => i.kind !== "gradedFeedSchedule"),
-  feedRateDerivations: (line.feedRateDerivations ?? []).filter((d) => d.feeder.machine !== "treatDrumFeeder"),
+  feedRateDerivations: [],
 };
 
 const lineWithoutPackaging = {
@@ -1812,24 +1820,30 @@ describe("Pro Box source and the source selector (issue #46)", () => {
     const sim = createSim(lineWithoutFeedSchedule);
     setSource(sim, "proBox");
     setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(15));
+    setFeederRate(sim, PRO_BOX_FEEDER_ID, tPerHourToM3PerSec(15)); // issue #61: no derivation under this fixture, so this feeder's own generic "make material flow" lever
     for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
     expect(getMachineState(sim, PRO_BOX_FEEDER_ID).flowRateM3PerSec).toBeGreaterThan(0);
     expect(getMachineState(sim, TREATING_FEEDER_ID).flowRateM3PerSec).toBe(0);
   });
 
-  it("a presenter's own feed-rate dial survives being deselected and reselected", () => {
+  // Issue #61: since the Concetti pre-bin's own graded feed schedule wired a
+  // Gate Position % dial onto both inlet drum feeders (replacing the old
+  // manual feed-rate dial this test used to exercise, same swap issue #60
+  // made on treatDrumFeeder), the presenter-persisted state worth proving
+  // survives a selector switch is the gate dial itself, not a rate — see
+  // issue #61's own acceptance criterion ("switching the source selector
+  // always shows that feeder's own last-dialled value").
+  it("a presenter's own Gate Position % dial survives being deselected and reselected", () => {
     const sim = createSim(lineWithoutFeedSchedule);
-    setFeederRate(sim, PRO_BOX_FEEDER_ID, tPerHourToM3PerSec(7)); // dialled in while still deselected
-    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).rate).toBeCloseTo(tPerHourToM3PerSec(7));
+    setGateFraction(sim, PRO_BOX_FEEDER_ID, 0.35); // dialled in while still deselected
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).gateFraction).toBeCloseTo(0.35);
 
     setSource(sim, "proBox");
     setSource(sim, "treatingLine"); // deselected again
-    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).rate).toBeCloseTo(tPerHourToM3PerSec(7)); // not zeroed
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).gateFraction).toBeCloseTo(0.35); // not reset
 
     setSource(sim, "proBox");
-    setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
-    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
-    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).flowRateM3PerSec).toBeCloseTo(tPerHourToM3PerSec(7), 4); // the dial, not the line default
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).gateFraction).toBeCloseTo(0.35); // the dial, not the line default
   });
 
   // Per this ticket's own acceptance criterion: selecting the Pro Box leaves
@@ -2393,6 +2407,246 @@ describe("the Flexicon pre-bin's own high-level trip cascades and latches like t
   });
 });
 
+// Issue #61: the Concetti pre-bin's own graded feed schedule (unlike every
+// other destination interlock on this line, still a plain thresholdStopTrip)
+// needs to stay active for the three describe blocks below — they're
+// specifically about that schedule's own trip/arming/cascade behaviour, the
+// same reasoning lineWithScheduleWithoutBatchTreater keeps the Treater's own
+// preBinFeedSchedule intact while isolating everything else. The Treater's
+// own schedule/derivation are stripped here instead, restoring treatDrumFeeder
+// to a plain, directly rate-controlled feeder — the one test in this block
+// that reaches all the way into the treating zone (the cascade test) needs
+// that as its own lever, same isolation idiom lineWithoutFeedSchedule already
+// uses throughout this file.
+const lineWithConcettiSchedule = {
+  ...line,
+  interlocks: line.interlocks.filter((i) => i.id !== "preBinFeedSchedule"),
+  feedRateDerivations: line.feedRateDerivations.filter((d) => d.id !== "treatingFeedRateDerivation"),
+};
+
+function concettiPreBinInterlock(sim) {
+  return getInterlockState(sim, CONCETTI_PRE_BIN_ID);
+}
+
+// Issue #61: bands per issue #56/#58, reproduced from the pre-bin's own
+// nominal (95% speed / 65% gate) operating point — see units.test.js's own
+// worked Concetti band examples, which these mirror (same convention as the
+// Treater's own BOOST_TPH/NORMAL_TPH/THROTTLE_TPH above).
+const CONCETTI_BOOST_TPH = 18, CONCETTI_NORMAL_TPH = 14, CONCETTI_THROTTLE_TPH = 7;
+
+// Issue #61: mirrors lineWithScheduleWithoutBatchTreater's own isolation —
+// these tests drive the Concetti pre-bin's own level directly via
+// setAccumulatorLevel and expect it to hold exactly where set except for
+// what the conveyor feeds in, so the bagging scale's own reverse-pass draw
+// (a batchCycle, same primitive as the Treater's own batchTreater) is
+// stripped entirely here rather than frozen — no test in this block needs
+// it, and stripping it avoids every test having to repeat the
+// freeze-then-top-up dance the cascade/arming tests above needed. Unlike
+// batchTreater, concettiScale has no interlock of its own referencing it as
+// an action target, so no interlocks filter is needed either.
+const lineWithConcettiScheduleWithoutScale = {
+  ...line,
+  machines: line.machines.map((m) => (m.id === "concettiScale" ? { ...m, sim: undefined } : m)),
+};
+
+describe("Concetti pre-bin's graded feed schedule (issue #56/#58/#61)", () => {
+  it("reuses the accumulator behaviour verbatim: no new material physics for the pre-bin", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    expect(getMachineState(sim, CONCETTI_PRE_BIN_ID).kind).toBe("accumulator");
+  });
+
+  it("is already commanding the boost band's own real targets at t=0, not the actuators' own (1, 1) default", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    const conveyor = getMachineState(sim, CONVEYOR_ID);
+    expect(conveyor.throttleFraction).toBeCloseTo(0.9401);
+    // Both feeders prime to the same boost gate target (issue #61's own
+    // uniform commanding, control.js's resolveFeeders) — only one is ever
+    // enabled, but both track the schedule regardless.
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).gateThrottleFraction).toBeCloseTo(0.6432);
+    expect(getMachineState(sim, TREATING_FEEDER_ID).gateThrottleFraction).toBeCloseTo(0.6432);
+
+    stepSim(sim, DT); // the rate derivation runs as part of a tick, not at creation
+    // TREATING_FEEDER_ID (inletDrumFeeder2) is the line's own default-enabled
+    // packaging feeder (the source selector defaults to the treating line).
+    expect(m3PerSecToTPerHour(getMachineState(sim, TREATING_FEEDER_ID).rate)).toBeCloseTo(CONCETTI_BOOST_TPH, 1);
+  });
+
+  it("cycles through boost, normal and throttle as the live level rises, with no trip below LSHH", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.5); // between LSL (0.35) and LSH (0.85)
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // past the 3s band delay + 4s ramp
+    expect(concettiPreBinInterlock(sim).phase).toBe("normal");
+    expect(m3PerSecToTPerHour(getMachineState(sim, TREATING_FEEDER_ID).rate)).toBeCloseTo(CONCETTI_NORMAL_TPH, 1);
+
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.9); // between LSH (0.85) and LSHH (0.95)
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(concettiPreBinInterlock(sim).phase).toBe("throttle");
+    expect(m3PerSecToTPerHour(getMachineState(sim, TREATING_FEEDER_ID).rate)).toBeCloseTo(CONCETTI_THROTTLE_TPH, 1);
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBeGreaterThan(0); // throttled, not tripped
+  });
+
+  it("tracks back down freely, with no latching, from throttle through normal to boost", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.9);
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(concettiPreBinInterlock(sim).phase).toBe("throttle");
+
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.5); // presenter drags the level back down, no reset involved
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(concettiPreBinInterlock(sim).phase).toBe("normal");
+
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.1);
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(concettiPreBinInterlock(sim).phase).toBe("boost");
+  });
+
+  it("commands both inlet drum feeders' gate uniformly (issue #61) — only one is ever enabled, but both track the schedule's own target", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.9);
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(concettiPreBinInterlock(sim).phase).toBe("throttle");
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).gateThrottleFraction).toBeCloseTo(0.4011);
+    expect(getMachineState(sim, TREATING_FEEDER_ID).gateThrottleFraction).toBeCloseTo(0.4011);
+  });
+
+  it("trips once the level reaches LSHH, stopping the conveyor — each feeder's own gate is left where the schedule last set it", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97); // above LSHH (0.95)
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // past the 5s trip delay + 6s ramp
+    expect(concettiPreBinInterlock(sim).phase).toBe("tripped");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).gateThrottleFraction).toBeCloseTo(0.6432); // still boost's own value — never touched by the trip
+    expect(getMachineState(sim, TREATING_FEEDER_ID).gateThrottleFraction).toBeCloseTo(0.6432);
+  });
+
+  it("stays tripped once the level falls back below LSHH on its own — no automatic reopen", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+    expect(concettiPreBinInterlock(sim).phase).toBe("tripped");
+
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.5); // presenter drags the level back down
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(concettiPreBinInterlock(sim).phase).toBe("tripped");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
+  });
+
+  it("resetTrips clears the LSHH trip once the level has actually cleared it, and resumes the band the live level is actually in — not a fixed state", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+    expect(concettiPreBinInterlock(sim).phase).toBe("tripped");
+
+    resetTrips(sim); // still above LSHH: re-latches
+    expect(concettiPreBinInterlock(sim).phase).toBe("tripped");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
+
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.5); // presenter drags the level down into the normal band
+    resetTrips(sim);
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // past the recovery ramp
+    expect(concettiPreBinInterlock(sim).phase).toBe("normal");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBeCloseTo(0.829);
+  });
+
+  it("LSH is display-only: crossing it alone commands no stop, only the schedule's own normal->throttle band transition", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.86); // just past LSH (0.85), well short of LSHH (0.95)
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(concettiPreBinInterlock(sim).phase).toBe("throttle"); // throttled...
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBeGreaterThan(0); // ...never stopped
+    const readings = instrumentReadings(concettiPreBinInterlock(sim), 0.86);
+    expect(readings.LSH.tripped).toBe(true);
+    expect(readings.LSHH.tripped).toBe(false);
+  });
+
+  it("LSHH set point is a live control that takes effect while running", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setInterlockHighHighSetpoint(sim, CONCETTI_PRE_BIN_ID, 0.5); // lower the trip well into what was the normal band
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.6);
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+    expect(concettiPreBinInterlock(sim).phase).toBe("tripped");
+  });
+
+  it("the pre-bin's event log records each band transition and the trip as distinct entries", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+
+    const log = concettiPreBinInterlock(sim).log;
+    const messages = log.map((e) => e.message);
+    for (const entry of log) {
+      expect(typeof entry.t).toBe("number");
+      expect(typeof entry.message).toBe("string");
+    }
+    expect(new Set(messages).size).toBe(messages.length); // no two entries say the same thing
+    expect(messages.some((m) => m.includes("high-high"))).toBe(true);
+    expect(messages.some((m) => m.includes("stop"))).toBe(true);
+  });
+});
+
+// Issue #61's own acceptance criteria: each inlet drum feeder carries its
+// own independent Gate Position % slider, and dialling either one (or the
+// pendulum conveyor's own Speed %) changes the displayed flow rate
+// immediately while the bin sits in its normal (unthrottled) band — mirrors
+// the Treater's own "drum feeder Gate Position % and elevator Speed %..."
+// describe block above, plus the two-feeder independence #61 adds on top.
+describe("inlet drum feeders' Gate Position % and pendulum conveyor Speed % drive the derived feed rate (issue #56/#59/#61)", () => {
+  it("dialling the enabled feeder's own Gate Position % dial changes the derived rate immediately while the bin sits in the normal band", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.5);
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // settle into normal
+    expect(concettiPreBinInterlock(sim).phase).toBe("normal");
+    const rateBefore = getMachineState(sim, TREATING_FEEDER_ID).rate;
+
+    setGateFraction(sim, TREATING_FEEDER_ID, 0.5); // presenter halves the gate dial
+    stepSim(sim, DT);
+    expect(getMachineState(sim, TREATING_FEEDER_ID).rate).toBeLessThan(rateBefore);
+  });
+
+  it("dialling the pendulum conveyor's own Speed % dial changes the derived rate immediately while the bin sits in the normal band", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.5);
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(concettiPreBinInterlock(sim).phase).toBe("normal");
+    const rateBefore = getMachineState(sim, TREATING_FEEDER_ID).rate;
+
+    setElevatorSpeed(sim, CONVEYOR_ID, 0.5);
+    stepSim(sim, DT);
+    expect(getMachineState(sim, TREATING_FEEDER_ID).rate).toBeLessThan(rateBefore);
+  });
+
+  it("each feeder's own Gate Position % dial (gateFraction) is independent of the other's, and neither is ever touched by the schedule — only gateThrottleFraction, its own layer on top", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setGateFraction(sim, PRO_BOX_FEEDER_ID, 0.3); // presenter's own last-dialled value for feeder 1
+    setGateFraction(sim, TREATING_FEEDER_ID, 0.8); // a different one for feeder 2
+
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.9); // schedule commands throttle
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(concettiPreBinInterlock(sim).phase).toBe("throttle");
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).gateFraction).toBeCloseTo(0.3); // each feeder's own dial preserved independently
+    expect(getMachineState(sim, TREATING_FEEDER_ID).gateFraction).toBeCloseTo(0.8);
+
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.1); // schedule releases back toward boost
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).gateFraction).toBeCloseTo(0.3); // still exactly as last dragged
+    expect(getMachineState(sim, TREATING_FEEDER_ID).gateFraction).toBeCloseTo(0.8);
+  });
+
+  it("switching the source selector always shows the newly-enabled feeder's own last-dialled Gate Position %, never the other feeder's", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setGateFraction(sim, PRO_BOX_FEEDER_ID, 0.3);
+    setGateFraction(sim, TREATING_FEEDER_ID, 0.8);
+
+    setSource(sim, "proBox");
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).gateFraction).toBeCloseTo(0.3);
+    expect(getMachineState(sim, TREATING_FEEDER_ID).gateFraction).toBeCloseTo(0.8); // unaffected, just disabled
+
+    setSource(sim, "treatingLine");
+    expect(getMachineState(sim, TREATING_FEEDER_ID).gateFraction).toBeCloseTo(0.8);
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).gateFraction).toBeCloseTo(0.3); // unaffected, just disabled
+  });
+});
+
 // Issue #49: the Concetti bagging branch, end to end — the fourth and last
 // outload destination, completing every route on the line. The sampler,
 // filling & sewing head and palletiser are all pass-throughs (issue #22's
@@ -2435,11 +2689,19 @@ describe("the Concetti bagging branch completes (issue #49)", () => {
   }, 10000);
 
   it("the pre-bin fills, and backpressures upstream when full rather than spilling", () => {
-    const sim = createSim(lineWithoutFeedSchedule);
+    // Issue #61: the pre-bin's own high-level response is now
+    // concettiFeedSchedule's latched LSHH trip (95%), not the old
+    // thresholdStopTrip's LSH (85%) — see lineWithConcettiSchedule's own
+    // comment for why this test needs that schedule active rather than
+    // lineWithoutFeedSchedule.
+    const sim = createSim(lineWithConcettiSchedule);
     setDestination(sim, "concetti");
     setSource(sim, "proBox");
+    // Comfortably above the schedule's own 18 t/h boost target (issue #56),
+    // the same achievability reasoning issue #60 already had to apply to the
+    // Treater's own upstream source — see
+    // feedback-verify-schedule-achievability.
     setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
-    setFeederRate(sim, PRO_BOX_FEEDER_ID, tPerHourToM3PerSec(20));
     // Freezes the bagging scale in "holding" after it drains exactly one
     // charge (~0.069 m3, negligible against the pre-bin's own 0.72 m3
     // capacity) by stretching its cycle time far past this test's own run
@@ -2450,12 +2712,12 @@ describe("the Concetti bagging branch completes (issue #49)", () => {
     // accumulator's reverse pass, so stopping the *cycle* is this branch's
     // own equivalent isolation.
     setBatchCycleSec(sim, CONCETTI_SCALE_ID, 1e6);
-    for (let i = 0; i < Math.round(400 / DT); i++) stepSim(sim, DT); // past the lag, plenty of time to fill and trip
+    for (let i = 0; i < Math.round(600 / DT); i++) stepSim(sim, DT); // past the lag, plenty of time to fill and trip
 
     const preBin = getMachineState(sim, CONCETTI_PRE_BIN_ID);
     expect(preBin.spill).toBeCloseTo(0); // backpressure/trip, not spill
     expect(preBin.stored).toBeLessThan(preBin.capacity); // trips before hard capacity, doesn't need to reach it
-    expect(getInterlockState(sim, CONCETTI_PRE_BIN_ID).phase).toBe("stopped");
+    expect(concettiPreBinInterlock(sim).phase).toBe("tripped");
     expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
     expect(() => assertConserved(sim)).not.toThrow();
   }, 15000);
@@ -2516,42 +2778,58 @@ describe("the Concetti bagging branch completes (issue #49)", () => {
   });
 });
 
-describe("arming: a full Concetti pre-bin does not trip anything while routed elsewhere (issue #49)", () => {
-  it("a disarmed pre-bin trip never fires: leaving the destination at metal bin 1 with the pre-bin already over its own high set point leaves the conveyor running", () => {
-    const sim = createSim(lineWithoutFeedSchedule);
-    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1); // already well past its own 85% trip point
+describe("arming: a full Concetti pre-bin does not trip anything while routed elsewhere (issue #49/#61)", () => {
+  it("a disarmed pre-bin schedule never fires: leaving the destination at metal bin 1 with the pre-bin already over its own high-high set point leaves the conveyor running", () => {
+    // Issue #61: concettiFeedSchedule needs to be the active rule here — see
+    // lineWithConcettiSchedule's own comment.
+    const sim = createSim(lineWithConcettiSchedule);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1); // already well past its own 95% (LSHH) trip point
     // Explicit: destination now defaults to concetti itself (issue #56),
     // so this test must actively route elsewhere rather than ride the
     // default the way it could when the default was metal bin 1.
     setDestination(sim, "metalBin1");
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
 
-    expect(getInterlockState(sim, CONCETTI_PRE_BIN_ID).phase).toBe("running"); // never even armed
-    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(1); // never touched
+    // Disarmed from t=0 onward: stepGradedFeedSchedule never runs, so the
+    // rule never leaves its own fixed starting phase (initGradedFeedSchedule's
+    // own comment) — "never even armed", the same intent the old
+    // thresholdStopTrip version of this test named, just this kind's own
+    // phase for it. The conveyor sits at boost's own primed target
+    // (primeFeedSchedules, control.js — issue #60/#61), not a generic
+    // fully-open 1: the schedule's actuators are already primed to real
+    // targets at t=0, before this rule ever gets a chance to arm.
+    expect(concettiPreBinInterlock(sim).phase).toBe("boost");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBeCloseTo(0.9401); // never touched
   });
 
   it("the same full pre-bin trips the conveyor once Concetti is (re-)selected", () => {
-    const sim = createSim(lineWithoutFeedSchedule);
+    // Issue #61: concettiFeedSchedule needs to be the active rule here — see
+    // lineWithConcettiSchedule's own comment.
+    const sim = createSim(lineWithConcettiSchedule);
     // Start elsewhere: the destination now defaults to concetti itself
     // (issue #56), so this test must route away first to exercise the
     // "re-selected" transition it's named for.
     setDestination(sim, "metalBin1");
-    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1);
-    // Freezes the bagging scale after its first charge (see the branch's
-    // own "fills, and backpressures" test above for the full reasoning):
-    // without this, the scale keeps drawing from the pre-bin the whole time
-    // it's disarmed — unlike the Flexicon pre-bin's own equivalent test,
-    // where the default vibrating-conveyor rate against a 2.5 m3 capacity
-    // drains too slowly over the same window to matter, this branch's much
-    // smaller 0.72 m3 pre-bin would otherwise drop back under its own 85%
-    // set point before re-arming ever gets a chance to see it.
+    // Freezing the bagging scale's own cycle (below) stops it drawing a
+    // *second* charge, but not the first: batchCycle always draws its charge
+    // the instant one becomes available (behaviors.js), independent of cycle
+    // time, and one charge (~0.069 m3) alone is ~9.6% of this bin's own
+    // 0.72 m3 capacity — already more than the headroom between LSHH (95%)
+    // and full, so topping up *after* that first draw (not before) is the
+    // only way this bin ends up genuinely above LSHH for the rest of the
+    // run. (The old 85%-set-point thresholdStopTrip version of this test
+    // had ~10 points of headroom below its own trip and never needed this;
+    // LSHH's own 5-point headroom does.)
     setBatchCycleSec(sim, CONCETTI_SCALE_ID, 1e6);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1);
+    stepSim(sim, DT); // the frozen scale draws its one guaranteed charge now
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1); // top back up to genuinely full — the scale won't draw again for 1e6s
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
-    expect(getInterlockState(sim, CONCETTI_PRE_BIN_ID).phase).toBe("running");
+    expect(concettiPreBinInterlock(sim).phase).toBe("boost"); // still disarmed, never evaluated
 
     setDestination(sim, "concetti"); // now selected
-    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // past the 5s signal delay
-    expect(getInterlockState(sim, CONCETTI_PRE_BIN_ID).phase).toBe("stopped");
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // past the 5s trip delay + 6s ramp
+    expect(concettiPreBinInterlock(sim).phase).toBe("tripped");
     expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
   });
 });
@@ -2562,9 +2840,11 @@ describe("arming: a full Concetti pre-bin does not trip anything while routed el
 // later, which starves the scalping screen, backs up the treater after-bin,
 // and stops the batch treater at the other end — the complete cascade,
 // spanning both zones, in one combined event feed with its real delays.
-describe("the Concetti pre-bin's own high-level trip cascades the full length of the line and latches (issue #49)", () => {
+describe("the Concetti pre-bin's own high-level trip cascades the full length of the line and latches (issue #49/#61)", () => {
   it("cascades in the documented order — conveyor stops, both drum feeders stop 1s later, and the treating zone eventually backs up and holds the treater — logged in the combined event feed with the real delays between them", () => {
-    const sim = createSim(lineWithoutFeedSchedule);
+    // Issue #61: concettiFeedSchedule needs to be the active rule here — see
+    // lineWithConcettiSchedule's own comment.
+    const sim = createSim(lineWithConcettiSchedule);
     // Issue #60 removed the treating-side feeder's own auto-start (its rate
     // is derived on the real line now), so this test — the one test in this
     // block that needs the treating zone genuinely backing up all the way to
@@ -2572,15 +2852,31 @@ describe("the Concetti pre-bin's own high-level trip cascades the full length of
     // own rate.
     feedElevator(sim, 15);
     setDestination(sim, "concetti");
+    // Freezes the bagging scale's own draw so this cascade's own timing
+    // isn't confounded by it, and tops the level back up after its one
+    // unavoidable first charge — see the arming describe block's own
+    // "the same full pre-bin trips..." test for the full reasoning (one
+    // charge alone is already more than LSHH's own 5-point headroom).
+    setBatchCycleSec(sim, CONCETTI_SCALE_ID, 1e6);
     setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1);
+    stepSim(sim, DT); // the frozen scale draws its one guaranteed charge now, before this test's own timed checkpoints begin
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1); // top back up to genuinely full
 
     for (let i = 0; i < Math.round(3 / DT); i++) stepSim(sim, DT); // short of the 5s trip delay
-    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(1); // not yet
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBeCloseTo(0.9401); // still boost's own primed target, not yet tripped
     expect(getMachineState(sim, PRO_BOX_FEEDER_ID).runPermit).toBe(true);
     expect(getMachineState(sim, TREATING_FEEDER_ID).runPermit).toBe(true);
 
+    // Issue #61: the trip's own stop command now ramps over 6s (matching the
+    // Treater's own gradedFeedSchedule trip), not the old thresholdStopTrip's
+    // 0.5s — but the downstream "not running" signal (autoStopOnNotRunning,
+    // control.js) fires the instant the command itself is issued
+    // (isSettledRoutedTransportDelay reads throttleFraction === throttleTarget,
+    // which diverges the moment the target changes, well before the physical
+    // ramp completes), so `throttleTarget` — not `throttleFraction` — is
+    // this checkpoint's own correct probe.
     for (let i = 0; i < Math.round(3 / DT); i++) stepSim(sim, DT); // past the 5s trip delay (t~6s), short of +1s feeder delay
-    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(0);
     expect(getMachineState(sim, PRO_BOX_FEEDER_ID).runPermit).toBe(true);
     expect(getMachineState(sim, TREATING_FEEDER_ID).runPermit).toBe(true);
 
@@ -2622,29 +2918,40 @@ describe("the Concetti pre-bin's own high-level trip cascades the full length of
   }, 20000);
 
   it("the cascade latches: resetting trips clears it only once the pre-bin has actually been emptied, and the presenter's reset recovers it", () => {
-    const sim = createSim(lineWithoutFeedSchedule);
+    // Issue #61: concettiFeedSchedule needs to be the active rule here — see
+    // lineWithConcettiSchedule's own comment.
+    const sim = createSim(lineWithConcettiSchedule);
     setDestination(sim, "concetti");
-    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1);
-    // Freezes the bagging scale after its first charge, same reasoning as
-    // the arming test above: even once the conveyor trips and stops feeding
-    // it, the scale itself keeps drawing from whatever's already stored,
-    // and this branch's small 0.72 m3 pre-bin would otherwise read back
-    // under its own 85% set point well before this test gets to assert
-    // "still full, re-latches" below.
+    // Freezes the bagging scale's own draw, and tops the level back up after
+    // its one unavoidable first charge — see the arming describe block's own
+    // "the same full pre-bin trips..." test for the full reasoning: even
+    // once the conveyor trips and stops feeding it, the scale itself keeps
+    // drawing from whatever's already stored, and this branch's small
+    // 0.72 m3 pre-bin would otherwise read back under its own 95% (LSHH) set
+    // point well before this test gets to assert "still full, re-latches"
+    // below.
     setBatchCycleSec(sim, CONCETTI_SCALE_ID, 1e6);
-    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1);
+    stepSim(sim, DT); // the frozen scale draws its one guaranteed charge now
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1); // top back up to genuinely full
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // past the 5s trip delay + 6s ramp
     expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
 
     resetTrips(sim);
-    expect(getInterlockState(sim, CONCETTI_PRE_BIN_ID).phase).toBe("stopped"); // still full, re-latches
+    expect(concettiPreBinInterlock(sim).phase).toBe("tripped"); // still full, re-latches
     expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(0);
 
     // The presenter's own bin-empty affordance (PlantControls.jsx): the
-    // same setAccumulatorLevel the level-jump slider already uses.
+    // same setAccumulatorLevel the level-jump slider already uses. Recovery
+    // resumes whichever band the live (now empty) level actually falls in —
+    // boost, per bandForLevel — not a fixed "fully open" target the way the
+    // old thresholdStopTrip's own recovery worked (issue #58's own resetGradedFeedSchedule
+    // comment): boost's own speedFraction (0.9401, lineData.js) is this
+    // schedule's real commissioned boost target, not 1.
     setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0);
     resetTrips(sim);
-    expect(getInterlockState(sim, CONCETTI_PRE_BIN_ID).phase).toBe("recovering");
-    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(1);
+    expect(concettiPreBinInterlock(sim).phase).toBe("recovering");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBeCloseTo(0.9401);
   });
 
   it("conserves volume across a switch onto and off the Concetti branch mid-run", () => {

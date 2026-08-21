@@ -538,9 +538,31 @@ export const line = {
       // defaults to the treating line, per the FD's "only one drum feeder
       // runs at a time; they never run together" [CONFIRMED 2026-06-30,
       // REAL_LINE_SPECS.md §6 flow item 3] — `enabled: false` is the
-      // selector's own gate (src/sim/behaviors.js), separate from `rate`,
-      // so this feeder's own dial is preserved for whenever it's selected.
-      params: [{ id: "rate", label: "feed rate", min: 2, max: 20, value: 12, unit: "t/h", bind: "feederRate", readBind: "feederRateActual" }],
+      // selector's own gate (src/sim/behaviors.js), separate from the gate
+      // position below, so this feeder's own dial is preserved for whenever
+      // it's selected.
+      //
+      // Since issue #61 this feeder's own commanded rate is no longer a
+      // presenter-set dial at all: it's continuously derived
+      // (feedRateDerivations below, issue #59) from this Gate Position %
+      // dial x the pendulum conveyor's own Speed% dial, exactly the same
+      // swap issue #60 made on treatDrumFeeder — see that machine's own
+      // comment for the full reasoning. `readBind` (issue #34): the Concetti
+      // pre-bin's graded feed schedule (concettiFeedSchedule, below) can
+      // override this dial's effective value out from under the presenter,
+      // via `gateThrottleFraction` — never `gateFraction` itself, which this
+      // dial always shows exactly as last dragged.
+      //
+      // Unlike treatDrumFeeder, `rateM3PerSec` here stays at the feeder's own
+      // confirmed 12 t/h default rather than dropping to 0: on the real line
+      // it's equally irrelevant either way (the derivation overwrites it the
+      // very first tick), but this feeder is also pendulumConveyor's own
+      // default-enabled path in a great many pre-#61 engine.test.js fixtures
+      // that run this feeder directly rate-controlled, unrelated to the
+      // Concetti schedule itself (see lineWithoutFeedSchedule's own comment,
+      // engine.test.js) — zeroing it here would silently starve every one of
+      // them once their own run is long enough to reach packaging.
+      params: [{ id: "gatePosition", label: "gate position", min: 0, max: 100, value: 100, unit: "%", bind: "gatePosition", readBind: "gatePositionActual" }],
       // `hasGate` (issue #57): see treatDrumFeeder's own comment above.
       sim: {
         kind: "meteredFeeder",
@@ -580,7 +602,15 @@ export const line = {
       // into the treater after-bin exactly like any other full downstream,
       // and the cascade runs backward through the zone on its own, with no
       // special-cased "idle" state anywhere.
-      params: [{ id: "rate", label: "feed rate", min: 2, max: 20, value: 12, unit: "t/h", bind: "feederRate", readBind: "feederRateActual" }],
+      //
+      // Since issue #61 this feeder's own commanded rate is continuously
+      // derived, not a presenter dial — see inletDrumFeeder1's own comment
+      // above for the full reasoning, including why `rateM3PerSec` below
+      // stays at this feeder's own confirmed 12 t/h rather than dropping to
+      // 0; identical here, and even more load-bearing, since this feeder
+      // (not inletDrumFeeder1) is the one enabled by the line's own default
+      // source selection.
+      params: [{ id: "gatePosition", label: "gate position", min: 0, max: 100, value: 100, unit: "%", bind: "gatePosition", readBind: "gatePositionActual" }],
       // `hasGate` (issue #57): see treatDrumFeeder's own comment above.
       sim: {
         kind: "meteredFeeder",
@@ -1051,13 +1081,20 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 90 } },
       fill: 0,
-      instruments: ["LT", "LSH", "LSL"],
+      instruments: ["LT", "LSHH", "LSH", "LSL"],
       labelAt: { x: 110, y: 30 },
+      // Issue #61: LSL/LSH/LSHH set points and the graded feed schedule
+      // itself (concettiFeedSchedule, below) are the same shape issue #60
+      // gave the Treater pre-bin — see that machine's own params/comment.
+      // LSH no longer commands any control action; it's display-only, its
+      // own instrument dot and crossing log entry (control.js's
+      // INSTRUMENT_FIELDS/stepRuleInstruments already handle this generically
+      // for any gradedFeedSchedule rule, no per-machine code needed).
       params: [
         { id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" },
-        { id: "highSetpoint", label: "LSH set point", min: 50, max: 100, value: 85, unit: "%", bind: "interlockHighSetpoint" },
-        { id: "lowSetpoint", label: "LSL set point", min: 0, max: 50, value: 35, unit: "%", bind: "interlockLowSetpoint" },
-        { id: "signalDelay", label: "signal delay", min: 0, max: 15, value: 5, unit: "s", bind: "interlockSignalDelay" },
+        { id: "lowSetpoint", label: "LSL recover", min: 0, max: 55, value: 35, unit: "%", bind: "interlockLowSetpoint" },
+        { id: "highSetpoint", label: "LSH set point", min: 35, max: 90, value: 85, unit: "%", bind: "interlockHighSetpoint" },
+        { id: "highHighSetpoint", label: "LSHH trip set point", min: 55, max: 100, value: 95, unit: "%", bind: "interlockHighHighSetpoint" },
       ],
       // Issue #49: reuses the accumulator behaviour unchanged (issue #18),
       // an eighth configuration. Working volume has a drawing reading but a
@@ -1434,33 +1471,60 @@ export const line = {
       },
     },
     {
-      id: "concettiPreBinHighTrip",
-      kind: "thresholdStopTrip",
+      id: "concettiFeedSchedule",
+      kind: "gradedFeedSchedule",
       sensor: { machine: "concettiPreBin" },
-      // Issue #49, the FD's fourth and last destination-interlock row:
-      // "Concetti pre-bin high `52.705.H00.LSH0` -> Bucket elevator
-      // `52.604.E00` 'if selected' ... 5 s -> drum feeders"
-      // (PLC_FUNCTIONAL_DESCRIPTION.md §5, line 269) — same shape and same
-      // actuator as every other destination trip on this conveyor
-      // (metalBin1HighTrip/metalBin2HighTrip/flexiconPreBinHighTrip above),
-      // reused unchanged. This is the demonstration the parent spec names
-      // as the whole project's central argument: a bag machine at one end
-      // of the building trips this conveyor, which trips both inlet drum
-      // feeders one second later (conveyorRunningInterlockFeeder1/2 below),
-      // which starves the scalping screen, backs up the treater after-bin
-      // (afterBinHoldTreater), and stops the batch treater — one cascade
-      // spanning the entire line. `armedWhen` needs only one condition, the
-      // same reasoning flexiconPreBinHighTrip's own comment gives: this
-      // branch has no diverter downstream of the conveyor, just the one
-      // outlet, `outConcetti`.
-      highSetpoint: 0.85,
+      // Issue #56/#58/#61: the same live boost/normal/throttle schedule +
+      // latched LSHH trip issue #60 wired onto the Treater pre-bin
+      // (preBinFeedSchedule above — see that rule's own comment for the
+      // shared mechanism), replacing the old concettiPreBinHighTrip
+      // (thresholdStopTrip, re-sensored from LSH to LSHH exactly like the
+      // Treater case — LSH itself no longer trips anything, purely display,
+      // see concettiPreBin's own instrument comment). This is still the
+      // demonstration the parent spec (#56) names as its central argument —
+      // a bag machine at one end of the building throttling/tripping this
+      // conveyor, which throttles/trips both inlet drum feeders one second
+      // later (conveyorRunningInterlockFeeder1/2 below), which starves the
+      // scalping screen, backs up the treater after-bin (afterBinHoldTreater),
+      // and stops the batch treater — one cascade spanning the entire line —
+      // it's just graded now instead of a single hard stop.
+      //
+      // `action.feeder` is an array of both inlet drum feeders (issue #61):
+      // only one is ever `enabled` at a time (the source selector, issue
+      // #46), so this schedule commands both feeders' gate throttle
+      // uniformly rather than tracking which one is currently live —
+      // control.js's own resolveFeeders comment gives the full reasoning.
+      // LSL/LSH/LSHH set points (35%/85%/95%) are the same shared table
+      // issue #56 gives for both pre-bins. Each band's (speedFraction,
+      // gateFraction) pair reproduces this bin's own nominal operating point
+      // (95% speed / 65% gate, ~18.38 TPH per the Simatek calculator,
+      // units.js) scaled to each band's own target TPH (boost 18 / normal 14
+      // / throttle 7) the same way preBinFeedSchedule's own bands were
+      // derived — reproduced exactly by units.test.js's own worked Concetti
+      // band examples, reused directly rather than re-derived. `armedWhen`
+      // needs only one condition, unchanged from the old
+      // concettiPreBinHighTrip: this branch has no diverter downstream of
+      // the conveyor, just the one outlet, `outConcetti` — so the schedule
+      // must never throttle/trip the shared conveyor while it's routed to
+      // Flexicon or the outload branch instead.
       lowSetpoint: 0.35,
-      signalDelaySec: 5,
-      action: { machine: "pendulumConveyor", rampTimeSec: 0.5 },
+      highSetpoint: 0.85,
+      highHighSetpoint: 0.95,
+      boost: { speedFraction: 0.9401, gateFraction: 0.6432, delaySec: 3, rampTimeSec: 4 }, // ~18 TPH
+      normal: { speedFraction: 0.829, gateFraction: 0.5672, delaySec: 3, rampTimeSec: 4 }, // ~14 TPH
+      throttle: { speedFraction: 0.5862, gateFraction: 0.4011, delaySec: 3, rampTimeSec: 4 }, // ~7 TPH
+      trip: { delaySec: 5, rampTimeSec: 6 },
+      action: { elevator: { machine: "pendulumConveyor" }, feeder: [{ machine: "inletDrumFeeder1" }, { machine: "inletDrumFeeder2" }] },
       armedWhen: [{ machine: "pendulumConveyor", port: "outConcetti" }],
       provenance: {
-        highSetpoint: "assumed", lowSetpoint: "assumed",
-        signalDelaySec: "confirmed", rampTimeSec: "assumed",
+        lowSetpoint: "confirmed", highSetpoint: "confirmed", highHighSetpoint: "confirmed",
+        "boost.speedFraction": "derived", "boost.gateFraction": "derived",
+        "boost.delaySec": "assumed", "boost.rampTimeSec": "assumed",
+        "normal.speedFraction": "derived", "normal.gateFraction": "derived",
+        "normal.delaySec": "assumed", "normal.rampTimeSec": "assumed",
+        "throttle.speedFraction": "derived", "throttle.gateFraction": "derived",
+        "throttle.delaySec": "assumed", "throttle.rampTimeSec": "assumed",
+        "trip.delaySec": "confirmed", "trip.rampTimeSec": "assumed",
       },
     },
     {
@@ -1494,10 +1558,21 @@ export const line = {
   // effective gate, run through the Simatek formula every tick regardless
   // of preBinFeedSchedule's own phase, so a presenter's dial change (or
   // that schedule's own commanded band) shows up in the feeder's commanded
-  // rate immediately. Concetti's own inlet drum feeders/pendulumConveyor
-  // pair (issue #56's own scope) aren't linked here — that's a separate,
-  // later ticket.
+  // rate immediately.
+  //
+  // Issue #61: the Concetti branch gets *two* entries, not one — unlike the
+  // treating zone's single dedicated treatDrumFeeder, the pendulumConveyor
+  // shares one elevator between two feeders (inletDrumFeeder1/2) that are
+  // never both enabled at once (the source selector, issue #46). This step
+  // is sensor/phase-independent and per-pair (stepFeedRateDerivation's own
+  // comment, control.js), so linking both feeders to the same elevator here
+  // is exactly right: whichever feeder is currently enabled gets a live
+  // derived rate the instant its own gate dial or the conveyor's speed dial
+  // moves, and the disabled one's own derived rate is simply never read
+  // (meteredFeeder's own `enabled` gate zeroes its output regardless).
   feedRateDerivations: [
     { id: "treatingFeedRateDerivation", elevator: { machine: "treatingElevator" }, feeder: { machine: "treatDrumFeeder" } },
+    { id: "concettiFeedRateDerivation1", elevator: { machine: "pendulumConveyor" }, feeder: { machine: "inletDrumFeeder1" } },
+    { id: "concettiFeedRateDerivation2", elevator: { machine: "pendulumConveyor" }, feeder: { machine: "inletDrumFeeder2" } },
   ],
 };
