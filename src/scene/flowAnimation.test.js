@@ -104,8 +104,8 @@ describe("computeConnectionFlowRatios", () => {
       return ratios.get(indexOfConnection(TREATER_ID, "treaterAfterBin"));
     }
 
-    const defaultRatio = ratioAtFirstDischarge(undefined); // authored 40 s cycle
-    const doubledCycleRatio = ratioAtFirstDischarge(80); // half the nominal rate -> double the ratio
+    const defaultRatio = ratioAtFirstDischarge(undefined); // authored 48 s cycle (issue #60)
+    const doubledCycleRatio = ratioAtFirstDischarge(96); // half the nominal rate -> double the ratio
 
     expect(doubledCycleRatio / defaultRatio).toBeCloseTo(2, 1);
   });

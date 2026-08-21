@@ -280,7 +280,7 @@ export const line = {
         wasteOut: { x: 100, y: 110 },
       },
       labelAt: { x: -160, y: 75 },
-      // Confirmed 2026-06-30: 160 kg every ~40 s, held as a single unsplit
+      // Confirmed 2026-06-30: 160 kg per charge, held as a single unsplit
       // cycle — the engineer was explicit he could not give a fill/treat/
       // discharge breakdown and would have to ask the supplier (Niklas).
       // `phases` holds that one entry rather than a bare `cycleSec` so
@@ -289,19 +289,24 @@ export const line = {
       // 160 kg / 0.72 t/m3 ≈ 0.222 m3/charge is a straight unit conversion
       // of a confirmed figure, not itself assumed.
       //
-      // 160 kg every 40 s is ~14.4 t/h, but the engineer separately named
-      // ~12 t/h as the line's sustained rate with the treater as the
-      // slowest point. That gap is recorded, not resolved — see
-      // docs/OPEN_QUESTIONS.md.
+      // Cycle time is 48 s, DERIVED from the engineer's own separate
+      // "~12 t/h sustained" figure (160 kg / 12 t/h = 48 s) — not his other
+      // confirmed figure, "every ~40 s" (~14.4 t/h). Those two never agreed
+      // (docs/OPEN_QUESTIONS.md, Machine 5's own "14.4 vs 12 t/h mismatch"
+      // row), and issue #60 makes the gap load-bearing for the first time:
+      // the graded feed schedule's own boost band tops out at 14 t/h (issue
+      // #56), so a treater drawing faster than that structurally starves the
+      // pre-bin and it never climbs past LSL. 48 s resolves that in favour
+      // of the sustained-rate reading, deliberately, not the raw 40 s one.
       params: [
         { id: "batchSize", label: "batch size", min: 40, max: 300, value: 160, unit: "kg", bind: "batchSize" },
-        { id: "cycleTime", label: "cycle time", min: 10, max: 90, value: 40, unit: "s", bind: "batchCycleTime" },
+        { id: "cycleTime", label: "cycle time", min: 10, max: 90, value: 48, unit: "s", bind: "batchCycleTime" },
       ],
       sim: {
         kind: "batchCycle",
         chargeM3: 0.16 / BULK_DENSITY_T_PER_M3,
-        phases: [{ name: "cycle", durationSec: 40 }],
-        provenance: { chargeM3: "confirmed", "phases[0].durationSec": "confirmed" },
+        phases: [{ name: "cycle", durationSec: 48 }],
+        provenance: { chargeM3: "confirmed", "phases[0].durationSec": "derived" },
       },
     },
     {
