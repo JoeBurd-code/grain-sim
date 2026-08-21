@@ -61,13 +61,25 @@ export const line = {
       x: 60, y: 60, w: 8, h: 8,
       ports: { inputs: [], outputs: ["out"] },
       anchors: { out: { x: 4, y: 4 } },
-      // Yellow-bin pan feeders set to 12 t/h, SCADA-commanded [CONFIRMED
-      // 2026-06-30, REAL_LINE_SPECS.md §5]. Stands in for the real upstream
-      // source (out of sim scope) as a settable valve.
+      // Yellow-bin pan feeders confirmed at 12 t/h, SCADA-commanded
+      // [CONFIRMED 2026-06-30, REAL_LINE_SPECS.md §5]. Stands in for the
+      // real upstream source (out of sim scope) as a settable valve.
+      //
+      // The authored *default* is 15 t/h, not the confirmed 12 — a
+      // deliberate override, same category of decision as the batch
+      // treater's own cycle time (see its own comment): issue #60's graded
+      // feed schedule needs to actually *reach* its boost band's 14 t/h
+      // target, and a source capped at 12 structurally can't supply that,
+      // however empty the buffer bin sits — confirmed live (the elevator's
+      // own measured throughput saturates at 12 t/h, not boost's 14, with
+      // the confirmed default). 15 t/h clears boost with margin, mirroring
+      // the same rate the old #42 auto-start interlock used to pick for the
+      // identical reason before issue #60 replaced it. See
+      // docs/OPEN_QUESTIONS.md.
       sim: {
         kind: "source",
-        rateM3PerSec: tPerHourToM3PerSec(12),
-        provenance: { rateM3PerSec: "confirmed" },
+        rateM3PerSec: tPerHourToM3PerSec(15),
+        provenance: { rateM3PerSec: "assumed" },
       },
       // Range floors at 0 (not the confirmed 2-20 t/h operating range) so a
       // presenter can slide the source to zero and watch how the rest of
@@ -78,7 +90,7 @@ export const line = {
       // `bind` above — needed here because the buffer-bin-high interlock can
       // close this valve's openness out from under the dial (see
       // bufferBinHighTrip below).
-      params: [{ id: "rate", label: "source rate", min: 0, max: 20, value: 12, unit: "t/h", bind: "sourceRate", readBind: "sourceRateActual" }],
+      params: [{ id: "rate", label: "source rate", min: 0, max: 20, value: 15, unit: "t/h", bind: "sourceRate", readBind: "sourceRateActual" }],
     },
     {
       id: "treatMetalRemover",
