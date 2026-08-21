@@ -1085,7 +1085,7 @@ describe("treater after-bin holds the next batch (issue #25)", () => {
     const sim = createSim(lineWithoutScalpingScreen); // isolates the interlock's own timing from the screen's own draining (issue #26)
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.4); // issue #55: the line now starts empty; the first tick below needs a charge already available
     feedElevator(sim, 20); // keep the pre-bin supplied so the treater can always draw a fresh charge
-    const treater = getMachineState(sim, TREATER_ID); // real 40s cycle: the 5s signal delay can only ever catch one cycle already under way
+    const treater = getMachineState(sim, TREATER_ID); // real 48s cycle: the 5s signal delay can only ever catch one cycle already under way
 
     stepSim(sim, DT); // draws its first charge, starts holding
     expect(treater.phase).toBe("holding");
@@ -1097,7 +1097,7 @@ describe("treater after-bin holds the next batch (issue #25)", () => {
     // accumulator's separate, already-tested backpressure-waits-mid-
     // discharge behaviour (issue #24), which this test is not about.
     setAccumulatorLevel(sim, AFTER_BIN_ID, 0.62);
-    for (let i = 0; i < Math.round(45 / DT); i++) stepSim(sim, DT); // past the 5s signal delay and the 40s cycle time
+    for (let i = 0; i < Math.round(55 / DT); i++) stepSim(sim, DT); // past the 5s signal delay and the 48s cycle time
     expect(afterBinInterlock(sim).phase).toBe("held");
     expect(treater.blocked).toBe(true);
 
@@ -1197,14 +1197,14 @@ describe("treater after-bin holds the next batch (issue #25)", () => {
     const afterBin = getMachineState(sim, AFTER_BIN_ID);
     const treater = getMachineState(sim, TREATER_ID);
 
-    for (let i = 0; i < Math.round(45 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
+    for (let i = 0; i < Math.round(55 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
     expect(afterBinInterlock(sim).phase).toBe("held");
     expect(treater.blocked).toBe(true);
     expect(afterBin.spill).toBeCloseTo(0);
 
     setAccumulatorLevel(sim, AFTER_BIN_ID, 0.1); // presenter drains it for the demo, below the high set point
     resetTrips(sim); // issue #45: release no longer happens on its own, it needs the plant reset
-    for (let i = 0; i < Math.round(45 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
+    for (let i = 0; i < Math.round(55 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
     expect(afterBinInterlock(sim).phase).toBe("released");
     expect(treater.blocked).toBe(false);
     expect(treater.delivered).toBeGreaterThan(treater.chargeM3); // a second cycle genuinely completed after recovery
@@ -1601,10 +1601,17 @@ describe("the treating zone keeps cycling indefinitely under steady supply, neve
   // run.
   it("more than one interlocked machine logs events well past the initial startup transient, not just once each at the very start", () => {
     const sim = createSim(lineWithoutPackaging);
-    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(8)); // below the 12 t/h source: the buffer bin genuinely fills and cycles
+    // Issue #60 removed the treating-side feeder's own interlock from this
+    // schedule-free variant (the pre-bin's own graded feed schedule replaced
+    // its old two-stage throttle — see lineWithoutFeedSchedule's own
+    // comment), so the buffer bin's own trip is now this test's first of two
+    // machines, not the pre-bin's: 4 t/h, well under the 12 t/h source, so
+    // the buffer bin genuinely fills past its own 85% set point within the
+    // 3000s budget below.
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(4));
     for (let i = 0; i < Math.round(3000 / DT); i++) stepSim(sim, DT);
-    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(18)); // presenter catches the line back up: now the pre-bin runs hot instead
-    for (let i = 0; i < Math.round(3000 / DT); i++) stepSim(sim, DT);
+    setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(20)); // presenter catches the line back up: now the after-bin runs hot instead
+    for (let i = 0; i < Math.round(6000 / DT); i++) stepSim(sim, DT);
 
     const events = getCombinedEvents(sim);
     const machinesLogging = new Set(events.map((e) => e.machineId));
@@ -2741,7 +2748,11 @@ describe("controlled stop (issue #50)", () => {
     for (let i = 0; i < Math.round(10 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
 
     controlledStop(sim);
-    for (let i = 0; i < Math.round(1000 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
+    // 1500s, not 1000s: the treater's own 48s cycle (issue #60, was 40s)
+    // needs about 19 charges' worth to work through the pre-fed stock, which
+    // alone eats most of a 1000s budget, leaving too little slack for the
+    // after-bin's own final trickle to drain out and the walk to settle.
+    for (let i = 0; i < Math.round(1500 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
 
     expect(getControlledStopPhase(sim)).toBe("stopped");
     for (const id of [BUFFER_BIN_ID, PRE_BIN_ID, AFTER_BIN_ID]) {
