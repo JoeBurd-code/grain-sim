@@ -319,9 +319,27 @@ just not via the treating line's own default source, which is capped below
 even Concetti's own "normal" band by a different machine's own confirmed
 figure. Per [[flag-dont-ask-technical]]: logged here, not silently patched.
 
+**Resolved 2026-08-21, via the user directly (not the FD/worksheet):** the
+gap between the two figures isn't an inconsistency to reconcile — both rates
+are independently optimal for their own machine, for different reasons.
+The treater's own ~12 t/h (Machine 5) is set by the scalping screen's catch
+tray (`scalpingDischargeHopper`, issue #62): a small hopper that can only
+really hold about one batch at a time, so material has to keep moving off
+it continuously at close to the rate the treater discharges — 12 t/h is the
+treater's own optimal *because of* that downstream constraint, not an
+independently-chosen figure. Concetti's own optimal sustained rate is
+**14 t/h — its "normal" band, not "boost" (18 t/h)**: boost was always meant
+as the bin's own above-LSL recovery band, not a steady-state target, so its
+being unreachable via the treating line is expected, by design, not a
+demo-blocking defect. Even "normal" (14 t/h) still sits 2 t/h above the
+treater's own confirmed 12 t/h, so a small, real gap remains even at
+Concetti's own genuinely optimal rate when sourced from the treating line —
+consistent with the trace above, and still not something to close by
+re-tuning either machine's own settled figure.
+
 | Machine | Gap | Assumption in use | Expected from | Load bearing? |
 |---|---|---|---|---|
-| `concettiFeedSchedule` interlock (via the treating-line source) | The treating zone's own confirmed ~12 t/h bottleneck (`batchTreater`, Machine 5) sits below Concetti's own 18 t/h boost / 14 t/h normal band targets, so the schedule never organically leaves "boost" when sourced from the treating line — only the Pro Box source or manual level-jump staging demonstrate the full band cycle live | No fix applied: both figures are already the confirmed/tuned values their own tickets settled on (Machine 5's 12 t/h, issue #56's 18/14/7 TPH table); this is presented as-is, a real plant constraint, not a simulation defect | Engineer or the operational spec: whether the real plant ever actually runs Concetti sourced from the treating line at anything near its own boost band, or whether that combination is simply outside the real operating envelope | **Yes for a live demo's own staging choice** — a presenter wanting to show Concetti's schedule cycling through all three bands organically (not via level-jump) needs the Pro Box source selected, not the treating line; no, for the schedule's own correctness, which is unaffected either way |
+| `concettiFeedSchedule` interlock (via the treating-line source) | The treating zone's own confirmed ~12 t/h bottleneck (`batchTreater`, Machine 5) sits below even Concetti's own genuinely-optimal 14 t/h normal band target, let alone boost's 18 t/h recovery band, so the schedule never organically leaves "boost" when sourced from the treating line — only the Pro Box source or manual level-jump staging demonstrate the full band cycle live | No fix applied: both figures are already the confirmed/tuned optimal values for their own machine (Machine 5's 12 t/h, set by the scalping discharge hopper's own small catch-tray capacity; issue #56's 18/14/7 TPH table, with 14 t/h — normal, not boost — Concetti's own genuine optimum) — this is presented as-is, a real plant constraint, not a simulation defect | Resolved directly by the user 2026-08-21 (see paragraph above) | **Yes for a live demo's own staging choice** — a presenter wanting to show Concetti's schedule cycling through all three bands organically (not via level-jump) needs the Pro Box source selected, not the treating line; no, for the schedule's own correctness, which is unaffected either way |
 
 ## Machine 12: Simatek elevator feed-rate formula constant (issue #57)
 
