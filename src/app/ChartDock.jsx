@@ -118,9 +118,30 @@ function usePlotSize() {
   return [ref, size];
 }
 
+// Hover-to-inspect-value: mousing over a plotted line shows the nearest
+// series' exact value, both as a docked readout (left column, doesn't move
+// so it's easy to read) and inline on the chart itself (a highlight dot +
+// value label next to it, with every other series dimmed so the hovered one
+// pops). Chosen after prototyping a few presentations (floating tooltip,
+// docked-only, dim-only) against the running chart -- this docked+dim combo
+// is what stuck.
+//
+// Picking is nearest-point, not nearest-x: at the hovered time t, every
+// active series' interpolated value (sampleValueAt) is projected to its own
+// pixel Y via this component's own seriesY, and whichever is closest to the
+// cursor's actual Y wins -- so hovering near the rate line's dashed trace
+// reads that series even where a level line happens to cross the same x.
+const HOVER_SNAP_PX = 14; // cursor must be within this many px of a series' point, or nothing is selected
+// Rough width budget for the inline value label (e.g. "100.0%"/"14.00 t/h"
+// at fontSize 10 JetBrains Mono) -- once the dot is closer to the plot's
+// right edge than this, the label flips to the dot's left instead of
+// running past the edge.
+const HOVER_LABEL_RESERVE_PX = 80;
+
 export default function ChartDock({ history, events, onEventClick }) {
   const [plotRef, size] = usePlotSize();
   const [open, setOpen] = useState(true);
+  const [hover, setHover] = useState(null); // { t, mx, my, tx, series, value, py } | null
 
   // Derived together, keyed only on `history` (referentially stable while
   // nothing is plotted -- see plotHistory.js's recordSample no-op fast path
@@ -206,6 +227,35 @@ export default function ChartDock({ history, events, onEventClick }) {
   const measureX1 = measure.span ? x(measure.span.start) : null;
   const measureX2 = measure.span ? x(measure.span.end) : null;
 
+  function handlePlotMouseMove(e) {
+    if (measure.active || !ready || activeSeries.length === 0) { setHover(null); return; }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    if (mx < plotLeft || mx > plotRight || my < plotTop || my > plotBottom) { setHover(null); return; }
+    const t = tMin + (tSpan * (mx - plotLeft)) / plotW;
+    let best = null;
+    for (const s of activeSeries) {
+      if (s.samples.length === 0) continue;
+      const value = sampleValueAt(s.samples, t);
+      if (value == null) continue;
+      const py = seriesY(s, { value });
+      const d = Math.abs(my - py);
+      if (!best || d < best.d) best = { s, value, py, d };
+    }
+    if (!best || best.d > HOVER_SNAP_PX) { setHover(null); return; }
+    setHover({ t, mx, my, tx: x(t), series: best.s, value: best.value, py: best.py });
+  }
+  function handlePlotMouseLeave() {
+    setHover(null);
+  }
+  const hoverLabel = hover ? `${hover.series.machine.name} · ${hover.series.kind}` : null;
+  const hoverValueText = hover
+    ? hover.series.kind === "level"
+      ? `${(hover.value * 100).toFixed(1)}%`
+      : `${m3PerSecToTPerHour(hover.value).toFixed(2)} t/h`
+    : null;
+
   return (
     <>
       <div style={{
@@ -228,10 +278,28 @@ export default function ChartDock({ history, events, onEventClick }) {
             label="shift" value={shiftFrac} onChange={setShiftFrac} disabled={shiftDisabled}
             formatValue={(v) => (shiftDisabled ? "—" : `${Math.round(v * 100)}%`)}
           />
+          <div style={{
+            marginTop: 12, background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 6,
+            padding: "6px 8px", fontSize: 9.5, minHeight: 34,
+          }}>
+            {hover ? (
+              <>
+                <div style={{ color: hover.series.color, fontWeight: 600, marginBottom: 2 }}>{hoverLabel}</div>
+                <div style={{ display: "flex", justifyContent: "space-between", color: C.muted }}>
+                  <span>t = {hover.t.toFixed(2)}s</span>
+                  <span style={{ color: C.text, fontWeight: 600 }}>{hoverValueText}</span>
+                </div>
+              </>
+            ) : (
+              <span style={{ color: C.muted, fontStyle: "italic" }}>hover the chart to inspect a value</span>
+            )}
+          </div>
         </div>
 
         <div
           ref={plotRef}
+          onMouseMove={handlePlotMouseMove}
+          onMouseLeave={handlePlotMouseLeave}
           style={{
             flex: 1, minWidth: 0, position: "relative", overflow: "hidden",
             padding: `0 ${PLOT_PADDING_RIGHT}px 0 ${PLOT_PADDING_LEFT}px`,
@@ -303,13 +371,17 @@ export default function ChartDock({ history, events, onEventClick }) {
                 {activeSeries.map((s) => {
                   if (s.samples.length < 2) return null;
                   const points = s.samples.map((p) => `${x(p.t)},${seriesY(s, p)}`).join(" ");
+                  // Dim every non-hovered series so the hovered one visually pops.
+                  const isHovered = hover && hover.series.machine.id === s.machine.id && hover.series.kind === s.kind;
+                  const dimmed = hover && !isHovered;
                   return (
                     <polyline
                       key={`${s.machine.id}-${s.kind}`}
                       points={points}
                       fill="none"
                       stroke={s.color}
-                      strokeWidth="1.5"
+                      strokeWidth={isHovered ? "2.5" : "1.5"}
+                      strokeOpacity={dimmed ? 0.22 : 1}
                       strokeDasharray={s.kind === "rate" ? "4 3" : undefined}
                     />
                   );
@@ -338,6 +410,28 @@ export default function ChartDock({ history, events, onEventClick }) {
                     Δ {(measure.span.end - measure.span.start).toFixed(1)}s
                   </text>
                 )}
+                {/* Crosshair + highlight dot + inline value label for the hovered series */}
+                {hover && (() => {
+                  // Flip the label to the dot's left once there isn't room
+                  // to the right (near the plot's right edge), so it never
+                  // runs off/gets clipped instead of just clamping in place
+                  // and overlapping the axis.
+                  const fitsRight = hover.tx + 8 + HOVER_LABEL_RESERVE_PX <= plotRight;
+                  return (
+                    <>
+                      <line x1={hover.tx} x2={hover.tx} y1={plotTop} y2={plotBottom} stroke={C.muted} strokeDasharray="3 3" strokeWidth="1" opacity={0.6} />
+                      <circle cx={hover.tx} cy={hover.py} r={4.5} fill={hover.series.color} stroke={C.bg} strokeWidth="1.5" />
+                      <text
+                        x={fitsRight ? hover.tx + 8 : hover.tx - 8}
+                        y={hover.py - 8}
+                        textAnchor={fitsRight ? "start" : "end"}
+                        fontFamily={FONT_MONO} fontSize="10" fontWeight="600" fill={hover.series.color}
+                      >
+                        {hoverValueText}
+                      </text>
+                    </>
+                  );
+                })()}
               </g>
 
               {/* Issue #39: transparent capture surface for measure-mode drag
