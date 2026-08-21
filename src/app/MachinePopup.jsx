@@ -2,7 +2,7 @@
 // live-look controls (no engine behind them yet). Drawing facts and the
 // per-machine confirmation questions now live in the engineer worksheet
 // (docs/TREATER_LINE2_WORKSHEET.md), not in the app.
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 import { LEVEL_KINDS } from "../sim/behaviors";
 
@@ -14,8 +14,14 @@ import { LEVEL_KINDS } from "../sim/behaviors";
 // what the operator last dragged it to, with no fighting between manual
 // input and live sim state. Hidden whenever the two already agree (rounded
 // to the slider's own integer step) so normal operation stays quiet.
-function Slider({ param, actual, onChange }) {
-  const [value, setValue] = useState(param.value);
+//
+// `value` is a controlled prop, not local state: this popup unmounts
+// entirely on close (MeetingApp only renders it while a machine is
+// selected), so any position held in a `useState` here reverts to
+// `param.value` — the lineData default — the moment the popup reopens.
+// The operator's last-dragged position instead lives in MeetingApp, above
+// the unmount boundary, so it survives close/reopen.
+function Slider({ param, value, actual, onChange }) {
   const roundedActual = actual != null ? Math.round(actual) : null;
   const showActual = roundedActual != null && roundedActual !== value;
   return (
@@ -34,11 +40,7 @@ function Slider({ param, actual, onChange }) {
         min={param.min}
         max={param.max}
         value={value}
-        onChange={(e) => {
-          const v = Number(e.target.value);
-          setValue(v);
-          onChange?.(v);
-        }}
+        onChange={(e) => onChange?.(Number(e.target.value))}
         style={{ width: "100%", accentColor: C.wheat, height: 14 }}
       />
     </div>
@@ -67,7 +69,7 @@ function PlotToggle({ active, color, label, onClick }) {
 }
 
 export default function MachinePopup({
-  machine: m, levelPlotted, ratePlotted, plotColor, onToggleSeries, onClose, onParamChange, onParamRead, events,
+  machine: m, levelPlotted, ratePlotted, plotColor, onToggleSeries, onClose, paramValues, onParamChange, onParamRead, events,
 }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -118,6 +120,7 @@ export default function MachinePopup({
             <Slider
               key={`${m.id}-${p.id}`}
               param={p}
+              value={paramValues?.[m.id]?.[p.id] ?? p.value}
               actual={p.readBind ? onParamRead?.(m.id, p) : null}
               onChange={(v) => onParamChange?.(m.id, p, v)}
             />

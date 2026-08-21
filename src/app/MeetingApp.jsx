@@ -109,9 +109,30 @@ export default function MeetingApp() {
   const { containerRef, vb, fitTo, wasDrag, handlers } = useViewport(home);
   const engine = useSimEngine(line);
 
+  // The operator's last-dragged slider position per machine/param, kept
+  // above MachinePopup's own mount boundary (it unmounts entirely on
+  // close) so reopening a machine's panel shows what was actually set,
+  // not the lineData default every param starts from.
+  const [paramValues, setParamValues] = useState({});
+
+  // Restart (issue #45) already puts every live control back at the line's
+  // authored defaults on the engine side; clear the persisted slider
+  // positions here too so a reopened popup shows those same defaults
+  // instead of stale pre-restart values.
+  const onRestart = useCallback(() => {
+    engine.restart();
+    setParamValues({});
+  }, [engine]);
+
   const closePopup = useCallback(() => setSelectedId(null), []);
   const onParamChange = useCallback(
-    (machineId, param, value) => PARAM_BINDERS[param.bind]?.(engine, machineId, value),
+    (machineId, param, value) => {
+      setParamValues((prev) => ({
+        ...prev,
+        [machineId]: { ...prev[machineId], [param.id]: value },
+      }));
+      PARAM_BINDERS[param.bind]?.(engine, machineId, value);
+    },
     [engine]
   );
   const onParamRead = useCallback(
@@ -162,7 +183,7 @@ export default function MeetingApp() {
             onStart={engine.start}
             onPause={engine.pause}
             onStep={engine.stepOnce}
-            onRestart={engine.restart}
+            onRestart={onRestart}
             speed={engine.speed}
             onSpeedChange={engine.setSpeed}
           />
@@ -229,6 +250,7 @@ export default function MeetingApp() {
               plotColor={plotColorFor(selected.id)}
               onToggleSeries={(kind) => engine.togglePlotSeries(selected.id, kind)}
               onClose={closePopup}
+              paramValues={paramValues}
               onParamChange={onParamChange}
               onParamRead={onParamRead}
               events={engine.snap.machines.get(selected.id)?.events}
