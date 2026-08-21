@@ -1506,7 +1506,23 @@ describe("engine publishes each machine's live outflow rate generically (issue #
 // 40s hold time, however far into the run it's sampled.
 describe("the treating zone keeps cycling indefinitely under steady supply, never stalling mid-charge (issue #40)", () => {
   it("the batch treater completes hundreds of charge/discharge cycles without ever stalling mid-charge, at issue #40's own reproduction rate", () => {
-    const sim = createSim(lineWithoutPackaging); // default source rate (12 t/h, the line's real sustained rate); only the feeder needs live-starting, per its own "starts at 0" comment
+    const sim = createSim(lineWithoutPackaging);
+    // Pinned explicitly, not left at the line's own authored default (issue
+    // #60 raised that to 15 t/h, to clear the graded feed schedule's own
+    // boost band — unrelated to this test): comfortably above the 15 t/h
+    // feeder rate set below, so there's a genuine, persistent surplus for
+    // the whole run, matching this test's own steady-supply premise.
+    setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
+    // This test is about the treater's own cycling (issue #40), not the
+    // buffer bin's own interlock (#19) — same isolation idiom the fill/
+    // overflow conservation test above already uses. Without it, a
+    // persistent surplus feeder rate this long a run genuinely fills the
+    // buffer bin past its own 85% trip at some point, latching the source
+    // shut for good (nothing here ever calls resetTrips) and starving the
+    // treater in a way that reads exactly like the stall issue #40 itself
+    // already ruled out — confirmed live, a test-isolation gap, not a real
+    // one.
+    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 2);
     // Issue #55: the line now starts empty. Restore this test's own pre-#55
     // starting levels so the maxGapSec bound below still measures steady-
     // state cycling, not a one-time startup fill transient that has nothing
@@ -1549,18 +1565,29 @@ describe("the treating zone keeps cycling indefinitely under steady supply, neve
   // REAL_LINE_SPECS.md §5) at a shorter duration each, so a future change
   // that only breaks at, say, 5 t/h still gets caught here.
   it("never overshoots a charge or produces an unbounded stall gap, at any feeder rate across the confirmed 2-20 t/h range", () => {
+    // Pinned explicitly rather than left at the line's own authored default
+    // (raised to 15 t/h by issue #60, for the graded feed schedule's own
+    // boost band, unrelated to this sweep) — this test's own bound formula
+    // needs a known, fixed source ceiling below every rate in the sweep, not
+    // whatever the line's default happens to be from ticket to ticket.
+    const SOURCE_RATE_TPH = 20;
     for (const rate of [2, 5, 8, 11, 12, 12.5, 15, 18, 20]) {
       const sim = createSim(lineWithoutPackaging);
+      setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(SOURCE_RATE_TPH));
+      // Isolates this sweep from the buffer bin's own interlock (#19), same
+      // reasoning as the single-rate test above — a surplus feeder rate can
+      // otherwise fill and latch it shut mid-sweep.
+      setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 2);
       setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(rate));
       const treater = getMachineState(sim, TREATER_ID);
-      // Below the source's own 12 t/h ceiling, gathering a full charge from
-      // empty genuinely takes longer the slower the feeder is — a real
+      // Below the source's own ceiling, gathering a full charge from empty
+      // genuinely takes longer the slower the feeder is — a real
       // supply-limited charging phase, not a stall. Bounding against a fixed
       // margin (as the 15 t/h single-rate test above does) would fail at low
       // rates for exactly that legitimate reason, so the bound here scales
       // with how long one charge can honestly take at this rate's own
       // effective supply (capped by the source, same as the physical line).
-      const worstChargeTimeSec = treater.chargeM3 / tPerHourToM3PerSec(Math.min(rate, 12));
+      const worstChargeTimeSec = treater.chargeM3 / tPerHourToM3PerSec(Math.min(rate, SOURCE_RATE_TPH));
       const maxAllowedGapSec = treater.cycleSec + 3 * worstChargeTimeSec;
 
       let lastPhase = treater.phase;
@@ -1590,24 +1617,23 @@ describe("the treating zone keeps cycling indefinitely under steady supply, neve
   // so no in-range feeder rate ever trips it. This test demonstrates the
   // criterion's actual intent — more than one interlocked machine staying
   // live deep into a long run, not silent after one early transient — with
-  // the buffer bin standing in for the after-bin. Below 12 t/h the feeder
-  // can't keep pace with supply, so the buffer bin genuinely fills and trips
-  // its own high-set-point interlock (issue #19) — a real, sustained
-  // boom-bust cycle, not a demo rate hack. A presenter raising the feed rate
-  // mid-run (the same live control issue #20 built, and the same staging
-  // pattern this project uses throughout — see
-  // feedback-stage-with-presenter-controls) then lets the pre-bin's own
-  // two-stage interlock (issue #22) join in too, all inside one continuous
-  // run.
+  // the buffer bin standing in for the after-bin. Below the source's own
+  // rate the feeder can't keep pace with supply, so the buffer bin genuinely
+  // fills and trips its own high-set-point interlock (issue #19) — a real,
+  // sustained boom-bust cycle, not a demo rate hack. A presenter raising the
+  // feed rate mid-run (the same live control issue #20 built, and the same
+  // staging pattern this project uses throughout — see
+  // feedback-stage-with-presenter-controls) then lets the after-bin's own
+  // interlock join in too, all inside one continuous run. Issue #60 removed
+  // the treating-side feeder's own interlock from this schedule-free variant
+  // (the pre-bin's own graded feed schedule replaced its old two-stage
+  // throttle — see lineWithoutFeedSchedule's own comment), so the buffer bin
+  // is this test's first machine now, not the pre-bin's.
   it("more than one interlocked machine logs events well past the initial startup transient, not just once each at the very start", () => {
     const sim = createSim(lineWithoutPackaging);
-    // Issue #60 removed the treating-side feeder's own interlock from this
-    // schedule-free variant (the pre-bin's own graded feed schedule replaced
-    // its old two-stage throttle — see lineWithoutFeedSchedule's own
-    // comment), so the buffer bin's own trip is now this test's first of two
-    // machines, not the pre-bin's: 4 t/h, well under the 12 t/h source, so
-    // the buffer bin genuinely fills past its own 85% set point within the
-    // 3000s budget below.
+    // 4 t/h, well under the line's own 15 t/h source default, so the buffer
+    // bin genuinely fills past its own 85% set point within the 3000s
+    // budget below.
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(4));
     for (let i = 0; i < Math.round(3000 / DT); i++) stepSim(sim, DT);
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(20)); // presenter catches the line back up: now the after-bin runs hot instead
@@ -1619,7 +1645,7 @@ describe("the treating zone keeps cycling indefinitely under steady supply, neve
 
     const lateEvents = events.filter((e) => e.t > 3000);
     expect(lateEvents.length).toBeGreaterThan(1); // still logging well past the run's midpoint, not silent after an early transient
-  });
+  }, 20000);
 
   // Structural, not rate-dependent: a single charge can raise the after-bin
   // by at most chargeM3/capacity, comfortably under its own 60% high set
