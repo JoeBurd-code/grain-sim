@@ -68,8 +68,12 @@ export function validateLine(line) {
     // elevator's speed throttle and a feeder's gate throttle — instead of
     // the single `action.machine` every other rule kind targets, so its own
     // `action` is `{ elevator: { machine }, feeder: { machine } }` rather
-    // than a bare `{ machine }`.
-    const targets = rule.kind === "gradedFeedSchedule" ? [rule.action.elevator, rule.action.feeder] : [rule.action];
+    // than a bare `{ machine }`. `action.feeder` can also be an array of
+    // `{ machine }` (issue #61: the Concetti pre-bin's schedule commands
+    // both inlet drum feeders uniformly) — flattened here the same way
+    // either shape validates.
+    const feeders = Array.isArray(rule.action?.feeder) ? rule.action.feeder : [rule.action?.feeder];
+    const targets = rule.kind === "gradedFeedSchedule" ? [rule.action.elevator, ...feeders] : [rule.action];
     for (const target of targets) {
       const actuator = byId.get(target.machine);
       if (!actuator) {

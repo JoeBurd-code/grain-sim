@@ -282,6 +282,47 @@ best, an unconfirmed worksheet figure, not a document fact.
 | `concettiScale` | Bag-change dead time — the seconds a real operator/mechanism loses swapping an empty bag onto the scale before the next charge can start | **Explicitly out of scope for this ticket, not modelled at all**, the same treatment as the Flexicon filling head's own equivalent row. `batchCycle`'s own discharge-to-charging transition is already immediate (`src/sim/behaviors.js` `applyBatchCycle`), so the scale cycles continuously rather than losing any time between bags | Engineer, if a future ticket wants to model it | No for this ticket, by its own acceptance criteria — same reasoning as the Flexicon head's own row |
 | `palletStub` (branch terminus) | Presenter-facing display capacity, for the fill bar's own 0..1 scale (no physical meaning — same convention as `discardBin`'s and `bigBagStub`'s own `displayCapacityM3`) | Ten bags' worth (≈0.69 m3), assumed; `lineData.js` `sim.displayCapacityM3`, `provenance: "assumed"` | Neither — demo-only choice, nothing to absorb | No |
 
+## Machine 11 update: the Concetti pre-bin's graded feed schedule replaces its own high-level trip (issue #61)
+
+Wires #58's `gradedFeedSchedule` and #59's continuous rate derivation onto
+`concettiPreBin`/`pendulumConveyor`/`inletDrumFeeder1`+`inletDrumFeeder2`, superseding
+`concettiPreBinHighTrip` (`thresholdStopTrip`, Machine 11 above) — same shape as issue
+#60's own Treater pre-bin wiring, with one new element: `action.feeder` is an array of
+both inlet drum feeders (`control.js`'s `resolveFeeders`), commanded uniformly, since
+only one is ever `enabled` at a time (the source selector, issue #46) and the disabled
+one's own `enabled: false` already zeroes its output regardless of gate.
+
+Live-traced against `createSim(line)` unmodified (per issue #60's own
+"verify achievability" lesson, `_debug61.test.js`, deleted before commit) for
+6000 s at the line's own default source (treating line) and destination
+(Concetti): the pre-bin's level oscillates in the 0-17% range and never once
+clears LSL (35%), so the schedule never leaves its own starting "boost" band
+live — it never organically demonstrates normal/throttle/trip via the default
+source. This is **not** the same bug class issue #60 found and fixed (there,
+the upstream source was genuinely under-tuned below the target and got
+raised) — here, the batch treater (`batchTreater`, Machine 5) is the
+confirmed-in-use bottleneck, deliberately tuned to ~12 t/h sustained
+(`docs/OPEN_QUESTIONS.md` Machine 5, commit `f5dd417`) specifically so the
+*Treater* pre-bin's own boost target (14 t/h) bounces correctly. Concetti's
+own boost target (18 t/h), reached via the treating line, sits on the far
+side of that same confirmed bottleneck — every packet feeding
+`concettiPreBin` through `inletDrumFeeder2` still passes through the batch
+treater first. Raising the treater's rate to clear 18 t/h would undo #60's
+own fix and break the Treater pre-bin's own bounce; lowering Concetti's own
+boost target would contradict issue #56's own confirmed TPH table. Live
+band-cycling through Concetti's own schedule is fully demonstrable today —
+confirmed by `engine.test.js`'s own dedicated schedule describe block, and
+by routing through the Pro Box source instead (`proBoxStation`, a direct
+source unconstrained by the treater, confirmed to clear all three bands in
+that same describe block's "the pre-bin fills, and backpressures..." test) —
+just not via the treating line's own default source, which is capped below
+even Concetti's own "normal" band by a different machine's own confirmed
+figure. Per [[flag-dont-ask-technical]]: logged here, not silently patched.
+
+| Machine | Gap | Assumption in use | Expected from | Load bearing? |
+|---|---|---|---|---|
+| `concettiFeedSchedule` interlock (via the treating-line source) | The treating zone's own confirmed ~12 t/h bottleneck (`batchTreater`, Machine 5) sits below Concetti's own 18 t/h boost / 14 t/h normal band targets, so the schedule never organically leaves "boost" when sourced from the treating line — only the Pro Box source or manual level-jump staging demonstrate the full band cycle live | No fix applied: both figures are already the confirmed/tuned values their own tickets settled on (Machine 5's 12 t/h, issue #56's 18/14/7 TPH table); this is presented as-is, a real plant constraint, not a simulation defect | Engineer or the operational spec: whether the real plant ever actually runs Concetti sourced from the treating line at anything near its own boost band, or whether that combination is simply outside the real operating envelope | **Yes for a live demo's own staging choice** — a presenter wanting to show Concetti's schedule cycling through all three bands organically (not via level-jump) needs the Pro Box source selected, not the treating line; no, for the schedule's own correctness, which is unaffected either way |
+
 ## Machine 12: Simatek elevator feed-rate formula constant (issue #57)
 
 Issue #56 specifies `TPH = Speed% x Gate% x k`, matching the plant's own commissioning

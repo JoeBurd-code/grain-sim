@@ -142,9 +142,10 @@ export function primeInstruments(control, machines) {
   }
 }
 
-// Issue #60: primes each gradedFeedSchedule rule's two actuators to its
-// starting band's own (speedFraction, gateFraction) targets, snapped rather
-// than ramped. Every other kind's fixed starting phase (thresholdTrip's
+// Issue #60: primes each gradedFeedSchedule rule's actuators (the elevator,
+// plus one feeder or more — issue #61's own array-valued action.feeder) to
+// its starting band's own (speedFraction, gateFraction) targets, snapped
+// rather than ramped. Every other kind's fixed starting phase (thresholdTrip's
 // "open", twoStageThrottle's "full", ...) happens to already match its
 // actuator's own generic default (fully open / full speed), so nothing else
 // in this file has ever needed a priming step for actuator state — only for
@@ -162,11 +163,13 @@ export function primeFeedSchedules(control, machines) {
     if (rule.kind !== "gradedFeedSchedule") continue;
     const band = rule[rule.phase];
     const elevator = machines.get(rule.actuatorId);
-    const feeder = machines.get(rule.feederId);
     elevator.throttleFraction = band.speedFraction;
     elevator.throttleTarget = band.speedFraction;
-    feeder.gateThrottleFraction = band.gateFraction;
-    feeder.gateThrottleTarget = band.gateFraction;
+    for (const feederId of rule.feederIds) {
+      const feeder = machines.get(feederId);
+      feeder.gateThrottleFraction = band.gateFraction;
+      feeder.gateThrottleTarget = band.gateFraction;
+    }
   }
 }
 
@@ -676,9 +679,18 @@ function bandForLevel(rule, level) {
   if (level < rule.highSetpoint) return "normal";
   return "throttle";
 }
-function resolveFeeder(rule, sim) {
-  const feeder = sim.machines.get(rule.feederId);
-  return { feeder, behavior: BEHAVIORS[feeder.kind] };
+// Issue #61: `rule.feederIds` holds one entry for every rule so far
+// (`preBinFeedSchedule`'s single `treatDrumFeeder`), or two for the Concetti
+// pre-bin's schedule, which commands both `inletDrumFeeder1`/`2` uniformly
+// since only one is ever `enabled` at a time (the source selector, issue
+// #46) — the disabled one's own `enabled: false` already zeroes its
+// capacityAvailable regardless of gate, so commanding it too is harmless,
+// and it's simpler than tracking which feeder is currently live here.
+function resolveFeeders(rule, sim) {
+  return rule.feederIds.map((feederId) => {
+    const feeder = sim.machines.get(feederId);
+    return { feeder, behavior: BEHAVIORS[feeder.kind] };
+  });
 }
 // Shared by commandBand's own step-path wording and resetGradedFeedSchedule's
 // "reset — " wording, so the two log messages' targets string never drifts
@@ -694,8 +706,9 @@ function commandBandTargets(rule, sim, bandName) {
   const band = rule[bandName];
   const { actuator, behavior } = resolveActuator(rule, sim);
   behavior.command(actuator, band.speedFraction, band.rampTimeSec);
-  const { feeder, behavior: feederBehavior } = resolveFeeder(rule, sim);
-  feederBehavior.commandGate(feeder, band.gateFraction, band.rampTimeSec);
+  for (const { feeder, behavior: feederBehavior } of resolveFeeders(rule, sim)) {
+    feederBehavior.commandGate(feeder, band.gateFraction, band.rampTimeSec);
+  }
   return band;
 }
 function commandBand(rule, sim, bandName) {
@@ -704,8 +717,10 @@ function commandBand(rule, sim, bandName) {
 }
 function isBandSettled(rule, sim) {
   const { actuator, behavior } = resolveActuator(rule, sim);
-  const { feeder, behavior: feederBehavior } = resolveFeeder(rule, sim);
-  return behavior.isSettled(actuator) && feederBehavior.isSettledGate(feeder);
+  return (
+    behavior.isSettled(actuator) &&
+    resolveFeeders(rule, sim).every(({ feeder, behavior: feederBehavior }) => feederBehavior.isSettledGate(feeder))
+  );
 }
 function initGradedFeedSchedule(cfg) {
   return {
@@ -713,7 +728,10 @@ function initGradedFeedSchedule(cfg) {
     id: cfg.id,
     sensorId: cfg.sensor.machine,
     actuatorId: cfg.action.elevator.machine,
-    feederId: cfg.action.feeder.machine,
+    // Issue #61: `action.feeder` is a single `{ machine }` for every rule so
+    // far, or an array of them for a schedule that must command more than
+    // one feeder uniformly — see resolveFeeders' own comment above.
+    feederIds: Array.isArray(cfg.action.feeder) ? cfg.action.feeder.map((f) => f.machine) : [cfg.action.feeder.machine],
     lowSetpoint: cfg.lowSetpoint,
     highSetpoint: cfg.highSetpoint,
     highHighSetpoint: cfg.highHighSetpoint,
