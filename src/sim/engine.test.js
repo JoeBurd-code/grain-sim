@@ -166,7 +166,7 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
     const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20)); // fast enough to fill it
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this test is about the bin's own backpressure, not the feeder's own auto-start (issue #42)
-    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 2); // unreachable: isolates raw accumulator backpressure from the issue #19 interlock
+    setInterlockHighHighSetpoint(sim, BUFFER_BIN_ID, 2); // unreachable: isolates raw accumulator backpressure from the issue #19 interlock
     for (let i = 0; i < 20000; i++) stepSim(sim, DT);
 
     const bin = getMachineState(sim, BUFFER_BIN_ID);
@@ -259,7 +259,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; restore this block's own pre-#55 starting premise
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
-    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6); // just above the 55% start level
+    setInterlockHighHighSetpoint(sim, BUFFER_BIN_ID, 0.6); // just above the 55% start level
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 5);
 
     let tripped = false;
@@ -281,7 +281,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; restore this block's own pre-#55 starting premise
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
-    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
+    setInterlockHighHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 2);
 
     let storedAtTrip = null;
@@ -303,7 +303,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; restore this block's own pre-#55 starting premise
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
-    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
+    setInterlockHighHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 3);
     for (let i = 0; i < 3000; i++) stepSim(sim, DT);
 
@@ -321,7 +321,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
       // stay under capacity * 0.15 even at the larger delay).
       setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(100));
       setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
-      setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.85);
+      setInterlockHighHighSetpoint(sim, BUFFER_BIN_ID, 0.85);
       setInterlockSignalDelay(sim, BUFFER_BIN_ID, signalDelaySec);
       for (let i = 0; i < 6000; i++) stepSim(sim, DT); // long past delay + 6s ramp
       const bin = getMachineState(sim, BUFFER_BIN_ID);
@@ -342,7 +342,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; restore this block's own pre-#55 starting premise
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
-    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
+    setInterlockHighHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
     setInterlockLowSetpoint(sim, BUFFER_BIN_ID, 0.3);
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 1);
     for (let i = 0; i < 2000; i++) stepSim(sim, DT);
@@ -365,7 +365,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; restore this block's own pre-#55 starting premise
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
-    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
+    setInterlockHighHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
     setInterlockLowSetpoint(sim, BUFFER_BIN_ID, 0.3);
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 1);
     for (let i = 0; i < 2000; i++) stepSim(sim, DT);
@@ -389,7 +389,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; restore this block's own pre-#55 starting premise
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
-    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
+    setInterlockHighHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
     setInterlockLowSetpoint(sim, BUFFER_BIN_ID, 0.3);
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 1);
     for (let i = 0; i < 2000; i++) stepSim(sim, DT);
@@ -411,7 +411,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55); // issue #55: the line now starts empty; restore this block's own pre-#55 starting premise
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
-    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
+    setInterlockHighHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
     setInterlockLowSetpoint(sim, BUFFER_BIN_ID, 0.3);
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 1);
     for (let i = 0; i < 2000; i++) stepSim(sim, DT);
@@ -433,7 +433,7 @@ describe("buffer bin's high-set-point interlock closes the source valve, late (i
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this block is about the bin/interlock, not the feeder's own auto-start (issue #42)
     for (let i = 0; i < 50; i++) stepSim(sim, DT); // a few ticks of "already running"
 
-    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
+    setInterlockHighHighSetpoint(sim, BUFFER_BIN_ID, 0.6);
     setInterlockLowSetpoint(sim, BUFFER_BIN_ID, 0.3);
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 1);
 
@@ -540,7 +540,7 @@ describe("inlet drum feeder meters the buffer bin's discharge (issue #20)", () =
     const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(12));
-    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 2); // isolate from the #19 interlock
+    setInterlockHighHighSetpoint(sim, BUFFER_BIN_ID, 2); // isolate from the #19 interlock
 
     for (let i = 0; i < 20000; i++) {
       stepSim(sim, DT);
@@ -1465,7 +1465,7 @@ describe("engine publishes each machine's live outflow rate generically (issue #
     const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(20));
     setFeederRate(sim, FEEDER_ID, 0); // isolate: this test is about the bin filling to capacity, not the feeder's own auto-start (issue #42)
-    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 2); // isolate raw backpressure from the issue #19 interlock
+    setInterlockHighHighSetpoint(sim, BUFFER_BIN_ID, 2); // isolate raw backpressure from the issue #19 interlock
     stepSim(sim, DT);
     expect(getMachineState(sim, SOURCE_ID).flowRateM3PerSec).toBeGreaterThan(0); // genuinely flowing first
 
@@ -1530,7 +1530,7 @@ describe("the treating zone keeps cycling indefinitely under steady supply, neve
     // treater in a way that reads exactly like the stall issue #40 itself
     // already ruled out — confirmed live, a test-isolation gap, not a real
     // one.
-    setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 2);
+    setInterlockHighHighSetpoint(sim, BUFFER_BIN_ID, 2);
     // Issue #55: the line now starts empty. Restore this test's own pre-#55
     // starting levels so the maxGapSec bound below still measures steady-
     // state cycling, not a one-time startup fill transient that has nothing
@@ -1585,7 +1585,7 @@ describe("the treating zone keeps cycling indefinitely under steady supply, neve
       // Isolates this sweep from the buffer bin's own interlock (#19), same
       // reasoning as the single-rate test above — a surplus feeder rate can
       // otherwise fill and latch it shut mid-sweep.
-      setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 2);
+      setInterlockHighHighSetpoint(sim, BUFFER_BIN_ID, 2);
       setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(rate));
       const treater = getMachineState(sim, TREATER_ID);
       // Below the source's own ceiling, gathering a full charge from empty

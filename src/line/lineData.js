@@ -135,7 +135,7 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 45, y: 0 }, out: { x: 85, y: 190 } },
       fill: 0,
-      instruments: ["LT", "LSH", "LSL"],
+      instruments: ["LT", "LSHH", "LSH", "LSL"],
       labelAt: { x: -6, y: -16 },
       // Live jump, not just an initial condition: dragging this sets the
       // running sim's current level immediately (see PARAM_BINDERS.levelJump
@@ -146,8 +146,9 @@ export const line = {
       // by default (see treatDrumFeeder below).
       params: [
         { id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" },
-        { id: "highSetpoint", label: "LSH set point", min: 55, max: 100, value: 85, unit: "%", bind: "interlockHighSetpoint" },
+        { id: "highSetpoint", label: "LSH set point", min: 35, max: 90, value: 85, unit: "%", bind: "interlockHighSetpoint" },
         { id: "lowSetpoint", label: "LSL set point", min: 0, max: 55, value: 35, unit: "%", bind: "interlockLowSetpoint" },
+        { id: "highHighSetpoint", label: "LSHH trip set point", min: 55, max: 100, value: 95, unit: "%", bind: "interlockHighHighSetpoint" },
         { id: "signalDelay", label: "signal delay", min: 0, max: 15, value: 7, unit: "s", bind: "interlockSignalDelay" },
       ],
       // 7.7 m3 / 5.5 t working volume [CONFIRMED 2026-06-30,
@@ -1294,18 +1295,28 @@ export const line = {
       // level-high event is a trip, and a tripped device needs a SCADA
       // reset before it can restart — modelled since issue #45 as a
       // latch only the plant control's RESET TRIPS command clears (and
-      // only once the level has actually cleared past highSetpoint; see
-      // control.js's resetThresholdTrip). lowSetpoint below no longer
-      // drives any control action — it's display-only, the LSL
-      // instrument dot's setpoint — matching the FD's own classification
-      // of LSL0 as an information alarm with no interlock role. See
-      // docs/OPEN_QUESTIONS.md.
+      // only once the level has actually cleared past the trip set point;
+      // see control.js's resetThresholdTrip).
+      //
+      // highHighSetpoint (LSHH) added on request: this valve's own trip
+      // point, re-sensored from LSH to LSHH exactly like the treater/
+      // Concetti pre-bins (issue #58) — LSH drops to display-only, joining
+      // LSL (already display-only; the FD classifies LSL0 as an information
+      // alarm with no interlock role). Unlike those pre-bins, this is *not*
+      // an FD-confirmed reading for this tag: the FD's own cause-and-effect
+      // matrix ties this valve's trip directly to 52.502.H00's LSH0, with no
+      // LSHH instrument named for it (docs/OPEN_QUESTIONS.md). Kept at 95%
+      // — the same figure the pre-bins use — purely so every bin on the line
+      // shares one trip-set-point convention; a deliberate consistency
+      // choice, not a plant fact, same footing as twoStageThrottle's own
+      // engineer-described slow stage (control.js).
       highSetpoint: 0.85,
       lowSetpoint: 0.35,
+      highHighSetpoint: 0.95,
       signalDelaySec: 7,
       action: { machine: "upstreamStub", rampTimeSec: 6 },
       provenance: {
-        highSetpoint: "assumed", lowSetpoint: "assumed",
+        highSetpoint: "assumed", lowSetpoint: "assumed", highHighSetpoint: "assumed",
         signalDelaySec: "confirmed", rampTimeSec: "assumed",
       },
     },

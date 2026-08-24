@@ -59,7 +59,19 @@ function resolveActuator(rule, sim) {
 // its own (issue #22; superseded on the real line by gradedFeedSchedule,
 // issue #60, but this kind stays a generic, independently reusable primitive).
 const INSTRUMENT_FIELDS = {
-  thresholdTrip: { LSH: "highSetpoint", LSL: "lowSetpoint" },
+  // LSHH is optional (see stepThresholdTrip/resetThresholdTrip's own
+  // `rule.highHighSetpoint ?? rule.highSetpoint` fallback below): a config
+  // with no highHighSetpoint (every thresholdTrip fixture in control.test.js,
+  // and any future one that doesn't need a third instrument) leaves
+  // `rule.highHighSetpoint` undefined, so this reading's `setpoint` is
+  // undefined and `tripped` is permanently false — the same "harmless dot
+  // nobody looks at" shape gradedFeedSchedule's own LSHH has when unused.
+  // `bufferBinHighTrip` (lineData.js) is the first config to set it: LSHH
+  // becomes the actual trip point there and LSH drops to display-only,
+  // mirroring the treater pre-bin's own LSH/LSHH split (issue #58) one level
+  // down, on a kind whose actuator (a single open/close valve) can't support
+  // that pre-bin's continuous graded bands.
+  thresholdTrip: { LSH: "highSetpoint", LSL: "lowSetpoint", LSHH: "highHighSetpoint" },
   twoStageThrottle: { LSH: "stopSetpoint", LSL: "lowSetpoint" },
   holdNextBatch: { LSH: "highSetpoint", LSL: "lowSetpoint" },
   thresholdStopTrip: { LSH: "highSetpoint", LSL: "lowSetpoint" },
@@ -194,6 +206,10 @@ function initThresholdTrip(cfg) {
     actuatorId: cfg.action.machine,
     highSetpoint: cfg.highSetpoint,
     lowSetpoint: cfg.lowSetpoint,
+    // Optional (see INSTRUMENT_FIELDS' own comment above): undefined unless
+    // cfg supplies it, in which case tripSetpoint (below) reads off this
+    // instead of highSetpoint.
+    highHighSetpoint: cfg.highHighSetpoint,
     signalDelaySec: cfg.signalDelaySec,
     rampTimeSec: cfg.action.rampTimeSec,
     phase: "open",
@@ -201,12 +217,19 @@ function initThresholdTrip(cfg) {
     log: [],
   };
 }
+// The set point that actually arms the trip: highHighSetpoint when a config
+// declares one (bufferBinHighTrip), highSetpoint otherwise (every other
+// thresholdTrip user today, including every fixture in control.test.js) —
+// see INSTRUMENT_FIELDS' own comment for why this stays backward compatible.
+function tripSetpoint(rule) {
+  return rule.highHighSetpoint ?? rule.highSetpoint;
+}
 function stepThresholdTrip(rule, sim) {
   const level = readLevel(sim.machines, rule.sensorId);
   stepRuleInstruments(rule, level, sim);
   const { actuator, behavior } = resolveActuator(rule, sim);
 
-  if (rule.phase === "open" && level >= rule.highSetpoint) {
+  if (rule.phase === "open" && level >= tripSetpoint(rule)) {
     rule.phase = "delayedClose";
     rule.fireAt = sim.t + rule.signalDelaySec;
   }
@@ -239,7 +262,7 @@ function stepThresholdTrip(rule, sim) {
 function resetThresholdTrip(rule, sim) {
   if (rule.phase !== "closed") return;
   const level = readLevel(sim.machines, rule.sensorId);
-  if (level >= rule.highSetpoint) {
+  if (level >= tripSetpoint(rule)) {
     logEvent(rule, sim.t, `reset commanded — high set point still tripped at ${pct(level)}, remains latched`);
     return;
   }
