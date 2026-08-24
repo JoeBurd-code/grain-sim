@@ -198,6 +198,10 @@ function initMeteredFeeder(m) {
     runPermit: true,
     ...(m.sim.hasGate ? {
       gateFraction: 1,
+      // Issue #63: stamped by setGateFraction (engine.js) the first time the
+      // presenter actually drags this gate's own dial — see
+      // isThrottleOverridden's own comment (behaviors.js) for why.
+      gateDialTouched: false,
       gateThrottleFraction: 1,
       gateThrottleTarget: 1,
       gateThrottleRampPerSec: Infinity,
@@ -284,6 +288,38 @@ function setRunPermitMeteredFeeder(state, permitted) {
 
 const EPS = 1e-9;
 
+// Manual override (issue #63): whether the operator's own dial has been
+// dragged past the interlock's current live cap on this actuator. Gated on
+// `dialTouched` — a per-actuator flag stamped only by the presenter's own
+// live setter (setElevatorSpeed/setGateFraction, engine.js), mirroring
+// meteredFeeder's existing `manualOverride` convention (issue #42) — because
+// a gradedFeedSchedule band's own calibrated speed/gate targets (issue
+// #56-61) are *always* below the dial's untouched default of 1: without this
+// gate, every gradedFeedSchedule-governed actuator would read as overridden
+// the instant its schedule engaged, on a totally fresh run nobody has
+// touched. Once touched, the rest of the check is a stateless comparison
+// recomputed every tick, so it needs no special-case interaction with RESET
+// TRIPS (never touches `dialTouched`, only the rule's own latch) or RESTART
+// (which re-inits every machine, `dialTouched` included). Gated on
+// `throttleTarget > 0` alone (never on the rule kind that set it) since a
+// full stop is never overridable and there's no structural way to tell a
+// full stop apart from a merely-low partial throttle other than the target
+// value itself — see control.js's stepTwoStageThrottle, where the slow
+// stage and the stop stage command the identical field.
+export function isThrottleOverridden(dialTouched, dialFraction, throttleFraction, throttleTarget) {
+  return dialTouched && throttleTarget > 0 && dialFraction > throttleFraction;
+}
+
+// Shared by plain transportDelay's and routedTransportDelay's own
+// capacityAvailable — both carry the identical speedFraction/speedDialTouched/
+// throttleFraction/throttleTarget shape (see each kind's own init), so this
+// one swap applies unchanged to either.
+function overriddenSpeedFraction(state) {
+  return isThrottleOverridden(state.speedDialTouched, state.speedFraction, state.throttleFraction, state.throttleTarget)
+    ? state.speedFraction
+    : state.throttleFraction;
+}
+
 // `hasDownstream` (issue #21) is the engine's answer to "does a sim-enabled
 // machine actually sit downstream of me", separate from the *value* of
 // downstreamCap (which is legitimately 0 both when genuinely blocked and
@@ -328,6 +364,11 @@ function initTransportDelay(m) {
     speedMPerMin: m.sim.speedMPerMin,
     ceilingM3PerSec: m.sim.ceilingM3PerSec,
     speedFraction: 1, // manual VFD dial (issue #21) — presenter-set, takes effect instantly
+    // Issue #63: stamped by setElevatorSpeed (engine.js) the first time the
+    // presenter actually drags this dial — see isThrottleOverridden's own
+    // comment for why the manual override it gates needs this rather than a
+    // bare `speedFraction` comparison.
+    speedDialTouched: false,
     // Interlock-commanded multiplier on top of the manual dial (issue #22):
     // `throttleFraction` slews toward `throttleTarget` at `throttleRampPerSec`
     // rather than snapping, exactly like the source valve's openness — this
@@ -360,8 +401,14 @@ function capacityAvailableTransportDelay(state, dt) {
   // carries fewer buckets past the infeed per second, and a stopped one
   // (throttleFraction 0) accepts nothing new — this is the "reduces the
   // infeed" half of the two-stage response, distinct from the manual VFD
-  // dial (`speedFraction`), which only ever affected transit *timing*.
-  return state.ceilingM3PerSec * state.throttleFraction * dt;
+  // dial (`speedFraction`), which only ever affected transit *timing* until
+  // issue #63: dragging the dial past the throttle's own live cap now swaps
+  // it in as the real intake multiplier too, so a presenter can deliberately
+  // push more material past a governing interlock instead of the dial being
+  // cosmetic. Chain transit speed itself (chainSpeedMPerSec) is unaffected
+  // either way — override bypasses the intake ceiling, not the interlock's
+  // own commanded chain speed.
+  return state.ceilingM3PerSec * overriddenSpeedFraction(state) * dt;
 }
 function applyTransportDelay(state, dt, inflow, cap, downstreamCap = 0, hasDownstream = false) {
   const accepted = Math.min(inflow, cap);
@@ -524,6 +571,7 @@ function initRoutedTransportDelay(m) {
     speedMPerMin: m.sim.speedMPerMin,
     ceilingM3PerSec: m.sim.ceilingM3PerSec,
     speedFraction: 1,
+    speedDialTouched: false, // issue #63 — see plain transportDelay's own initTransportDelay comment
     throttleFraction: 1,
     throttleTarget: 1,
     throttleRampPerSec: Infinity,
@@ -549,7 +597,10 @@ function capacityAvailableRoutedTransportDelay(state, dt) {
   // material at the infeed while anything is still jammed at the discharge
   // end, regardless of which outlet the jam is destined for.
   if (state.backlog > EPS) return 0;
-  return state.ceilingM3PerSec * state.throttleFraction * dt;
+  // Manual override (issue #63): same swap as plain transportDelay's own
+  // capacityAvailableTransportDelay above — see overriddenSpeedFraction's
+  // own comment.
+  return state.ceilingM3PerSec * overriddenSpeedFraction(state) * dt;
 }
 function applyRoutedTransportDelay(state, dt, inflow, cap, downstreamCap = {}, hasDownstream = {}) {
   const accepted = Math.min(inflow, cap);

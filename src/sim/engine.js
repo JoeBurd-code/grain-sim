@@ -428,6 +428,10 @@ export function setElevatorSpeed(sim, id, fraction) {
     throw new Error(`machine "${id}" is not a transport-delay machine`);
   }
   state.speedFraction = Math.max(0, Math.min(1, fraction));
+  // Issue #63: stamped every call, not just the first — see
+  // isThrottleOverridden's own comment (behaviors.js) for why the manual
+  // override it gates needs this rather than a bare `speedFraction` compare.
+  state.speedDialTouched = true;
 }
 
 // Presenter/demo control: jump an accumulator straight to a given fill
@@ -504,6 +508,8 @@ export function setGateFraction(sim, id, fraction) {
     throw new Error(`machine "${id}" is not a gated feeder`);
   }
   state.gateFraction = Math.max(0, Math.min(1, fraction));
+  // Issue #63: stamped every call — see setElevatorSpeed's own comment above.
+  state.gateDialTouched = true;
 }
 
 // Live controls (issue #24): the batch treater's charge size and cycle time

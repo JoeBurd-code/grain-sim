@@ -7,13 +7,37 @@ import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 import { LEVEL_KINDS } from "../sim/behaviors";
 
 
-// `actual` (issue #34) is a live, read-only figure resolved by the parent
-// from the machine's published snapshot via `param.readBind` — see
-// PARAM_READERS in PlantApp.jsx. It's rendered beside the setpoint but
-// never fed back into `value`: the setpoint slider always reflects exactly
-// what the operator last dragged it to, with no fighting between manual
-// input and live sim state. Hidden whenever the two already agree (rounded
-// to the slider's own integer step) so normal operation stays quiet.
+// `live` (issue #34, reshaped by issue #63) is resolved by the parent from
+// the machine's published snapshot via `param.readBind` — see PARAM_READERS
+// in PlantApp.jsx — as `{ actual, cap, overridable }`, or `null` for a param
+// with no `readBind` at all. `actual` is issue #34's original figure: the
+// slider's own thumb now tracks it directly (issue #63's point #1) rather
+// than sitting frozen at the operator's last drag while a separate readout
+// disagreed forever — falling back to the dial whenever there's nothing live
+// to show yet. The *text* number beside the slider stays the operator's own
+// dial, with the "actual X" annotation kept exactly as issue #34 first built
+// it (hidden once the two already agree, rounded).
+//
+// `cap`/`overridable` are the live throttle band's own cap (in the same
+// units as this slider) and whether that band is a genuine partial throttle
+// (overridable) rather than a full stop (never overridable) — `cap` is
+// `null` for a param with no throttle band of its own (sourceRate/
+// feederRate), in which case no tick is drawn and override never arms.
+//
+// `touched` says whether the operator has ever actually dragged *this*
+// slider (derived from PlantApp's own `paramValues`, cleared on RESTART) —
+// override only ever arms once the dial has genuinely been set, never merely
+// because it happens to be sitting at its untouched default above a live
+// cap (see isThrottleOverridden's own comment, sim/behaviors.js, for why a
+// gradedFeedSchedule band's always-below-100% targets make that gate
+// necessary).
+//
+// Dragging a touched dial past the cap arms a manual override (issue #63,
+// point #2): implicit, no separate toggle — the thumb, text and an
+// "OVERRIDE" tag switch to the same warning red the RESET TRIPS button uses
+// while tripped. A full stop (cap present but not overridable) instead
+// clamps the input's own `max` to the cap, so the dial physically cannot be
+// dragged past it at all (point #3).
 //
 // `value` is a controlled prop, not local state: this popup unmounts
 // entirely on close (PlantApp only renders it while a machine is
@@ -21,28 +45,56 @@ import { LEVEL_KINDS } from "../sim/behaviors";
 // `param.value` — the lineData default — the moment the popup reopens.
 // The operator's last-dragged position instead lives in PlantApp, above
 // the unmount boundary, so it survives close/reopen.
-function Slider({ param, value, actual, onChange }) {
+function Slider({ param, value, touched, live, onChange }) {
+  const actual = live?.actual;
   const roundedActual = actual != null ? Math.round(actual) : null;
   const showActual = roundedActual != null && roundedActual !== value;
+
+  const cap = live?.cap ?? null;
+  const overridable = live?.overridable ?? false;
+  const armed = touched && cap != null && overridable && value > cap;
+
+  const range = param.max - param.min;
+  // A full stop physically caps how far the dial can be dragged; otherwise
+  // the full range stays open, since dragging past the cap is exactly what
+  // arms the override.
+  const inputMax = cap != null && !overridable ? Math.max(param.min, Math.floor(cap)) : param.max;
+  const thumbValue = Math.min(inputMax, roundedActual != null ? roundedActual : value);
+  const capPct = cap != null && range > 0
+    ? ((Math.min(param.max, Math.max(param.min, cap)) - param.min) / range) * 100
+    : null;
+
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.muted, marginBottom: 3 }}>
         <span>{param.label}</span>
         <span>
-          <span style={{ color: C.text }}>{value} {param.unit}</span>
+          <span style={{ color: armed ? C.red : C.text }}>{value} {param.unit}</span>
+          {armed && <span style={{ color: C.red, marginLeft: 8, fontWeight: 600 }}>OVERRIDE</span>}
           {showActual && (
             <span style={{ color: C.wheat, marginLeft: 8 }}>actual {roundedActual} {param.unit}</span>
           )}
         </span>
       </div>
-      <input
-        type="range"
-        min={param.min}
-        max={param.max}
-        value={value}
-        onChange={(e) => onChange?.(Number(e.target.value))}
-        style={{ width: "100%", accentColor: C.wheat, height: 14 }}
-      />
+      <div style={{ position: "relative", height: 14 }}>
+        <input
+          type="range"
+          min={param.min}
+          max={inputMax}
+          value={thumbValue}
+          onChange={(e) => onChange?.(Number(e.target.value))}
+          style={{ width: "100%", accentColor: armed ? C.red : C.wheat, height: 14 }}
+        />
+        {capPct != null && (
+          <div
+            title={`interlock cap: ${Math.round(cap)} ${param.unit}`}
+            style={{
+              position: "absolute", left: `${capPct}%`, top: 2, width: 2, height: 10,
+              background: C.muted, pointerEvents: "none",
+            }}
+          />
+        )}
+      </div>
     </div>
   );
 }
@@ -121,7 +173,8 @@ export default function MachinePopup({
               key={`${m.id}-${p.id}`}
               param={p}
               value={paramValues?.[m.id]?.[p.id] ?? p.value}
-              actual={p.readBind ? onParamRead?.(m.id, p) : null}
+              touched={paramValues?.[m.id]?.[p.id] !== undefined}
+              live={p.readBind ? onParamRead?.(m.id, p) : null}
               onChange={(v) => onParamChange?.(m.id, p, v)}
             />
           ))}

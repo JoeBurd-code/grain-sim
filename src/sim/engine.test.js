@@ -980,6 +980,56 @@ describe("drum feeder Gate Position % and elevator Speed % drive the derived fee
   });
 });
 
+// Issue #63: a presenter dragging either dial past the schedule's own live
+// cap deliberately pushes more material than the interlock alone would
+// allow — real capacity and the derived feed rate alike, not just the
+// popup's own readout — verified against the real treating-zone schedule
+// (the same elevator/pre-bin the bug report itself was filed against).
+describe("manual override of a gradedFeedSchedule band (issue #63)", () => {
+  it("dragging the elevator's own Speed % dial past the current band's cap increases the derived feed rate beyond the governed value", () => {
+    const sim = createSim(lineWithScheduleWithoutBatchTreater);
+    stepSim(sim, DT); // boost band, dial untouched: governed
+    const governedRate = getMachineState(sim, FEEDER_ID).rate;
+
+    setElevatorSpeed(sim, ELEVATOR_ID, 1); // drag past the boost band's own ~85% cap
+    stepSim(sim, DT);
+    expect(getMachineState(sim, FEEDER_ID).rate).toBeGreaterThan(governedRate);
+  });
+
+  it("dragging the gate's own Gate Position % dial past the current band's cap increases the derived feed rate, independent of the elevator's own override state", () => {
+    const sim = createSim(lineWithScheduleWithoutBatchTreater);
+    stepSim(sim, DT);
+    const governedRate = getMachineState(sim, FEEDER_ID).rate;
+
+    setGateFraction(sim, FEEDER_ID, 1); // drag past the boost band's own ~55% gate cap
+    stepSim(sim, DT);
+    expect(getMachineState(sim, FEEDER_ID).rate).toBeGreaterThan(governedRate);
+  });
+
+  it("a full stop (the LSHH trip) is never overridable, however high the elevator's own dial is dragged", () => {
+    const sim = createSim(lineWithScheduleWithoutBatchTreater);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.97); // above LSHH
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // past the trip delay + ramp
+    expect(preBinInterlock(sim).phase).toBe("tripped");
+
+    setElevatorSpeed(sim, ELEVATOR_ID, 1); // dial dragged to full, but the elevator is fully stopped
+    stepSim(sim, DT);
+    expect(getMachineState(sim, FEEDER_ID).rate).toBe(0); // still nothing — a full stop can't be overridden
+  });
+
+  it("the elevator's own real intake capacity increases too, not just the derived feed rate — the pre-bin actually fills faster", () => {
+    const sim = createSim(lineWithScheduleWithoutBatchTreater);
+    setAccumulatorLevel(sim, PRE_BIN_ID, 0.9); // throttle band, elevator well capped
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
+    expect(preBinInterlock(sim).phase).toBe("throttle");
+
+    const capBefore = BEHAVIORS.transportDelay.capacityAvailable(getMachineState(sim, ELEVATOR_ID), DT);
+    setElevatorSpeed(sim, ELEVATOR_ID, 1); // drag past the throttle band's own cap
+    const capAfter = BEHAVIORS.transportDelay.capacityAvailable(getMachineState(sim, ELEVATOR_ID), DT);
+    expect(capAfter).toBeGreaterThan(capBefore);
+  });
+});
+
 describe("batch treater takes a fixed charge every cycle and discharges it as a pulse (issue #24)", () => {
   it("is declared as a batch cycle, the primitive later reused by the bagging scale, filler and big-bag head", () => {
     const sim = createSim(lineWithoutFeedSchedule);

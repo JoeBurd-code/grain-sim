@@ -625,15 +625,60 @@ describe("transportDelay (issue #21)", () => {
       expect(state.backlog).toBe(0);
     });
 
-    it("intake capacity scales with the throttle, independent of the manual speed dial", () => {
+    it("intake capacity scales with the throttle, independent of the manual speed dial, as long as the dial has never been touched", () => {
       const state = initState({ ceilingM3PerSec: 2 });
       BEHAVIORS.transportDelay.command(state, 0.5, 0); // instant (0s ramp -> infinite slew)
       BEHAVIORS.transportDelay.apply(state, 0.05, 0, Infinity); // let the ramp settle this tick
-      expect(BEHAVIORS.transportDelay.capacityAvailable(state, 0.05)).toBeCloseTo(0.05); // half of 2*0.05
+      expect(BEHAVIORS.transportDelay.capacityAvailable(state, 0.05)).toBeCloseTo(0.05); // half of 2*0.05, speedFraction's own untouched default (1) has no effect
 
       BEHAVIORS.transportDelay.command(state, 0, 0);
       BEHAVIORS.transportDelay.apply(state, 0.05, 0, Infinity);
       expect(BEHAVIORS.transportDelay.capacityAvailable(state, 0.05)).toBe(0); // stopped: accepts nothing new
+    });
+
+    // Issue #63: dragging the dial past the throttle's own live cap swaps it
+    // in as the real intake multiplier, so a presenter can deliberately push
+    // more material past a governing interlock — see
+    // capacityAvailableTransportDelay's own comment. Gated on
+    // `speedDialTouched`, stamped only by setElevatorSpeed (engine.js): a
+    // gradedFeedSchedule band's own calibrated speed target is always below
+    // 1, so without this gate every such actuator would read as overridden
+    // the instant its schedule engaged, dial untouched.
+    describe("manual override (issue #63)", () => {
+      it("swaps the dial in for the throttle once a touched dial is dragged past the throttle's own cap", () => {
+        const state = initState({ ceilingM3PerSec: 2 });
+        BEHAVIORS.transportDelay.command(state, 0.5, 0); // interlock caps the chain at 50%
+        BEHAVIORS.transportDelay.apply(state, 0.05, 0, Infinity); // let the ramp settle
+        state.speedFraction = 1; // presenter drags the dial past the 50% cap
+        state.speedDialTouched = true;
+        expect(BEHAVIORS.transportDelay.capacityAvailable(state, 0.05)).toBeCloseTo(0.1); // full ceiling, not throttled
+      });
+
+      it("does not arm just because the dial sits above the cap — it must actually have been touched", () => {
+        const state = initState({ ceilingM3PerSec: 2 });
+        BEHAVIORS.transportDelay.command(state, 0.5, 0);
+        BEHAVIORS.transportDelay.apply(state, 0.05, 0, Infinity);
+        state.speedFraction = 1; // sitting above the cap, but never dragged there
+        expect(BEHAVIORS.transportDelay.capacityAvailable(state, 0.05)).toBeCloseTo(0.05); // still governed
+      });
+
+      it("disarms again once a touched dial is dragged back down to or below the cap", () => {
+        const state = initState({ ceilingM3PerSec: 2 });
+        BEHAVIORS.transportDelay.command(state, 0.5, 0);
+        BEHAVIORS.transportDelay.apply(state, 0.05, 0, Infinity);
+        state.speedFraction = 0.5; // dragged back down to exactly the cap
+        state.speedDialTouched = true;
+        expect(BEHAVIORS.transportDelay.capacityAvailable(state, 0.05)).toBeCloseTo(0.05); // governed again
+      });
+
+      it("never overrides a full stop, however far above 0 a touched dial sits", () => {
+        const state = initState({ ceilingM3PerSec: 2 });
+        BEHAVIORS.transportDelay.command(state, 0, 0); // interlock has fully stopped the chain
+        BEHAVIORS.transportDelay.apply(state, 0.05, 0, Infinity);
+        state.speedFraction = 1;
+        state.speedDialTouched = true;
+        expect(BEHAVIORS.transportDelay.capacityAvailable(state, 0.05)).toBe(0);
+      });
     });
 
     it("a throttled-down chain still delivers everything already queued once it recovers", () => {
@@ -800,6 +845,22 @@ describe("routedTransportDelay (issue #47)", () => {
     B.selectPort(state, "b");
     expect(state.selected).toBe("b");
     expect(state.throttleTarget).toBe(0);
+  });
+
+  // Issue #63: same manual-override swap as plain transportDelay's own
+  // capacityAvailableTransportDelay — the packaging elevator (pendulumConveyor)
+  // is a routedTransportDelay, so it needs the identical fix.
+  it("manual override: swaps a touched dial in for the throttle once dragged past its own cap, but never past a full stop", () => {
+    const state = initState({ ceilingM3PerSec: 2 });
+    B.command(state, 0.5, 0); // interlock caps the chain at 50%
+    B.apply(state, 0.05, 0, Infinity, { a: Infinity, b: Infinity }, { a: true, b: true });
+    state.speedFraction = 1; // presenter drags the dial past the 50% cap
+    state.speedDialTouched = true;
+    expect(B.capacityAvailable(state, 0.05)).toBeCloseTo(0.1); // full ceiling, not throttled
+
+    B.command(state, 0, 0); // interlock now fully stops the chain
+    B.apply(state, 0.05, 0, Infinity, { a: Infinity, b: Infinity }, { a: true, b: true });
+    expect(B.capacityAvailable(state, 0.05)).toBe(0); // never overridable
   });
 
   it("isSettled/confirmedRunning mirror plain transportDelay's own semantics", () => {

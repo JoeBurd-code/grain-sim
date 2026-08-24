@@ -187,9 +187,15 @@ export function useSimEngine(line) {
     setFeederRate(sim, machineId, rateM3PerSec);
   }, [sim]);
 
+  // Issue #63: publishes immediately, unlike setRate/setFeedRate above —
+  // MachinePopup's own Slider now tracks this dial's *actual* value (not
+  // just the operator's last drag) for its thumb position and its manual-
+  // override tick/arming state, both of which need to respond to a drag
+  // while paused, not wait for the next throttled tick that may never come.
   const setElevatorSpeedFraction = useCallback((machineId, fraction) => {
     setElevatorSpeed(sim, machineId, fraction);
-  }, [sim]);
+    publish();
+  }, [sim, publish]);
 
   // Jumps take effect immediately even while paused, so publish right away
   // rather than waiting for the next throttled tick (which may never come
@@ -229,9 +235,12 @@ export function useSimEngine(line) {
   }, [sim, publish]);
 
   // Live control (issue #60): the presenter's own Gate Position % dial.
+  // Publishes immediately (issue #63) — same reasoning as
+  // setElevatorSpeedFraction above.
   const setGateFractionValue = useCallback((machineId, fraction) => {
     setGateFraction(sim, machineId, fraction);
-  }, [sim]);
+    publish();
+  }, [sim, publish]);
 
   // Live controls (issue #24): the batch treater's charge size and cycle time.
   const setBatchSizeM3 = useCallback((machineId, m3) => {
