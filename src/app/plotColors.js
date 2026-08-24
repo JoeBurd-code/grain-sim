@@ -9,7 +9,7 @@ export const PLOT_COLORS = [C.wheat, C.green, "#5a9ea0", C.red, "#b07cc6", C.amb
 // Every sim-enabled machine, in declaration order -- the fixed roster a
 // machine's color is assigned from by position, not by plot/toggle order, so
 // a machine's color never shifts as other machines are plotted or unplotted
-// elsewhere on the line. Mirrors MeetingApp.jsx's own `interlockedMachines`
+// elsewhere on the line. Mirrors PlantApp.jsx's own `interlockedMachines`
 // derived-roster pattern.
 export const PLOTTABLE_MACHINES = line.machines.filter((m) => m.sim?.kind);
 

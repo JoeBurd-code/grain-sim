@@ -19,7 +19,7 @@
 // timestamp that machine logged an interlock event, sourced from the same
 // combined `events` list (#29) the event log panel reads -- no second event
 // path. Clicking a dot calls `onEventClick` with the event's index in that
-// list; MeetingApp uses it to open/focus the panel and scroll to it.
+// list; PlantApp uses it to open/focus the panel and scroll to it.
 //
 // Issue #39: a toggleable measure mode swaps the plot area's drag from doing
 // nothing (panning is slider-driven now, see the #37 note above) to
@@ -148,7 +148,7 @@ export default function ChartDock({ history, events, onEventClick }) {
   // -- and otherwise changes exactly when a new sample lands). `dataBounds`
   // needs a stable identity across renders that don't change its values: it
   // feeds useChartRange as an effect dependency (matching the useMemo'd
-  // homeBounds MeetingApp passes into useViewport), and a fresh object every
+  // homeBounds PlantApp passes into useViewport), and a fresh object every
   // render would re-trigger that effect every render, looping forever.
   const { activeSeries, plottedMachines, dataBounds } = useMemo(() => {
     const series = [];
@@ -177,7 +177,7 @@ export default function ChartDock({ history, events, onEventClick }) {
   // level series recorded for that machine) has nowhere natural to place one
   // and is left without dots entirely, per the machine's own `entry.level`
   // check below. `idx` is the event's position in the combined `events` list
-  // MeetingApp also hands EventLogPanel, so a click can identify exactly
+  // PlantApp also hands EventLogPanel, so a click can identify exactly
   // which event it was without a second event-fetching path of its own.
   const eventDots = useMemo(() => {
     if (!events || events.length === 0) return [];

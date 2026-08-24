@@ -1,7 +1,6 @@
-// Entry now points at the meeting frontend. The original mock
-// (./GrainFlowSim) stays in the repo untouched as the physics oracle.
-import MeetingApp from './app/MeetingApp'
+// Entry point for the production line visualizer.
+import PlantApp from './app/PlantApp'
 
 export default function App() {
-  return <MeetingApp />
+  return <PlantApp />
 }

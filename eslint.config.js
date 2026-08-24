@@ -5,9 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  // GrainFlowSim.jsx is the frozen reference mock (physics oracle), kept
-  // byte-identical per the migration decision, so it is exempt from lint.
-  globalIgnores(['dist', 'src/GrainFlowSim.jsx']),
+  globalIgnores(['dist']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [

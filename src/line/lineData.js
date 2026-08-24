@@ -139,7 +139,7 @@ export const line = {
       labelAt: { x: -6, y: -16 },
       // Live jump, not just an initial condition: dragging this sets the
       // running sim's current level immediately (see PARAM_BINDERS.levelJump
-      // in MeetingApp.jsx), for staging a scenario mid-presentation —
+      // in PlantApp.jsx), for staging a scenario mid-presentation —
       // including dragging the level below the clearing set point before
       // pressing the plant control's RESET TRIPS (issue #45), without
       // waiting on the drum feeder's own drain (issue #20), which starts off

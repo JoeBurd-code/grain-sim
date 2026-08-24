@@ -98,7 +98,7 @@ const zoneBtnStyle = {
   letterSpacing: "0.08em", cursor: "pointer",
 };
 
-export default function MeetingApp() {
+export default function PlantApp() {
   const [selectedId, setSelectedId] = useState(null);
   const [eventPanelOpen, setEventPanelOpen] = useState(false);
   const [eventJump, setEventJump] = useState(null);

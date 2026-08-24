@@ -9,17 +9,17 @@ import { LEVEL_KINDS } from "../sim/behaviors";
 
 // `actual` (issue #34) is a live, read-only figure resolved by the parent
 // from the machine's published snapshot via `param.readBind` — see
-// PARAM_READERS in MeetingApp.jsx. It's rendered beside the setpoint but
+// PARAM_READERS in PlantApp.jsx. It's rendered beside the setpoint but
 // never fed back into `value`: the setpoint slider always reflects exactly
 // what the operator last dragged it to, with no fighting between manual
 // input and live sim state. Hidden whenever the two already agree (rounded
 // to the slider's own integer step) so normal operation stays quiet.
 //
 // `value` is a controlled prop, not local state: this popup unmounts
-// entirely on close (MeetingApp only renders it while a machine is
+// entirely on close (PlantApp only renders it while a machine is
 // selected), so any position held in a `useState` here reverts to
 // `param.value` — the lineData default — the moment the popup reopens.
-// The operator's last-dragged position instead lives in MeetingApp, above
+// The operator's last-dragged position instead lives in PlantApp, above
 // the unmount boundary, so it survives close/reopen.
 function Slider({ param, value, actual, onChange }) {
   const roundedActual = actual != null ? Math.round(actual) : null;

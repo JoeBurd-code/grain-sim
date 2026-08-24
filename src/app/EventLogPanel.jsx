@@ -65,7 +65,7 @@ export default function EventLogPanel({ machines, events, onClose, jumpTo }) {
   //
   // An unscrolled jumpTo takes priority over that compensation for this
   // render: scroll straight to the target row instead, and flash it (the
-  // .event-row-flash keyframes, MeetingApp.jsx's shared stylesheet) so it's
+  // .event-row-flash keyframes, PlantApp.jsx's shared stylesheet) so it's
   // obvious which entry the chart dot that was just clicked refers to. By
   // the time this effect runs, the render-time unhide above has already
   // committed and `ordered` reflects it, so the target row is in `rowRefs`

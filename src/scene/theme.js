@@ -1,6 +1,6 @@
-// Visual language shared by the whole meeting frontend.
-// Palette, fonts and ratioColor are transplanted unchanged from the mock
-// (src/GrainFlowSim.jsx), which stays untouched as the reference.
+// Visual language shared by the whole plant app.
+// Palette, fonts and ratioColor were originally transplanted unchanged from
+// the retired GrainFlowSim mock.
 
 export const C = {
   bg: "#0c0e0d", panel: "#16191b", panel2: "#1d2123", line: "#2a2f31",

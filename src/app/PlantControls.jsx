@@ -1,7 +1,7 @@
 // Plant-level controls, wired to the live sim engine (see
 // src/sim/useSimEngine.js). This cluster means "control the plant" — the
 // counterpart to TransportControls' "control the clock". It lives on its own
-// full-width row under the rest of the header (MeetingApp.jsx) rather than
+// full-width row under the rest of the header (PlantApp.jsx) rather than
 // competing for space with transport/zone nav on one line, and is split into
 // three labeled, bordered sections — SOURCE, DESTINATION, SAFETY — instead of
 // one undifferentiated row (issue #54), so a presenter can scan by category
@@ -87,7 +87,7 @@ const buttonBase = {
 };
 
 // Neutral/wheat styling (issue #54): SOURCE, DESTINATION, and EMPTY BIN are
-// routine operating choices, not safety actions — same look as MeetingApp's
+// routine operating choices, not safety actions — same look as PlantApp's
 // own zonebtn / EVENT LOG toggle (muted/line idle, filled wheat when active).
 const neutralBtnStyle = {
   ...buttonBase, background: "transparent", color: C.muted, border: `1px solid ${C.line}`,
@@ -105,7 +105,7 @@ const btnStyle = {
 };
 
 // Filled, not outlined, when active — the same "filled = active" convention
-// MeetingApp's own EVENT LOG toggle already uses, just in red.
+// PlantApp's own EVENT LOG toggle already uses, just in red.
 const activeBtnStyle = {
   ...btnStyle, background: C.red, color: "#1a1a14",
 };

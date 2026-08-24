@@ -1,7 +1,7 @@
 // React binding for the sim engine. The real-time budget loop and throttled
-// snapshot publication are lifted unchanged from the proven mock
-// (GrainFlowSim.jsx): the speed multiplier scales how much sim time is
-// consumed per wall-clock second, never the fixed timestep itself.
+// snapshot publication carry over unchanged from the original GrainFlowSim
+// mock's design: the speed multiplier scales how much sim time is consumed
+// per wall-clock second, never the fixed timestep itself.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createSim, stepSim, resetSim, resetTrips as resetTripsSim, clearPlant as clearPlantSim, setSourceRate, setFeederRate, setAccumulatorLevel, emptyTerminalSink, DT,
