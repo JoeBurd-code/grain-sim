@@ -153,7 +153,7 @@ const DESTINATIONS = [
 const METAL_BIN_DESTINATIONS = new Set(["metalBin1", "metalBin2"]);
 
 export default function PlantControls({
-  onResetTrips, source, onSetSource, destination, onSetDestination, onEmptyBin,
+  onResetTrips, anyTripLatched, source, onSetSource, destination, onSetDestination, onEmptyBin,
   onEmptyDiscardBin,
   controlledStopPhase, onControlledStop, onResumeLine,
   utilitiesHealthy, utilitiesTripPhase, onSetUtilitiesHealthy,
@@ -233,7 +233,11 @@ export default function PlantControls({
           <button style={stopping ? activeBtnStyle : btnStyle} onClick={stopping ? onResumeLine : onControlledStop}>
             {stopping ? "▶ RESUME LINE" : "⏻ CONTROLLED STOP"}
           </button>
-          <button style={btnStyle} onClick={onResetTrips}>
+          <button
+            style={btnStyle}
+            className={anyTripLatched ? "trip-pulse" : undefined}
+            onClick={onResetTrips}
+          >
             ⚠ RESET TRIPS
           </button>
           <button

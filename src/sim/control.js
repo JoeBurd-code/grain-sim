@@ -1079,6 +1079,24 @@ export function stepFeedRateDerivation(sim) {
   }
 }
 
+// Which phase(s) count as "latched, waiting on RESET TRIPS" per kind — the
+// same set resetTrips's own `reset` function above checks at the top of each
+// implementation (e.g. resetThresholdTrip's `rule.phase !== "tripped"`
+// guard), just exposed as a predicate rather than left implicit in the
+// early-return, so a presenter-facing "is anything tripped" indicator (the
+// RESET TRIPS button's own pulse, issue #62) can ask without duplicating
+// each kind's phase names. autoStartOnRunning/autoStopOnNotRunning have no
+// entry — a no-op reset never has anything latched, so they read as never
+// latched rather than needing a function that always returns false.
+const LATCHED_PHASES = {
+  thresholdTrip: new Set(["tripped"]),
+  twoStageThrottle: new Set(["slow", "stopped"]),
+  holdNextBatch: new Set(["held"]),
+  thresholdStopTrip: new Set(["tripped"]),
+  gradedFeedSchedule: new Set(["tripped"]),
+  hysteresisValve: new Set(["tripped"]),
+};
+
 // One dispatch table entry per rule kind (issue #45's own instruction:
 // latching belongs in the control layer once, so every kind inherits the
 // reset mechanism through this registry rather than resetTrips branching on
@@ -1191,4 +1209,14 @@ export function resetTrips(sim) {
   for (const rule of sim.control) {
     CONTROL_KINDS[rule.kind].reset(rule, sim);
   }
+}
+
+// Read access (issue #62): whether any rule on the line is currently sitting
+// in a latched phase — i.e. whether pressing RESET TRIPS would actually have
+// something to do, per LATCHED_PHASES above. Purely a presenter-facing
+// indicator (drives the RESET TRIPS button's own pulse); resetTrips itself
+// never consults this, since each kind's own `reset` already re-checks the
+// live condition regardless.
+export function hasLatchedTrip(sim) {
+  return sim.control.some((rule) => LATCHED_PHASES[rule.kind]?.has(rule.phase));
 }

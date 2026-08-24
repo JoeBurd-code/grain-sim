@@ -171,6 +171,11 @@ export default function PlantApp() {
           50% { background: rgba(224, 168, 46, 0.35); }
         }
         .event-row-flash { animation: eventRowFlash 0.5s ease-out 3; border-radius: 4px; }
+        @keyframes tripPulse {
+          0%, 100% { background: transparent; color: ${C.red}; box-shadow: none; }
+          50% { background: ${C.red}; color: #1a1a14; box-shadow: 0 0 8px 1px rgba(248, 81, 73, 0.7); }
+        }
+        .trip-pulse { animation: tripPulse 1s ease-in-out infinite; }
       `}</style>
 
       <header style={{
@@ -213,6 +218,7 @@ export default function PlantApp() {
         </div>
         <PlantControls
           onResetTrips={engine.resetTrips}
+          anyTripLatched={engine.snap.anyTripLatched}
           source={engine.snap.source}
           onSetSource={engine.setSource}
           destination={engine.snap.destination}

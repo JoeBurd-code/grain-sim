@@ -5,6 +5,7 @@
 import { BEHAVIORS, REGISTERED_KINDS, unregisteredKindMessage } from "./behaviors";
 import {
   initControl, stepControl, combineEventLogs, primeInstruments, primeFeedSchedules, resetTrips as resetControlTrips,
+  hasLatchedTrip,
   initFeedRateDerivations, stepFeedRateDerivation,
 } from "./control";
 import {
@@ -269,6 +270,19 @@ export function resetTrips(sim) {
   // health has actually been restored, the same self-gating shape every
   // control.js reset already has.
   resetUtilitiesTrip(sim);
+}
+
+// Read access (issue #62): whether the line is currently tripped at all —
+// either a control.js rule sitting in its own latched phase, or the
+// utilities trip's terminal "tripped" phase — the one fact the RESET TRIPS
+// button's own pulse needs, combining both latch sources resetTrips above
+// already sweeps together. Deliberately not "would resetTrips clear
+// everything right now": a rule that's re-latched because its condition
+// hasn't cleared yet still counts as tripped, since the line is still down
+// and the presenter still needs to notice, even if the very next press logs
+// "remains latched" rather than actually recovering.
+export function hasAnyTripLatched(sim) {
+  return hasLatchedTrip(sim) || sim.utilitiesTrip.phase === "tripped";
 }
 
 // Plant control (issue #55): CLEAR PLANT — instantly empties every machine

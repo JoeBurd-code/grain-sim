@@ -12,6 +12,7 @@ import {
   setDestination as setDestinationSim, getDestination,
   controlledStop as controlledStopSim, resumeLine as resumeLineSim, getControlledStopPhase,
   setUtilitiesHealthy as setUtilitiesHealthySim, getUtilitiesHealthy, getUtilitiesTripPhase,
+  hasAnyTripLatched,
 } from "./engine";
 import { BEHAVIORS } from "./behaviors";
 import { createPlotHistory, setSeriesPlotted, recordSample } from "./plotHistory";
@@ -56,6 +57,12 @@ function publishSnap(sim) {
     // two independent facts (health can be restored while still "tripped",
     // pending a reset), so both are published rather than collapsed into one.
     utilitiesHealthy: getUtilitiesHealthy(sim), utilitiesTripPhase: getUtilitiesTripPhase(sim),
+    // Issue #62: whether anything on the line is currently tripped, latched
+    // control.js rules and the utilities trip alike (engine.js's
+    // hasAnyTripLatched) — drives the RESET TRIPS button's own pulse, the
+    // one piece of the header that previously gave a presenter no signal a
+    // trip had fired at all.
+    anyTripLatched: hasAnyTripLatched(sim),
   };
 }
 
