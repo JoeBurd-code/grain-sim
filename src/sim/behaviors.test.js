@@ -95,6 +95,27 @@ describe("accumulator", () => {
     expect(state.stored).toBe(0);
   });
 
+  it("atomicDischarge: withholds a partial discharge entirely rather than handing over what little it has", () => {
+    const state = { kind: "accumulator", capacity: 10, stored: 1.5, initialStored: 0, spill: 0, atomicDischarge: true };
+    const out = BEHAVIORS.accumulator.apply(state, 0.05, 0, 10, 5); // downstream wants a full 5, only 1.5 stored
+
+    expect(out).toBe(0);
+    expect(state.stored).toBe(1.5); // held onto it instead of dribbling the 1.5 out
+  });
+
+  it("atomicDischarge: still discharges in full once it holds enough to satisfy the downstream's whole request", () => {
+    const state = { kind: "accumulator", capacity: 10, stored: 6, initialStored: 0, spill: 0, atomicDischarge: true };
+    const out = BEHAVIORS.accumulator.apply(state, 0.05, 0, 10, 5);
+
+    expect(out).toBe(5);
+    expect(state.stored).toBe(1);
+  });
+
+  it("atomicDischarge defaults false, so a plain accumulator config keeps issue #18's dribble-what-you-have behaviour", () => {
+    const state = BEHAVIORS.accumulator.init({ sim: { capacityM3: 10 } });
+    expect(state.atomicDischarge).toBe(false);
+  });
+
   it("fills and discharges in the same tick without double counting", () => {
     const state = { kind: "accumulator", capacity: 10, stored: 5, initialStored: 0, spill: 0 };
     const out = BEHAVIORS.accumulator.apply(state, 0.05, 2, 10, 3); // +2 in, -3 out

@@ -141,8 +141,35 @@ const STOPPABLE = {
   // passing material through, not merely whenever its balance happens to
   // net to zero.
   accumulator: {
-    isDrained: (state, sim, id) =>
-      !hasRealDownstream(sim, id) || (state.stored <= EPS && (state.flowRateM3PerSec ?? 0) <= EPS),
+    isDrained: (state, sim, id) => {
+      if (!hasRealDownstream(sim, id)) return true;
+      if ((state.flowRateM3PerSec ?? 0) > EPS) return false; // still actively discharging
+      // `atomicDischarge` (behaviors.js): this bin's only discharge path is
+      // an all-or-nothing batch charge, so `stored <= EPS` is the wrong
+      // floor for it — it can legitimately sit at, say, half empty with
+      // flow reading zero for a tick simply because the batch machine
+      // downstream is mid-hold on its *current* charge, not because this
+      // bin has run dry; that's not stuck, it's between charges and the
+      // walk must still wait for it. What actually marks it stuck is
+      // holding *less than one whole charge*: by this point in the walk its
+      // own inflow is already permanently zero (this function's caller
+      // guarantees every upstream node is already drained and commanded
+      // stopped first), so a remainder short of the downstream's own
+      // `chargeM3` can never grow into a full charge and will never leave —
+      // the same "starved partial charge, accounted for, not a leak"
+      // carve-out batchCycle's own isDrained above already gives the
+      // machine on the *other* side of this same edge, just with the bin
+      // holding the remainder instead of the machine's own hopper.
+      if (state.atomicDischarge) {
+        const downstreamId = [...(sim.downstream.get(id)?.values() ?? [])][0];
+        const chargeM3 = sim.machines.get(downstreamId)?.chargeM3 ?? 0;
+        return state.stored < chargeM3 - EPS;
+      }
+      // An ordinary accumulator has no such floor: still only counts as
+      // drained once genuinely empty (the balanced-flow race above is what
+      // the flowRateM3PerSec check above already guards against).
+      return state.stored <= EPS;
+    },
   },
 };
 

@@ -1007,29 +1007,28 @@ describe("batch treater takes a fixed charge every cycle and discharges it as a 
     expect(treater.held).toBeGreaterThan(0); // already drawing its next charge — the pre-bin still has stock
   });
 
-  // "Draws nothing" is true of the batch itself, never of a single tick: a
-  // behaviour's capacityAvailable only ever sees its own downstream (see
-  // engine.js's reverse pass), so batchCycle has no way to peek at the
-  // pre-bin's actual stock and refuse a partial tick's worth up front — see
-  // the design note above initBatchCycle in behaviors.js. What's guaranteed,
-  // and what this test checks, is the acceptance criterion's real substance:
-  // a scarce pre-bin can dribble everything it has into the treater without
-  // that ever being treated as a completed charge — no partial batch is ever
-  // held for a cycle or discharged.
-  it("never starts a partial batch when the pre-bin can't supply a full charge, even though it will accept whatever trickle is offered", () => {
+  // The pre-bin's own `atomicDischarge` (behaviors.js, applyAccumulator)
+  // is what makes this true at the *bin* level, not just the treater's own
+  // "never call it a batch" guarantee above: a bin short of a full charge
+  // withholds discharge entirely rather than dribbling a partial amount
+  // into the treater's hopper, so the shortfall stays visible in the
+  // pre-bin's own level instead of vanishing into the machine's internal
+  // `held`.
+  it("never starts a partial batch when the pre-bin can't supply a full charge, and holds the shortfall itself rather than handing it to the treater", () => {
     const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, 0);
     setFeederRate(sim, FEEDER_ID, 0);
     const treater = getMachineState(sim, TREATER_ID);
     const preBin = getMachineState(sim, PRE_BIN_ID);
-    setAccumulatorLevel(sim, PRE_BIN_ID, (0.5 * treater.chargeM3) / preBin.capacity); // half a charge, and no more is coming
+    const halfCharge = 0.5 * treater.chargeM3;
+    setAccumulatorLevel(sim, PRE_BIN_ID, halfCharge / preBin.capacity); // half a charge, and no more is coming
 
     for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT); // far past the cycle time, if it had ever started
 
     expect(treater.phase).toBe("charging"); // never reached holding
-    expect(treater.held).toBeLessThan(treater.chargeM3);
+    expect(treater.held).toBe(0); // never accepted the partial amount at all
     expect(treater.delivered).toBe(0);
-    expect(preBin.stored).toBeCloseTo(0); // it handed over everything it had; the treater just never called it a batch
+    expect(preBin.stored).toBeCloseTo(halfCharge); // held onto what it had, instead of handing it over
   });
 
   it("the pre-bin drains in a step, not a smooth trickle, when it already holds a full charge", () => {
@@ -3125,18 +3124,24 @@ describe("controlled stop (issue #50)", () => {
     for (let i = 0; i < Math.round(1500 / DT); i++) { stepSim(sim, DT); assertConserved(sim); }
 
     expect(getControlledStopPhase(sim)).toBe("stopped");
-    for (const id of [BUFFER_BIN_ID, PRE_BIN_ID, AFTER_BIN_ID]) {
+    for (const id of [BUFFER_BIN_ID, AFTER_BIN_ID]) {
       expect(getMachineState(sim, id).stored, `${id} should have drained`).toBeCloseTo(0, 3);
     }
+    // The pre-bin is `atomicDischarge` (behaviors.js): if its own last drop
+    // leaves less than a full charge behind, that remainder has no more
+    // supply coming (everything upstream is already drained) and can never
+    // complete, so it stays right there in the bin rather than being handed
+    // into the treater's own hopper — accounted for in conservation's own
+    // `stored`, not a leak and not this walk's to fix. Either way the
+    // treater itself never holds a partial charge; only the bin can.
+    const preBin = getMachineState(sim, PRE_BIN_ID);
+    const treater = getMachineState(sim, TREATER_ID);
+    expect(preBin.stored).toBeLessThan(treater.chargeM3);
+    expect(treater.held).toBe(0);
     const elevator = getMachineState(sim, ELEVATOR_ID);
     expect(elevator.queue.length).toBe(0);
     expect(elevator.backlog).toBeCloseTo(0);
     expect(elevator.throttleFraction).toBe(0);
-    // The batch treater is deliberately not asserted at 0 `held`: if the
-    // pre-bin's own last drop happens to leave it mid-charge, that charge
-    // has no more supply coming (everything upstream is already drained)
-    // and can never complete — a starved partial charge, accounted for in
-    // conservation's own `inTransit`, not a leak and not this walk's to fix.
     expect(() => assertConserved(sim)).not.toThrow();
   });
 

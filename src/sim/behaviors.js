@@ -91,7 +91,12 @@ function initAccumulator(m) {
   const stored = (m.sim.initialLevelFraction ?? 0) * capacity;
   // Pre-existing inventory at t=0 didn't come through any source's `fed`
   // counter this run; the conservation identity accounts for it separately.
-  return { kind: "accumulator", capacity, stored, initialStored: stored, spill: 0, discharged: 0 };
+  // `atomicDischarge` (opt-in via `m.sim.atomicDischarge`) is for a bin whose
+  // only downstream is a batch-cycle machine (the treater/Concetti scale pre-
+  // bins) — see applyAccumulator's own comment on what it changes. Every
+  // other accumulator on the line feeds a continuous-flow consumer and must
+  // keep handing over whatever it has, so this defaults false.
+  return { kind: "accumulator", capacity, stored, initialStored: stored, spill: 0, discharged: 0, atomicDischarge: m.sim.atomicDischarge ?? false };
 }
 // How much this accumulator can accept from upstream this tick is purely
 // its own remaining headroom — independent of whatever's happening on the
@@ -111,7 +116,19 @@ function applyAccumulator(state, dt, inflow, cap, downstreamCap = 0) {
   const accepted = Math.min(inflow, cap);
   state.stored += accepted;
   state.spill += Math.max(0, inflow - accepted);
-  const discharge = Math.min(state.stored, downstreamCap);
+  // `atomicDischarge`: a batch-cycle downstream's own capacityAvailable only
+  // ever asks for 0 or its full remaining charge (behaviors.js, batchCycle),
+  // never a partial amount — so `downstreamCap` here is that same all-or-
+  // nothing request. Without this gate a short bin hands over whatever it
+  // has anyway (Math.min below), which the batch machine then sits on
+  // indefinitely as a part-charge — materially harmless (never gets treated
+  // short, see batchCycle's own comment) but wrong to look at: the bin
+  // reads empty while the machine silently holds the seed instead. Gating
+  // here keeps that seed visibly in the bin until there's enough for a
+  // whole charge, matching how a real batching valve only opens once its
+  // hopper can complete one.
+  const canDischarge = !state.atomicDischarge || state.stored >= downstreamCap - EPS;
+  const discharge = canDischarge ? Math.min(state.stored, downstreamCap) : 0;
   state.stored -= discharge;
   state.discharged = (state.discharged ?? 0) + discharge;
   return discharge;

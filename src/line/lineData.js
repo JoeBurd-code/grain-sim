@@ -271,9 +271,15 @@ export const line = {
       // not re-guessed; LSH's own value is unchanged from the old LSH0 stop
       // set point it replaces (see preBinFeedSchedule's own comment below).
       // Starts empty (issue #55), same as every other bin on the line.
+      // `atomicDischarge`: this bin's only downstream is the batch treater
+      // (batchCycle) — see applyAccumulator's own comment. Without it a
+      // short bin hands a partial charge into the treater's own hopper and
+      // reads empty despite the seed being neither lost nor treated short,
+      // which looks exactly like "grain vanished" from the plant view.
       sim: {
         kind: "accumulator",
         capacityM3: 1.63,
+        atomicDischarge: true,
         provenance: { capacityM3: "confirmed" },
       },
     },
@@ -1103,10 +1109,14 @@ export const line = {
       // it (REAL_LINE_SPECS.md §7) — so it's used as the assumed value
       // rather than trusted as confirmed, same treatment the parent issue
       // asks for explicitly. See docs/OPEN_QUESTIONS.md. Starts empty
-      // (issue #55).
+      // (issue #55). `atomicDischarge`: this bin's only downstream is the
+      // bagging scale (batchCycle) — a partial bag can't be sewn shut, so
+      // this pre-bin must hold a short amount rather than handing it into
+      // the scale's own hopper early (same reasoning as treaterPreBin).
       sim: {
         kind: "accumulator",
         capacityM3: 0.72,
+        atomicDischarge: true,
         provenance: { capacityM3: "assumed" },
       },
     },
