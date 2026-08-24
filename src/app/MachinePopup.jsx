@@ -10,19 +10,12 @@ import { LEVEL_KINDS } from "../sim/behaviors";
 // `live` (issue #34, reshaped by issue #63) is resolved by the parent from
 // the machine's published snapshot via `param.readBind` — see PARAM_READERS
 // in PlantApp.jsx — as `{ actual, cap, overridable }`, or `null` for a param
-// with no `readBind` at all. `live.actual` is issue #34's original figure
-// (dial x throttle — still-governed mid-ramp lag); the slider's own thumb
-// and its "actual X" text track it only while *not* armed — while armed,
-// both instead show the dial itself (see `armed`'s own comment below: an
-// override means the interlock's multiplier is exactly what's being
-// bypassed, so displaying its still-throttled figure next to an OVERRIDE tag
-// would flatly contradict it).
-//
-// `cap`/`overridable` are the live throttle band's own cap (in the same
-// units as this slider) and whether that band is a genuine partial throttle
-// (overridable) rather than a full stop (never overridable) — `cap` is
-// `null` for a param with no throttle band of its own (sourceRate/
-// feederRate), in which case no tick is drawn and override never arms.
+// with no `readBind` at all. `cap`/`overridable` are the live throttle
+// band's own cap (in the same units as this slider) and whether that band
+// is a genuine partial throttle (overridable) rather than a full stop
+// (never overridable) — `cap` is `null` for a param with no throttle band of
+// its own (sourceRate/feederRate), in which case no tick is drawn and
+// override never arms.
 //
 // `touched` says whether the operator has ever actually dragged *this*
 // slider (derived from PlantApp's own `paramValues`, cleared on RESTART) —
@@ -36,17 +29,34 @@ import { LEVEL_KINDS } from "../sim/behaviors";
 // point, wherever the interlock alone would run it — arms a manual override
 // (issue #63, point #2, refined in a follow-up grilling session 2026-08-24):
 // implicit, no separate toggle, and in *either* direction, not only above the
-// cap — the thumb, text and an "OVERRIDE" tag switch to the same warning red
-// the RESET TRIPS button uses while tripped. A full stop (cap present but not
-// overridable) instead clamps the input's own `max` to the cap, so the dial
-// physically cannot be dragged away from it at all (point #3).
+// cap — the thumb and text switch to the same warning red the RESET TRIPS
+// button uses while tripped, with an "OVERRIDE" tag. A full stop (cap
+// present but not overridable) instead clamps the input's own `max` to the
+// cap, so the dial physically cannot be dragged away from it at all
+// (point #3).
+//
+// There is only ever *one* number on display, not two: `displayValue` is
+// the dial itself while armed (an override is defined as "run it at what I
+// dialled, not what the interlock would otherwise produce"), or the live
+// cap (`live.actual`, PlantApp.jsx) while governed — never the raw
+// operator's dial in isolation. Showing the raw dial here (issue #63's
+// first pass) is what made a fresh, untouched machine read "100%" in the
+// text while its own thumb sat at 85% — and made a *touched* dial parked
+// exactly on the tick still visually snap away to some other figure, since
+// the thumb and the text disagreed about which of the two numbers to trust.
+// A separate "actual X" annotation is no longer needed for these two
+// params: text and thumb are now the same source, so there is nothing left
+// for a second figure to add. (sourceRate/feederRate, whose `cap` is always
+// `null`, keep showing their own live `actual` here unconditionally — see
+// PARAM_READERS' own comment on why those two never arm.)
 //
 // `value` is a controlled prop, not local state: this popup unmounts
 // entirely on close (PlantApp only renders it while a machine is
 // selected), so any position held in a `useState` here reverts to
 // `param.value` — the lineData default — the moment the popup reopens.
 // The operator's last-dragged position instead lives in PlantApp, above
-// the unmount boundary, so it survives close/reopen.
+// the unmount boundary, so it survives close/reopen — and is still what
+// `armed` compares against, even though it's no longer what's displayed.
 function Slider({ param, value, touched, live, onChange }) {
   const cap = live?.cap ?? null;
   const overridable = live?.overridable ?? false;
@@ -57,24 +67,14 @@ function Slider({ param, value, touched, live, onChange }) {
   // dial can never actually diverge from it while `!overridable` — nothing
   // further to gate here for that case.)
   const armed = touched && cap != null && value !== Math.round(cap);
-  // While armed, `actual` must read as the dial itself — the whole point of
-  // an override is "run it at what I dialled, not what the interlock's own
-  // cap/throttle multiplier would otherwise produce" — so showing PARAM_READERS'
-  // still-throttled `live.actual` here (issue #34's old dial x throttle
-  // figure) directly contradicted the OVERRIDE tag sitting right next to it.
-  // Only the *not* armed case (untouched, or touched and parked exactly on
-  // the tick) still shows that figure, which is where its own mid-ramp-lag
-  // job (point #6) actually applies.
-  const actual = armed ? value : live?.actual;
-  const roundedActual = actual != null ? Math.round(actual) : null;
-  const showActual = roundedActual != null && roundedActual !== value;
+  const displayValue = armed ? value : (live?.actual != null ? Math.round(live.actual) : value);
 
   const range = param.max - param.min;
   // A full stop physically caps how far the dial can be dragged; otherwise
   // the full range stays open, since dragging past the cap is exactly what
   // arms the override.
   const inputMax = cap != null && !overridable ? Math.max(param.min, Math.floor(cap)) : param.max;
-  const thumbValue = Math.min(inputMax, roundedActual != null ? roundedActual : value);
+  const thumbValue = Math.min(inputMax, displayValue);
   const capPct = cap != null && range > 0
     ? ((Math.min(param.max, Math.max(param.min, cap)) - param.min) / range) * 100
     : null;
@@ -84,11 +84,8 @@ function Slider({ param, value, touched, live, onChange }) {
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.muted, marginBottom: 3 }}>
         <span>{param.label}</span>
         <span>
-          <span style={{ color: armed ? C.red : C.text }}>{value} {param.unit}</span>
+          <span style={{ color: armed ? C.red : C.text }}>{displayValue} {param.unit}</span>
           {armed && <span style={{ color: C.red, marginLeft: 8, fontWeight: 600 }}>OVERRIDE</span>}
-          {showActual && (
-            <span style={{ color: C.wheat, marginLeft: 8 }}>actual {roundedActual} {param.unit}</span>
-          )}
         </span>
       </div>
       <div style={{ position: "relative", height: 14 }}>

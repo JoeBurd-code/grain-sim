@@ -15,7 +15,6 @@ import EventLogPanel from "./EventLogPanel";
 import { useViewport } from "../scene/useViewport";
 import { useSimEngine } from "../sim/useSimEngine";
 import { tPerHourToM3PerSec, m3PerSecToTPerHour, BULK_DENSITY_T_PER_M3 } from "../sim/units";
-import { isThrottleOverridden } from "../sim/behaviors";
 import { isSeriesPlotted } from "../sim/plotHistory";
 import { plotColorFor } from "./plotColors";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
@@ -71,15 +70,19 @@ const PARAM_BINDERS = {
 // position and the armed/not-armed state itself — see that component's own
 // comment.
 //
-// `actual` itself is now the *real, override-aware effective value* — the
-// same swap `isThrottleOverridden` drives in the sim layer (capacity in
-// behaviors.js, the feed-rate derivation in control.js) — not issue #34's
-// old always-`dial × throttle` figure. While governed that's unchanged from
-// #34 (still shows the interlock's own mid-ramp lag); the moment a touched
-// dial is dragged past its own cap, `actual` snaps to the dial itself, so
-// the slider's thumb (which tracks `actual`, MachinePopup.jsx) actually
-// reaches the position it was dragged to instead of staying pinned at the
-// old capped number underneath an "OVERRIDE" tag that disagreed with it.
+// `actual`, for the two throttle-band params below, is simply the live cap
+// itself (`throttleFraction`/`gateThrottleFraction`) — *not* issue #34's old
+// `dial x throttle` figure. That old formula only ever agreed with the cap
+// while the dial sat at its untouched default of 1 (true for every real
+// interlocked machine before this ticket, since nothing could touch the
+// dial yet); the moment a presenter's own dial is *touched* and parked
+// anywhere else — including exactly on the cap, "balanced" — dial x throttle
+// diverges from both the cap and the dial itself, which is exactly what let
+// the slider's own thumb visually snap away from wherever it was dragged to.
+// MachinePopup's own Slider is what actually decides which of `actual` (the
+// live cap) or the raw dial to display and drive the thumb with, based on
+// its own broader, touched-aware armed state (see that component's own
+// comment) — this reader only ever needs to report the cap.
 const PARAM_READERS = {
   // Source valve (issue #19) and drum feeder (issue #42): each can be
   // overridden by an interlock (valve openness; a direct rate command) out
@@ -103,14 +106,11 @@ const PARAM_READERS = {
   // dial, throttleFraction is the interlock's own multiplier layered on top.
   elevatorSpeedActual: (dynamic) => {
     if (!dynamic) return null;
-    const dial = dynamic.speedFraction ?? 1;
-    const throttle = dynamic.throttleFraction ?? 1;
-    const target = dynamic.throttleTarget ?? 1;
-    const overridden = isThrottleOverridden(dynamic.speedDialTouched ?? false, dial, throttle, target);
+    const cap = (dynamic.throttleFraction ?? 1) * 100;
     return {
-      actual: (overridden ? dial : dial * throttle) * 100,
-      cap: throttle * 100,
-      overridable: target > 0,
+      actual: cap,
+      cap,
+      overridable: (dynamic.throttleTarget ?? 1) > 0,
     };
   },
   // Drum feeder gate (issue #60): same shape as elevatorSpeedActual above —
@@ -118,14 +118,11 @@ const PARAM_READERS = {
   // schedule's own multiplier layered on top.
   gatePositionActual: (dynamic) => {
     if (!dynamic) return null;
-    const dial = dynamic.gateFraction ?? 1;
-    const throttle = dynamic.gateThrottleFraction ?? 1;
-    const target = dynamic.gateThrottleTarget ?? 1;
-    const overridden = isThrottleOverridden(dynamic.gateDialTouched ?? false, dial, throttle, target);
+    const cap = (dynamic.gateThrottleFraction ?? 1) * 100;
     return {
-      actual: (overridden ? dial : dial * throttle) * 100,
-      cap: throttle * 100,
-      overridable: target > 0,
+      actual: cap,
+      cap,
+      overridable: (dynamic.gateThrottleTarget ?? 1) > 0,
     };
   },
 };
