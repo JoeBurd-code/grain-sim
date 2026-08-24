@@ -1396,6 +1396,199 @@ describe("arming (armedWhen) — gradedFeedSchedule", () => {
   });
 });
 
+// Hysteresis valve (bufferBinHighTrip, on request): a live, non-latching
+// bang-bang open/close over a single source valve, plus a latched LSHH trip
+// on top — see control.js's own hysteresisValve comment for the full
+// reasoning, and why it deliberately drops gradedFeedSchedule's own
+// re-target-mid-arm branch (unreachable with only two bands).
+const HYSTERESIS_VALVE_CFG = {
+  id: "testHysteresis",
+  kind: "hysteresisValve",
+  sensor: { machine: "bin" },
+  lowSetpoint: 0.3,
+  highSetpoint: 0.6,
+  highHighSetpoint: 0.9,
+  signalDelaySec: 1,
+  action: { machine: "valve", rampTimeSec: 1 },
+};
+
+function makeHysteresisSim(fillFraction) {
+  const capacity = 10;
+  const bin = { kind: "accumulator", capacity, stored: fillFraction * capacity, initialStored: 0, spill: 0 };
+  const valve = BEHAVIORS.source.init({ sim: { rateM3PerSec: 5 } });
+  const machines = new Map([["bin", bin], ["valve", valve]]);
+  const control = initControl({ interlocks: [HYSTERESIS_VALVE_CFG] });
+  return { t: 0, machines, control };
+}
+
+function stepHysteresis(sim, dt, n = 1) {
+  for (let i = 0; i < n; i++) {
+    BEHAVIORS.source.apply(sim.machines.get("valve"), dt, 0, Infinity);
+    sim.t += dt;
+    stepControl(sim);
+  }
+}
+
+describe("initControl (hysteresisValve)", () => {
+  it("builds a hysteresisValve rule starting in the open phase — the band level 0 always falls in", () => {
+    const sim = makeHysteresisSim(0.1);
+    expect(sim.control).toHaveLength(1);
+    expect(sim.control[0].kind).toBe("hysteresisValve");
+    expect(sim.control[0].phase).toBe("open");
+    expect(sim.control[0].log).toEqual([]);
+  });
+});
+
+describe("stepControl (hysteresisValve) — live LSH/LSL hysteresis", () => {
+  it("does nothing while the level stays below the high set point", () => {
+    const sim = makeHysteresisSim(0.1); // below lowSetpoint (0.3): the first tick logs the LSL crossing itself, nothing else
+    stepHysteresis(sim, 0.05, 200);
+    expect(sim.control[0].phase).toBe("open");
+    expect(sim.control[0].log).toHaveLength(1);
+    expect(sim.control[0].log[0].message).toMatch(/LSL set point reached/);
+    expect(sim.machines.get("valve").openness).toBe(1);
+  });
+
+  it("arms toward closed the instant the level reaches the high set point, then commands the valve closed once the delay elapses", () => {
+    const sim = makeHysteresisSim(0.65); // above highSetpoint (0.6)
+    stepHysteresis(sim, 0.05);
+    expect(sim.control[0].phase).toBe("armingClose");
+
+    stepHysteresis(sim, 0.05, 22); // consume the 1s delay
+    expect(sim.control[0].phase).toBe("closed");
+    expect(sim.machines.get("valve").opennessTarget).toBe(0);
+
+    stepHysteresis(sim, 0.05, 22); // consume the 1s ramp
+    expect(sim.machines.get("valve").openness).toBe(0);
+  });
+
+  it("stays closed through the dead zone between LSL and LSH — hysteresis, not a direct level->band mapping", () => {
+    const sim = makeHysteresisSim(0.65);
+    stepHysteresis(sim, 0.05, 44); // settles at closed
+
+    sim.machines.get("bin").stored = 0.45 * 10; // between lowSetpoint (0.3) and highSetpoint (0.6)
+    stepHysteresis(sim, 0.05, 200);
+    expect(sim.control[0].phase).toBe("closed"); // holds, doesn't reopen mid-band
+    expect(sim.machines.get("valve").openness).toBe(0);
+  });
+
+  it("reopens on its own once the level clears the low set point — no latch, no RESET TRIPS needed", () => {
+    const sim = makeHysteresisSim(0.65);
+    stepHysteresis(sim, 0.05, 44); // settles at closed
+
+    sim.machines.get("bin").stored = 0.2 * 10; // below lowSetpoint (0.3)
+    stepHysteresis(sim, 0.05);
+    expect(sim.control[0].phase).toBe("armingOpen");
+
+    stepHysteresis(sim, 0.05, 22); // consume the 1s delay
+    expect(sim.control[0].phase).toBe("open");
+    stepHysteresis(sim, 0.05, 22); // consume the 1s ramp
+    expect(sim.machines.get("valve").openness).toBe(1);
+  });
+
+  it("cancels an in-flight close arm instantly, with no command ever issued, if the level returns below the high set point before the delay elapses", () => {
+    const sim = makeHysteresisSim(0.1); // settled at open
+    sim.machines.get("bin").stored = 0.65 * 10; // rises above highSetpoint
+    stepHysteresis(sim, 0.05); // arms toward closed
+    expect(sim.control[0].phase).toBe("armingClose");
+
+    sim.machines.get("bin").stored = 0.4 * 10; // drops back below highSetpoint before the 1s delay elapses
+    stepHysteresis(sim, 0.05);
+    expect(sim.control[0].phase).toBe("open"); // reverted instantly, not still counting down
+    expect(sim.control[0].log.some((e) => e.message.includes("commanded"))).toBe(false);
+    expect(sim.machines.get("valve").opennessTarget).toBe(1); // never actually commanded closed
+  });
+});
+
+describe("stepControl (hysteresisValve) — latched LSHH trip", () => {
+  it("commands the valve to a full stop once the trip delay elapses, and latches once settled", () => {
+    const sim = makeHysteresisSim(0.95); // above highHighSetpoint (0.9)
+    stepHysteresis(sim, 0.05, 200); // well past the 1s trip delay and 1s ramp
+    expect(sim.control[0].phase).toBe("tripped");
+    expect(sim.machines.get("valve").opennessTarget).toBe(0);
+    expect(sim.machines.get("valve").openness).toBe(0);
+  });
+
+  it("stays tripped even once the level falls all the way past the low set point", () => {
+    const sim = makeHysteresisSim(0.95);
+    stepHysteresis(sim, 0.05, 200); // reach "tripped"
+
+    sim.machines.get("bin").stored = 0.1 * 10; // well below lowSetpoint
+    stepHysteresis(sim, 0.05, 200);
+    expect(sim.control[0].phase).toBe("tripped"); // no automatic reopen
+    expect(sim.machines.get("valve").openness).toBe(0);
+  });
+
+  it("LSHH always wins, cancelling an in-flight open/close arm already in progress", () => {
+    const sim = makeHysteresisSim(0.65); // above highSetpoint, arms toward closed
+    stepHysteresis(sim, 0.05); // arms toward closed
+    expect(sim.control[0].phase).toBe("armingClose");
+
+    sim.machines.get("bin").stored = 0.95 * 10; // shoots past highHighSetpoint before the close arm fires
+    stepHysteresis(sim, 0.05, 200);
+    expect(sim.control[0].phase).toBe("tripped");
+  });
+});
+
+describe("resetTrips (hysteresisValve)", () => {
+  it("is a no-op outside the tripped phase", () => {
+    const sim = makeHysteresisSim(0.5); // still tracking bands, never tripped
+    const logLenBefore = sim.control[0].log.length;
+    resetTrips(sim);
+    expect(sim.control[0].phase).toBe("open");
+    expect(sim.control[0].log).toHaveLength(logLenBefore);
+  });
+
+  it("re-latches rather than resuming while the level is still at/above high-high, logging the attempt", () => {
+    const sim = makeHysteresisSim(0.95);
+    stepHysteresis(sim, 0.05, 200); // reach "tripped"
+    const logLenBefore = sim.control[0].log.length;
+    resetTrips(sim);
+    expect(sim.control[0].phase).toBe("tripped");
+    expect(sim.machines.get("valve").opennessTarget).toBe(0);
+    expect(sim.control[0].log).toHaveLength(logLenBefore + 1);
+    expect(sim.control[0].log.at(-1).message).toMatch(/remains latched/);
+  });
+
+  it("resumes closed, not open, once high-high clears but the level is still in the dead zone — matches a bang-bang controller resuming from a hard stop", () => {
+    const sim = makeHysteresisSim(0.95);
+    stepHysteresis(sim, 0.05, 200); // reach "tripped"
+    sim.machines.get("bin").stored = 0.45 * 10; // clears highHigh (0.9), but still above lowSetpoint (0.3)
+    resetTrips(sim);
+
+    expect(sim.control[0].phase).toBe("recovering");
+    expect(sim.machines.get("valve").opennessTarget).toBe(0); // stays closed — hasn't cleared LSL
+
+    stepHysteresis(sim, 0.05, 22); // consume the ramp
+    expect(sim.control[0].phase).toBe("closed");
+  });
+
+  it("resumes open once high-high clears and the level has also cleared the low set point", () => {
+    const sim = makeHysteresisSim(0.95);
+    stepHysteresis(sim, 0.05, 200); // reach "tripped"
+    sim.machines.get("bin").stored = 0.1 * 10; // below lowSetpoint (0.3)
+    resetTrips(sim);
+
+    expect(sim.control[0].phase).toBe("recovering");
+    expect(sim.machines.get("valve").opennessTarget).toBe(1);
+
+    stepHysteresis(sim, 0.05, 22);
+    expect(sim.control[0].phase).toBe("open");
+  });
+});
+
+describe("instrumentReadings (hysteresisValve)", () => {
+  it("reads three codes — LSL, LSH, LSHH — LSHH tripping at-or-above its own set point, distinct from LSH", () => {
+    const rule = { kind: "hysteresisValve", lowSetpoint: 0.3, highSetpoint: 0.6, highHighSetpoint: 0.9 };
+    expect(instrumentReadings(rule, 0.7)).toEqual({
+      LSL: { setpoint: 0.3, tripped: false },
+      LSH: { setpoint: 0.6, tripped: true },
+      LSHH: { setpoint: 0.9, tripped: false },
+    });
+    expect(instrumentReadings(rule, 0.9).LSHH.tripped).toBe(true);
+  });
+});
+
 // Continuous feed-rate derivation (issue #59): unlike every kind above, this
 // has no sensor, no setpoint, no phase — just an elevator/feeder pair, read
 // and re-commanded fresh every call. Verified standalone against a fabricated

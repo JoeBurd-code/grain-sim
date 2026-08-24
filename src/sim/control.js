@@ -59,19 +59,7 @@ function resolveActuator(rule, sim) {
 // its own (issue #22; superseded on the real line by gradedFeedSchedule,
 // issue #60, but this kind stays a generic, independently reusable primitive).
 const INSTRUMENT_FIELDS = {
-  // LSHH is optional (see stepThresholdTrip/resetThresholdTrip's own
-  // `rule.highHighSetpoint ?? rule.highSetpoint` fallback below): a config
-  // with no highHighSetpoint (every thresholdTrip fixture in control.test.js,
-  // and any future one that doesn't need a third instrument) leaves
-  // `rule.highHighSetpoint` undefined, so this reading's `setpoint` is
-  // undefined and `tripped` is permanently false — the same "harmless dot
-  // nobody looks at" shape gradedFeedSchedule's own LSHH has when unused.
-  // `bufferBinHighTrip` (lineData.js) is the first config to set it: LSHH
-  // becomes the actual trip point there and LSH drops to display-only,
-  // mirroring the treater pre-bin's own LSH/LSHH split (issue #58) one level
-  // down, on a kind whose actuator (a single open/close valve) can't support
-  // that pre-bin's continuous graded bands.
-  thresholdTrip: { LSH: "highSetpoint", LSL: "lowSetpoint", LSHH: "highHighSetpoint" },
+  thresholdTrip: { LSH: "highSetpoint", LSL: "lowSetpoint" },
   twoStageThrottle: { LSH: "stopSetpoint", LSL: "lowSetpoint" },
   holdNextBatch: { LSH: "highSetpoint", LSL: "lowSetpoint" },
   thresholdStopTrip: { LSH: "highSetpoint", LSL: "lowSetpoint" },
@@ -81,6 +69,10 @@ const INSTRUMENT_FIELDS = {
   // check rather than an exact-match on "LSH" the way every earlier kind
   // only ever needed.
   gradedFeedSchedule: { LSL: "lowSetpoint", LSH: "highSetpoint", LSHH: "highHighSetpoint" },
+  // bufferBinHighTrip's own LSH/LSL/LSHH split (on request), same three-code
+  // shape as gradedFeedSchedule above but over hysteresisValve's binary
+  // open/closed bands rather than continuous speed/gate ones.
+  hysteresisValve: { LSL: "lowSetpoint", LSH: "highSetpoint", LSHH: "highHighSetpoint" },
 };
 
 // Pure: which of a rule's instruments are tripped right now, given the
@@ -206,10 +198,6 @@ function initThresholdTrip(cfg) {
     actuatorId: cfg.action.machine,
     highSetpoint: cfg.highSetpoint,
     lowSetpoint: cfg.lowSetpoint,
-    // Optional (see INSTRUMENT_FIELDS' own comment above): undefined unless
-    // cfg supplies it, in which case tripSetpoint (below) reads off this
-    // instead of highSetpoint.
-    highHighSetpoint: cfg.highHighSetpoint,
     signalDelaySec: cfg.signalDelaySec,
     rampTimeSec: cfg.action.rampTimeSec,
     phase: "open",
@@ -217,19 +205,12 @@ function initThresholdTrip(cfg) {
     log: [],
   };
 }
-// The set point that actually arms the trip: highHighSetpoint when a config
-// declares one (bufferBinHighTrip), highSetpoint otherwise (every other
-// thresholdTrip user today, including every fixture in control.test.js) —
-// see INSTRUMENT_FIELDS' own comment for why this stays backward compatible.
-function tripSetpoint(rule) {
-  return rule.highHighSetpoint ?? rule.highSetpoint;
-}
 function stepThresholdTrip(rule, sim) {
   const level = readLevel(sim.machines, rule.sensorId);
   stepRuleInstruments(rule, level, sim);
   const { actuator, behavior } = resolveActuator(rule, sim);
 
-  if (rule.phase === "open" && level >= tripSetpoint(rule)) {
+  if (rule.phase === "open" && level >= rule.highSetpoint) {
     rule.phase = "delayedClose";
     rule.fireAt = sim.t + rule.signalDelaySec;
   }
@@ -262,7 +243,7 @@ function stepThresholdTrip(rule, sim) {
 function resetThresholdTrip(rule, sim) {
   if (rule.phase !== "closed") return;
   const level = readLevel(sim.machines, rule.sensorId);
-  if (level >= tripSetpoint(rule)) {
+  if (level >= rule.highSetpoint) {
     logEvent(rule, sim.t, `reset commanded — high set point still tripped at ${pct(level)}, remains latched`);
     return;
   }
@@ -271,6 +252,153 @@ function resetThresholdTrip(rule, sim) {
   logEvent(rule, sim.t, `reset — valve commanded open (ramping over ${rule.rampTimeSec}s)`);
   rule.phase = "opening";
   rule.fireAt = null;
+}
+
+// Hysteresis valve + latched high-high trip (bufferBinHighTrip, on request:
+// LSH closes the valve live and non-latching, reopening again the instant
+// the level clears LSL — ordinary bang-bang float-valve control, the
+// opposite of thresholdTrip's own latch — while a new LSHH is the real
+// trip, latched exactly like every other trip kind in this file, needing
+// RESET TRIPS. Structurally this is gradedFeedSchedule's own two-tier shape
+// (live bands underneath, one latched trip on top) collapsed from three
+// continuous speed/gate bands down to two binary open/closed states on a
+// single open/close valve — this kind's "band" is quantized to {open,
+// closed}, and unlike gradedFeedSchedule's bandForLevel (a pure function of
+// level: three fixed cutoffs always land the same band regardless of
+// direction), a two-state open/closed valve needs actual hysteresis memory
+// — hysteresisTarget below takes the *current* settled band as an input,
+// not just the level, so the dead zone between LSL and LSH holds whichever
+// state it was already in rather than being pinned to one side of a single
+// cutoff.
+//
+//   open <-> closed -- [level >= highHighSetpoint, from any non-tripped
+//   phase] --> armingTrip -> [delay elapses, command close] -> stopping ->
+//   [settles] -> tripped
+//
+// Movement between open/closed arms through armingOpen/armingClose, exactly
+// like gradedFeedSchedule's own armingBoost/armingNormal/armingThrottle:
+// cancellable if the level recrosses back before the delay fires (nothing
+// was ever actually commanded). Unlike gradedFeedSchedule's three bands,
+// there's no third state to ever re-target an in-flight arm toward — with
+// only {open, closed}, "the level moved again" and "the level returned to
+// the settled band" are the same event, so this kind has no re-target
+// branch. The LSHH trip is not cancellable — once armed, it always fires
+// and then latches, the same convention every other trip kind in this file
+// follows (ADR 0006).
+function hysteresisTarget(rule, level, currentBand) {
+  if (currentBand === "open" && level >= rule.highSetpoint) return "closed";
+  if (currentBand === "closed" && level <= rule.lowSetpoint) return "open";
+  return currentBand;
+}
+function initHysteresisValve(cfg) {
+  return {
+    kind: "hysteresisValve",
+    id: cfg.id,
+    sensorId: cfg.sensor.machine,
+    actuatorId: cfg.action.machine,
+    lowSetpoint: cfg.lowSetpoint,
+    highSetpoint: cfg.highSetpoint,
+    highHighSetpoint: cfg.highHighSetpoint,
+    signalDelaySec: cfg.signalDelaySec,
+    rampTimeSec: cfg.action.rampTimeSec,
+    // The real line always starts empty (issue #55), so "open" — the band
+    // level 0 falls in — is always the correct starting phase, same
+    // reasoning gradedFeedSchedule's own fixed starting phase relies on.
+    phase: "open",
+    settledBand: "open",
+    fireAt: null,
+    log: [],
+  };
+}
+function stepHysteresisValve(rule, sim) {
+  const level = readLevel(sim.machines, rule.sensorId);
+  stepRuleInstruments(rule, level, sim);
+
+  if (rule.phase === "tripped") return; // latched; only resetTrips moves this rule now
+
+  const { actuator, behavior } = resolveActuator(rule, sim);
+
+  // LSHH always wins, immediately, from any non-tripped phase — including
+  // cancelling a live open/close arm already in flight — same convention as
+  // gradedFeedSchedule's own LSHH.
+  if (level >= rule.highHighSetpoint && rule.phase !== "armingTrip" && rule.phase !== "stopping") {
+    rule.phase = "armingTrip";
+    rule.fireAt = sim.t + rule.signalDelaySec;
+    logEvent(rule, sim.t, `high-high set point reached at ${pct(level)} — trip armed`);
+  }
+
+  if (rule.phase === "armingTrip") {
+    if (sim.t >= rule.fireAt) {
+      behavior.command(actuator, "close", rule.rampTimeSec);
+      logEvent(rule, sim.t, `valve commanded closed (ramping over ${rule.rampTimeSec}s) — high-high trip`);
+      rule.phase = "stopping";
+      rule.fireAt = null;
+    }
+    return;
+  }
+  if (rule.phase === "stopping") {
+    if (behavior.isSettled(actuator)) rule.phase = "tripped";
+    return;
+  }
+  if (rule.phase === "recovering") {
+    if (!behavior.isSettled(actuator)) return;
+    rule.phase = rule.settledBand;
+  }
+
+  const targetBand = hysteresisTarget(rule, level, rule.settledBand);
+
+  if (rule.phase === "open" || rule.phase === "closed") {
+    if (targetBand !== rule.phase) {
+      rule.phase = targetBand === "closed" ? "armingClose" : "armingOpen";
+      rule.fireAt = sim.t + rule.signalDelaySec;
+      logEvent(rule, sim.t, `${targetBand === "closed" ? "LSH" : "LSL"} set point reached at ${pct(level)} — valve ${targetBand === "closed" ? "close" : "reopen"} armed`);
+    }
+    return;
+  }
+
+  // armingClose / armingOpen: only {open, closed} exist, so the level
+  // returning to the settled band is the only way to cancel — there's no
+  // third band to ever re-target toward.
+  if (targetBand === rule.settledBand) {
+    // Nothing was ever actually commanded differently — cancel instantly and
+    // silently, same reasoning as gradedFeedSchedule's own cancel branch.
+    rule.phase = rule.settledBand;
+    rule.fireAt = null;
+    return;
+  }
+  if (sim.t >= rule.fireAt) {
+    const armTarget = rule.phase === "armingClose" ? "closed" : "open";
+    behavior.command(actuator, armTarget === "closed" ? "close" : "open", rule.rampTimeSec);
+    logEvent(rule, sim.t, `valve commanded ${armTarget} (ramping over ${rule.rampTimeSec}s)`);
+    rule.settledBand = armTarget;
+    rule.phase = armTarget;
+    rule.fireAt = null;
+  }
+}
+// Reset (issue #45's own latch convention): only "tripped" is eligible,
+// gated on the same high-high set point that armed it. Clearing it resumes
+// whichever live band the level currently implies, treating the valve's own
+// forced-closed state through the trip as if "closed" had been the settled
+// band the whole time — so a level still sitting in the LSL..LSH dead zone
+// stays closed on reset (matching a real bang-bang controller resuming from
+// a hard stop: it doesn't reopen until the level actually clears LSL), while
+// one that's already cleared LSL reopens immediately. Commanded immediately,
+// no arm/delay phase, same reasoning as resetGradedFeedSchedule's own
+// recovery path: no FD or worksheet number backs a delay here, unlike the
+// rising trip itself.
+function resetHysteresisValve(rule, sim) {
+  if (rule.phase !== "tripped") return;
+  const level = readLevel(sim.machines, rule.sensorId);
+  if (level >= rule.highHighSetpoint) {
+    logEvent(rule, sim.t, `reset commanded — high-high set point still tripped at ${pct(level)}, remains latched`);
+    return;
+  }
+  const targetBand = hysteresisTarget(rule, level, "closed");
+  const { actuator, behavior } = resolveActuator(rule, sim);
+  behavior.command(actuator, targetBand === "closed" ? "close" : "open", rule.rampTimeSec);
+  logEvent(rule, sim.t, `reset — valve commanded ${targetBand} (ramping over ${rule.rampTimeSec}s)`);
+  rule.settledBand = targetBand;
+  rule.phase = "recovering";
 }
 
 // Phase machine (issue #22 — the treater pre-bin slows the elevator, then
@@ -971,6 +1099,7 @@ const CONTROL_KINDS = {
     init: initGradedFeedSchedule, step: stepGradedFeedSchedule, reset: resetGradedFeedSchedule,
     disarm: disarmGradedFeedSchedule,
   },
+  hysteresisValve: { init: initHysteresisValve, step: stepHysteresisValve, reset: resetHysteresisValve },
 };
 
 // Arming (issue #47): the FD qualifies four of the packaging conveyor's own

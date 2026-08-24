@@ -1280,36 +1280,39 @@ export const line = {
   interlocks: [
     {
       id: "bufferBinHighTrip",
+      kind: "hysteresisValve",
       sensor: { machine: "treaterBufferBin" },
       // Engineer confirmed the interlock itself (buffer bin full -> close
       // the source valve). Set points and ramp time remain assumed: the
       // FD (2026-08-05) shows these are operator-adjustable SCADA
       // configuration, not fixed plant values, so there is nothing
-      // further to absorb for them. signalDelaySec is now CONFIRMED from
-      // the FD's own cause-and-effect matrix: LSH0 -> 5s -> elevator
-      // 52.414.E00 trips -> 1s -> vibratory feeders trip -> 1s -> bin
-      // outlet valves close (~7s total). See
-      // docs/PLC_FUNCTIONAL_DESCRIPTION.md §5.
+      // further to absorb for them. signalDelaySec is CONFIRMED from the
+      // FD's own cause-and-effect matrix: LSH0 -> 5s -> elevator 52.414.E00
+      // trips -> 1s -> vibratory feeders trip -> 1s -> bin outlet valves
+      // close (~7s total). See docs/PLC_FUNCTIONAL_DESCRIPTION.md §5.
       //
-      // The FD shows there is no automatic reopen in the real plant: a
-      // level-high event is a trip, and a tripped device needs a SCADA
-      // reset before it can restart — modelled since issue #45 as a
-      // latch only the plant control's RESET TRIPS command clears (and
-      // only once the level has actually cleared past the trip set point;
-      // see control.js's resetThresholdTrip).
-      //
-      // highHighSetpoint (LSHH) added on request: this valve's own trip
-      // point, re-sensored from LSH to LSHH exactly like the treater/
-      // Concetti pre-bins (issue #58) — LSH drops to display-only, joining
-      // LSL (already display-only; the FD classifies LSL0 as an information
-      // alarm with no interlock role). Unlike those pre-bins, this is *not*
-      // an FD-confirmed reading for this tag: the FD's own cause-and-effect
-      // matrix ties this valve's trip directly to 52.502.H00's LSH0, with no
-      // LSHH instrument named for it (docs/OPEN_QUESTIONS.md). Kept at 95%
-      // — the same figure the pre-bins use — purely so every bin on the line
-      // shares one trip-set-point convention; a deliberate consistency
-      // choice, not a plant fact, same footing as twoStageThrottle's own
-      // engineer-described slow stage (control.js).
+      // On request, this rule is no longer a single latched trip
+      // (thresholdTrip's own issue #19/#45 shape, which this used to be —
+      // see control.js's own resetThresholdTrip for that history). LSH/LSL
+      // now drive a live, non-latching hysteresis (control.js's own
+      // hysteresisValve): the valve closes at LSH and reopens on its own the
+      // instant the level clears LSL, ordinary bang-bang float-valve
+      // behaviour, with no operator action needed in between. highHighSetpoint
+      // (LSHH) is the one thing that still latches — the FD's own "no
+      // automatic reopen" trip finding (docs/OPEN_QUESTIONS.md) now applies
+      // to LSHH specifically, not LSH: crossing it commands the valve closed
+      // exactly like the old trip did, and only the plant control's RESET
+      // TRIPS command reopens it, gated on the level having actually
+      // cleared LSHH. This is a deliberate departure from the FD's own
+      // reading of this tag — its cause-and-effect matrix ties the ~7s trip
+      // chain above directly to 52.502.H00's LSH0, naming no LSHH and no
+      // live regulation beneath it — kept at 95%, the same figure the
+      // treater/Concetti pre-bins use (issue #58), so every bin on the line
+      // shares one trip-set-point convention. signalDelaySec/rampTimeSec are
+      // shared across all three transitions (open, close, trip) rather than
+      // split into a separate pair per transition — a simplification, not a
+      // claim that the live regulation's own delay is FD-confirmed the way
+      // the trip chain's is.
       highSetpoint: 0.85,
       lowSetpoint: 0.35,
       highHighSetpoint: 0.95,
