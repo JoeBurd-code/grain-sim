@@ -416,6 +416,7 @@ export default function GrainFlowSim() {
               fontSize: 11, cursor: "pointer", fontWeight: 600,
             }}>{s}x</button>
           ))}
+          <span style={{ fontSize: 11, color: C.muted, marginLeft: 4 }}>{snap.t.toFixed(1)} s elapsed</span>
         </div>
         <div style={{ display: "flex", gap: 4, marginLeft: "auto" }}>
           {Object.entries(PRESETS).map(([k, v]) => (
