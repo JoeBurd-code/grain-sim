@@ -10,13 +10,13 @@ import { LEVEL_KINDS } from "../sim/behaviors";
 // `live` (issue #34, reshaped by issue #63) is resolved by the parent from
 // the machine's published snapshot via `param.readBind` — see PARAM_READERS
 // in PlantApp.jsx — as `{ actual, cap, overridable }`, or `null` for a param
-// with no `readBind` at all. `actual` is issue #34's original figure: the
-// slider's own thumb now tracks it directly (issue #63's point #1) rather
-// than sitting frozen at the operator's last drag while a separate readout
-// disagreed forever — falling back to the dial whenever there's nothing live
-// to show yet. The *text* number beside the slider stays the operator's own
-// dial, with the "actual X" annotation kept exactly as issue #34 first built
-// it (hidden once the two already agree, rounded).
+// with no `readBind` at all. `live.actual` is issue #34's original figure
+// (dial x throttle — still-governed mid-ramp lag); the slider's own thumb
+// and its "actual X" text track it only while *not* armed — while armed,
+// both instead show the dial itself (see `armed`'s own comment below: an
+// override means the interlock's multiplier is exactly what's being
+// bypassed, so displaying its still-throttled figure next to an OVERRIDE tag
+// would flatly contradict it).
 //
 // `cap`/`overridable` are the live throttle band's own cap (in the same
 // units as this slider) and whether that band is a genuine partial throttle
@@ -48,10 +48,6 @@ import { LEVEL_KINDS } from "../sim/behaviors";
 // The operator's last-dragged position instead lives in PlantApp, above
 // the unmount boundary, so it survives close/reopen.
 function Slider({ param, value, touched, live, onChange }) {
-  const actual = live?.actual;
-  const roundedActual = actual != null ? Math.round(actual) : null;
-  const showActual = roundedActual != null && roundedActual !== value;
-
   const cap = live?.cap ?? null;
   const overridable = live?.overridable ?? false;
   // Grilled 2026-08-24: the tick is the machine's own "balanced" point — what
@@ -61,6 +57,17 @@ function Slider({ param, value, touched, live, onChange }) {
   // dial can never actually diverge from it while `!overridable` — nothing
   // further to gate here for that case.)
   const armed = touched && cap != null && value !== Math.round(cap);
+  // While armed, `actual` must read as the dial itself — the whole point of
+  // an override is "run it at what I dialled, not what the interlock's own
+  // cap/throttle multiplier would otherwise produce" — so showing PARAM_READERS'
+  // still-throttled `live.actual` here (issue #34's old dial x throttle
+  // figure) directly contradicted the OVERRIDE tag sitting right next to it.
+  // Only the *not* armed case (untouched, or touched and parked exactly on
+  // the tick) still shows that figure, which is where its own mid-ramp-lag
+  // job (point #6) actually applies.
+  const actual = armed ? value : live?.actual;
+  const roundedActual = actual != null ? Math.round(actual) : null;
+  const showActual = roundedActual != null && roundedActual !== value;
 
   const range = param.max - param.min;
   // A full stop physically caps how far the dial can be dragged; otherwise
