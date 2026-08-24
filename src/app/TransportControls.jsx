@@ -20,7 +20,7 @@ function btnStyle(active, disabled) {
   };
 }
 
-export default function TransportControls({ running, onStart, onPause, onStep, onRestart, speed, onSpeedChange }) {
+export default function TransportControls({ running, onStart, onPause, onStep, onRestart, speed, onSpeedChange, elapsed }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
       <button style={btnStyle(running)} onClick={running ? onPause : onStart}>
@@ -39,6 +39,9 @@ export default function TransportControls({ running, onStart, onPause, onStep, o
           </button>
         ))}
       </div>
+      <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_MONO, letterSpacing: "0.08em", marginLeft: 4 }}>
+        {elapsed.toFixed(1)}s elapsed
+      </span>
     </div>
   );
 }

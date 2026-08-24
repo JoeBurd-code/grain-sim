@@ -186,6 +186,7 @@ export default function MeetingApp() {
             onRestart={onRestart}
             speed={engine.speed}
             onSpeedChange={engine.setSpeed}
+            elapsed={engine.snap.t}
           />
           <div style={{ display: "flex", gap: 6, flex: "none" }}>
             {line.zones.map((z) => (
