@@ -264,7 +264,11 @@ function snapshotMeteredFeeder(state) {
   const snap = { rate: state.rate, enabled: state.enabled, runPermit: state.runPermit };
   if (state.gateFraction !== undefined) {
     snap.gateFraction = state.gateFraction;
+    // Issue #63: gateDialTouched/gateThrottleTarget weren't published before
+    // — see snapshotTransportDelay's own comment on the identical gap there.
+    snap.gateDialTouched = state.gateDialTouched;
     snap.gateThrottleFraction = state.gateThrottleFraction;
+    snap.gateThrottleTarget = state.gateThrottleTarget;
   }
   return snap;
 }
@@ -507,7 +511,12 @@ function snapshotTransportDelay(state) {
     leadingProgress, trailingProgress,
     transitTimeSec: v > 0 ? state.distanceM / v : Infinity,
     speedFraction: state.speedFraction,
+    // Issue #63: speedDialTouched/throttleTarget weren't published before —
+    // PARAM_READERS (PlantApp.jsx) needs both to compute the override-armed
+    // state and the "never overridable past a full stop" gate itself.
+    speedDialTouched: state.speedDialTouched,
     throttleFraction: state.throttleFraction,
+    throttleTarget: state.throttleTarget,
     // Actual live chain speed (issue #31), already folding in both the
     // manual VFD dial and any active interlock throttle via chainSpeedMPerSec.
     chainSpeedMPerMin: v * 60,
@@ -674,7 +683,9 @@ function snapshotRoutedTransportDelay(state) {
     leadingProgress, trailingProgress,
     transitTimeSec: v > 0 ? state.distanceM / v : Infinity,
     speedFraction: state.speedFraction,
+    speedDialTouched: state.speedDialTouched, // issue #63 — see plain transportDelay's own snapshot comment
     throttleFraction: state.throttleFraction,
+    throttleTarget: state.throttleTarget,
     chainSpeedMPerMin: v * 60,
     selected: state.selected,
   };

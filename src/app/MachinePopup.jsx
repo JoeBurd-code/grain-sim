@@ -32,12 +32,14 @@ import { LEVEL_KINDS } from "../sim/behaviors";
 // gradedFeedSchedule band's always-below-100% targets make that gate
 // necessary).
 //
-// Dragging a touched dial past the cap arms a manual override (issue #63,
-// point #2): implicit, no separate toggle — the thumb, text and an
-// "OVERRIDE" tag switch to the same warning red the RESET TRIPS button uses
-// while tripped. A full stop (cap present but not overridable) instead
-// clamps the input's own `max` to the cap, so the dial physically cannot be
-// dragged past it at all (point #3).
+// Dragging a touched dial away from the cap — the machine's own "balanced"
+// point, wherever the interlock alone would run it — arms a manual override
+// (issue #63, point #2, refined in a follow-up grilling session 2026-08-24):
+// implicit, no separate toggle, and in *either* direction, not only above the
+// cap — the thumb, text and an "OVERRIDE" tag switch to the same warning red
+// the RESET TRIPS button uses while tripped. A full stop (cap present but not
+// overridable) instead clamps the input's own `max` to the cap, so the dial
+// physically cannot be dragged away from it at all (point #3).
 //
 // `value` is a controlled prop, not local state: this popup unmounts
 // entirely on close (PlantApp only renders it while a machine is
@@ -52,7 +54,13 @@ function Slider({ param, value, touched, live, onChange }) {
 
   const cap = live?.cap ?? null;
   const overridable = live?.overridable ?? false;
-  const armed = touched && cap != null && overridable && value > cap;
+  // Grilled 2026-08-24: the tick is the machine's own "balanced" point — what
+  // the interlock alone would run it at — so any touched dial that departs
+  // from it, above *or* below, reads as a manual override, not only a value
+  // dragged past the cap. (A full stop clamps `inputMax` to the cap, so the
+  // dial can never actually diverge from it while `!overridable` — nothing
+  // further to gate here for that case.)
+  const armed = touched && cap != null && value !== Math.round(cap);
 
   const range = param.max - param.min;
   // A full stop physically caps how far the dial can be dragged; otherwise

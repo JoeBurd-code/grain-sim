@@ -15,6 +15,7 @@ import EventLogPanel from "./EventLogPanel";
 import { useViewport } from "../scene/useViewport";
 import { useSimEngine } from "../sim/useSimEngine";
 import { tPerHourToM3PerSec, m3PerSecToTPerHour, BULK_DENSITY_T_PER_M3 } from "../sim/units";
+import { isThrottleOverridden } from "../sim/behaviors";
 import { isSeriesPlotted } from "../sim/plotHistory";
 import { plotColorFor } from "./plotColors";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
@@ -60,15 +61,25 @@ const PARAM_BINDERS = {
 // a param with none shows no readout at all. The setpoint slider itself
 // never reads from these — it stays bound only to the operator's own dial.
 // Issue #63: every reader now returns `{ actual, cap, overridable }` rather
-// than a bare number — `actual` is issue #34's original figure, unchanged;
-// `cap` (in the same units as the param's own slider) is where a throttle
-// band currently limits this dial, or `null` when this param has no such
-// band at all (sourceRate/feederRate — see their own comment below); and
-// `overridable` says whether the governing rule's live target is a genuine
-// partial throttle (> 0) rather than a full stop, which can never be
-// overridden. MachinePopup's own Slider combines this with the operator's
-// dial (already passed to it separately) to derive the tick position and the
-// armed/not-armed state itself — see that component's own comment.
+// than a bare number. `cap` (in the same units as the param's own slider) is
+// where a throttle band currently limits this dial, or `null` when this
+// param has no such band at all (sourceRate/feederRate — see their own
+// comment below); `overridable` says whether the governing rule's live
+// target is a genuine partial throttle (> 0) rather than a full stop, which
+// can never be overridden. MachinePopup's own Slider combines this with the
+// operator's dial (already passed to it separately) to derive the tick
+// position and the armed/not-armed state itself — see that component's own
+// comment.
+//
+// `actual` itself is now the *real, override-aware effective value* — the
+// same swap `isThrottleOverridden` drives in the sim layer (capacity in
+// behaviors.js, the feed-rate derivation in control.js) — not issue #34's
+// old always-`dial × throttle` figure. While governed that's unchanged from
+// #34 (still shows the interlock's own mid-ramp lag); the moment a touched
+// dial is dragged past its own cap, `actual` snaps to the dial itself, so
+// the slider's thumb (which tracks `actual`, MachinePopup.jsx) actually
+// reaches the position it was dragged to instead of staying pinned at the
+// old capped number underneath an "OVERRIDE" tag that disagreed with it.
 const PARAM_READERS = {
   // Source valve (issue #19) and drum feeder (issue #42): each can be
   // overridden by an interlock (valve openness; a direct rate command) out
@@ -89,24 +100,34 @@ const PARAM_READERS = {
   feederRateActual: (dynamic) => (dynamic ? { actual: m3PerSecToTPerHour(dynamic.rate ?? 0), cap: null, overridable: false } : null),
   // Elevator (issue #22's two-stage throttle, superseded on the real line by
   // issue #60's gradedFeedSchedule): speedFraction is the operator's own VFD
-  // dial, throttleFraction is the interlock's own multiplier layered on top
-  // — both already published by snapshotTransportDelay, combined here the
-  // same way chainSpeedMPerMin is. `cap`/`overridable` read throttleFraction/
-  // throttleTarget directly, in the dial's own percent units, for the
-  // Slider's own tick and armed-state computation.
-  elevatorSpeedActual: (dynamic) => (dynamic ? {
-    actual: (dynamic.speedFraction ?? 1) * (dynamic.throttleFraction ?? 1) * 100,
-    cap: (dynamic.throttleFraction ?? 1) * 100,
-    overridable: (dynamic.throttleTarget ?? 1) > 0,
-  } : null),
+  // dial, throttleFraction is the interlock's own multiplier layered on top.
+  elevatorSpeedActual: (dynamic) => {
+    if (!dynamic) return null;
+    const dial = dynamic.speedFraction ?? 1;
+    const throttle = dynamic.throttleFraction ?? 1;
+    const target = dynamic.throttleTarget ?? 1;
+    const overridden = isThrottleOverridden(dynamic.speedDialTouched ?? false, dial, throttle, target);
+    return {
+      actual: (overridden ? dial : dial * throttle) * 100,
+      cap: throttle * 100,
+      overridable: target > 0,
+    };
+  },
   // Drum feeder gate (issue #60): same shape as elevatorSpeedActual above —
   // gateFraction is the presenter's own dial, gateThrottleFraction the feed
   // schedule's own multiplier layered on top.
-  gatePositionActual: (dynamic) => (dynamic ? {
-    actual: (dynamic.gateFraction ?? 1) * (dynamic.gateThrottleFraction ?? 1) * 100,
-    cap: (dynamic.gateThrottleFraction ?? 1) * 100,
-    overridable: (dynamic.gateThrottleTarget ?? 1) > 0,
-  } : null),
+  gatePositionActual: (dynamic) => {
+    if (!dynamic) return null;
+    const dial = dynamic.gateFraction ?? 1;
+    const throttle = dynamic.gateThrottleFraction ?? 1;
+    const target = dynamic.gateThrottleTarget ?? 1;
+    const overridden = isThrottleOverridden(dynamic.gateDialTouched ?? false, dial, throttle, target);
+    return {
+      actual: (overridden ? dial : dial * throttle) * 100,
+      cap: throttle * 100,
+      overridable: target > 0,
+    };
+  },
 };
 
 const validation = validateLine(line);

@@ -263,7 +263,8 @@ describe("meteredFeeder (issue #20)", () => {
       BEHAVIORS.meteredFeeder.commandGate(state, 0.5, 0);
       BEHAVIORS.meteredFeeder.apply(state, 0.05, 0, Infinity);
       expect(BEHAVIORS.meteredFeeder.snapshot(state)).toEqual({
-        rate: 10, enabled: true, runPermit: true, gateFraction: 0.55, gateThrottleFraction: 0.5,
+        rate: 10, enabled: true, runPermit: true, gateFraction: 0.55, gateDialTouched: false,
+        gateThrottleFraction: 0.5, gateThrottleTarget: 0.5,
       });
     });
 
