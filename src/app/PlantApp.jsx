@@ -296,6 +296,7 @@ export default function PlantApp() {
             <MachinePopup
               key={selected.id}
               machine={selected}
+              dynamic={engine.snap.machines.get(selected.id)}
               levelPlotted={isSeriesPlotted(engine.history, selected.id, "level")}
               ratePlotted={isSeriesPlotted(engine.history, selected.id, "rate")}
               plotColor={plotColorFor(selected.id)}

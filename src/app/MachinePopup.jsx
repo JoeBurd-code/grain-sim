@@ -5,6 +5,7 @@
 import { useEffect } from "react";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 import { LEVEL_KINDS } from "../sim/behaviors";
+import { m3ToTonnes } from "../sim/units";
 
 
 // `live` (issue #34, reshaped by issue #63) is resolved by the parent from
@@ -132,8 +133,25 @@ function PlotToggle({ active, color, label, onClick }) {
   );
 }
 
+// Current/capacity/percent together, plant-mimic style (grilled 2026-08-26):
+// the diagram's LT dot and the shared chart's axis already show percentage
+// alone, so this is the one surface with room to add the number those two
+// can't -- the bin's own capacity, which is what makes "73%" mean something
+// concrete rather than a value with no reference to compare it against.
+function LevelReadout({ fill, capacityM3 }) {
+  if (fill == null || capacityM3 == null) return null;
+  const currentT = m3ToTonnes(fill * capacityM3);
+  const capacityT = m3ToTonnes(capacityM3);
+  return (
+    <div style={{ fontSize: 13, color: C.text, marginBottom: 4 }}>
+      {currentT.toFixed(1)} / {capacityT.toFixed(1)} t{" "}
+      <span style={{ color: C.muted, fontSize: 11 }}>· {Math.round(fill * 100)}%</span>
+    </div>
+  );
+}
+
 export default function MachinePopup({
-  machine: m, levelPlotted, ratePlotted, plotColor, onToggleSeries, onClose, paramValues, onParamChange, onParamRead, events,
+  machine: m, dynamic, levelPlotted, ratePlotted, plotColor, onToggleSeries, onClose, paramValues, onParamChange, onParamRead, events,
 }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -176,6 +194,10 @@ export default function MachinePopup({
           ×
         </button>
       </div>
+
+      {hasLevel && m.sim?.capacityM3 != null && (
+        <LevelReadout fill={dynamic?.fill} capacityM3={m.sim.capacityM3} />
+      )}
 
       {(m.params ?? []).length > 0 && (
         <>

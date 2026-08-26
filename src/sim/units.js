@@ -14,6 +14,10 @@ export function m3PerSecToTPerHour(m3PerSec) {
   return m3PerSec * BULK_DENSITY_T_PER_M3 * 3600;
 }
 
+export function m3ToTonnes(m3) {
+  return m3 * BULK_DENSITY_T_PER_M3;
+}
+
 // Simatek elevator feed-rate formula (issue #57): TPH = Speed% x Gate% x k,
 // matching the plant's own commissioning spreadsheet
 // (Elevator_Feed_Rate_Calculator_v4_UPDATED.xlsx, user-supplied 2026-08-19,

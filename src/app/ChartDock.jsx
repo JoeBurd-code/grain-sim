@@ -28,7 +28,7 @@
 // pure math lives in measureSpan.js, mirroring useChartRange/chartRange.js.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
-import { m3PerSecToTPerHour } from "../sim/units";
+import { m3PerSecToTPerHour, m3ToTonnes } from "../sim/units";
 import { sampleValueAt } from "../sim/plotHistory";
 import { PLOTTABLE_MACHINES, plotColorFor } from "./plotColors";
 import { useChartRange } from "./useChartRange";
@@ -132,11 +132,11 @@ function usePlotSize() {
 // cursor's actual Y wins -- so hovering near the rate line's dashed trace
 // reads that series even where a level line happens to cross the same x.
 const HOVER_SNAP_PX = 14; // cursor must be within this many px of a series' point, or nothing is selected
-// Rough width budget for the inline value label (e.g. "100.0%"/"14.00 t/h"
-// at fontSize 10 JetBrains Mono) -- once the dot is closer to the plot's
-// right edge than this, the label flips to the dot's left instead of
-// running past the edge.
-const HOVER_LABEL_RESERVE_PX = 80;
+// Rough width budget for the inline value label (e.g. "100.0% · 5.5 t"/
+// "14.00 t/h" at fontSize 10 JetBrains Mono) -- once the dot is closer to
+// the plot's right edge than this, the label flips to the dot's left
+// instead of running past the edge.
+const HOVER_LABEL_RESERVE_PX = 110;
 
 export default function ChartDock({ history, events, onEventClick }) {
   const [plotRef, size] = usePlotSize();
@@ -250,9 +250,15 @@ export default function ChartDock({ history, events, onEventClick }) {
     setHover(null);
   }
   const hoverLabel = hover ? `${hover.series.machine.name} · ${hover.series.kind}` : null;
+  // Level hover combines both readings in one string (grilled 2026-08-26):
+  // the axis stays percentage-only, but the hovered value also converts to
+  // tonnes off that series' own machine capacity, matching how the plant's
+  // own mimic screens pair a fill with its tonnage rather than showing % in
+  // isolation. Shared by both the docked left-panel readout and the inline
+  // on-chart label below -- one string, two render sites.
   const hoverValueText = hover
     ? hover.series.kind === "level"
-      ? `${(hover.value * 100).toFixed(1)}%`
+      ? `${(hover.value * 100).toFixed(1)}% · ${m3ToTonnes(hover.value * hover.series.machine.sim.capacityM3).toFixed(1)} t`
       : `${m3PerSecToTPerHour(hover.value).toFixed(2)} t/h`
     : null;
 
