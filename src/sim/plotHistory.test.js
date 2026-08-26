@@ -6,6 +6,7 @@ import { describe, it, expect } from "vitest";
 import {
   createPlotHistory, isSeriesPlotted, setSeriesPlotted, recordSample, sampleValueAt,
 } from "./plotHistory";
+import { tPerHourToM3PerSec } from "./units";
 
 function snap(fill, flowRateM3PerSec) {
   return new Map([["bin", { fill, flowRateM3PerSec }]]);
@@ -92,6 +93,47 @@ describe("recordSample", () => {
     h = recordSample(h, 1, snap(0.5, 0.01));
     h = recordSample(h, 2, new Map()); // no snapshot for "bin" this tick
     expect(h.get("bin").level).toEqual([{ t: 1, value: 0.5 }]);
+  });
+
+  it("despikes a level above 100% by repeating the last accepted value", () => {
+    let h = createPlotHistory();
+    h = setSeriesPlotted(h, "bin", "level", true);
+    h = recordSample(h, 1, snap(0.5, 0.01));
+    h = recordSample(h, 2, snap(1.7, 0.01)); // spurious >100% fill
+    h = recordSample(h, 3, snap(0.6, 0.01)); // back to normal
+    expect(h.get("bin").level).toEqual([
+      { t: 1, value: 0.5 },
+      { t: 2, value: 0.5 },
+      { t: 3, value: 0.6 },
+    ]);
+  });
+
+  it("despikes a level spike with no prior sample to a hold of 0", () => {
+    let h = createPlotHistory();
+    h = setSeriesPlotted(h, "bin", "level", true);
+    h = recordSample(h, 1, snap(4, 0.01)); // spike on the very first sample
+    expect(h.get("bin").level).toEqual([{ t: 1, value: 0 }]);
+  });
+
+  it("despikes a rate above 100 t/h by repeating the last accepted value", () => {
+    let h = createPlotHistory();
+    h = setSeriesPlotted(h, "bin", "rate", true);
+    h = recordSample(h, 1, snap(0.5, 0.005)); // ~13 t/h, well under the cap
+    h = recordSample(h, 2, snap(0.5, 5)); // absurd spike, e.g. flow blowing past 16000 t/h
+    h = recordSample(h, 3, snap(0.5, 0.006));
+    expect(h.get("bin").rate).toEqual([
+      { t: 1, value: 0.005 },
+      { t: 2, value: 0.005 },
+      { t: 3, value: 0.006 },
+    ]);
+  });
+
+  it("accepts a rate exactly at the 100 t/h cap", () => {
+    let h = createPlotHistory();
+    h = setSeriesPlotted(h, "bin", "rate", true);
+    const capM3PerSec = tPerHourToM3PerSec(100);
+    h = recordSample(h, 1, snap(0.5, capM3PerSec));
+    expect(h.get("bin").rate).toEqual([{ t: 1, value: capM3PerSec }]);
   });
 });
 

@@ -7,6 +7,24 @@
 // recordSample, which the sim engine hook calls at its own throttled publish
 // cadence (see useSimEngine.js), so the graph's sample rate is exactly the
 // snapshot publish rate, not a second independent one.
+//
+// Despiking: an occasional published snapshot carries a spurious value (e.g.
+// a momentary flowRateM3PerSec far past what the line can physically do).
+// recordSample clamps against a per-kind sanity cap and, when a raw value
+// exceeds it, repeats the series' last accepted value instead of plotting
+// the spike -- the trace goes flat for that tick rather than jumping. This
+// is a chart-only despike: it doesn't touch the snapshot itself, so nothing
+// outside this recorded series is affected.
+
+import { tPerHourToM3PerSec } from "./units";
+
+// Sanity caps for the despike in recordSample, below. Level is a 0..1 fill
+// fraction, so 100% is an exact, not approximate, ceiling. Rate has no such
+// natural ceiling -- 100 t/h is a generous multiple over this line's ~12 t/h
+// treater-limited rate (REAL_LINE_SPECS.md), chosen so a legitimate ramp
+// never gets clipped as a spike.
+const LEVEL_MAX_FRACTION = 1;
+const RATE_MAX_M3_PER_SEC = tPerHourToM3PerSec(100);
 
 export function createPlotHistory() {
   return new Map(); // machineId -> { level: Sample[] | null, rate: Sample[] | null }
@@ -30,6 +48,15 @@ export function setSeriesPlotted(history, machineId, kind, on) {
   return next;
 }
 
+// Returns the value to append for one series' next sample: `raw` itself if
+// it's within `max`, otherwise a repeat of the last accepted sample (or 0
+// for a series with no accepted sample yet) so the spike plots as a flat
+// hold rather than a jump.
+function despike(samples, raw, max) {
+  if (raw <= max) return raw;
+  return samples.length > 0 ? samples[samples.length - 1].value : 0;
+}
+
 // Appends one sample to every currently-plotted series, reading each
 // machine's live value off its published snapshot. A machine with no entry
 // in `machineSnapshots` this tick (e.g. plotted then the popup closed on a
@@ -40,8 +67,12 @@ export function recordSample(history, t, machineSnapshots) {
   for (const [machineId, entry] of history) {
     const snap = machineSnapshots.get(machineId);
     next.set(machineId, {
-      level: entry.level && snap ? [...entry.level, { t, value: snap.fill ?? 0 }] : entry.level,
-      rate: entry.rate && snap ? [...entry.rate, { t, value: snap.flowRateM3PerSec ?? 0 }] : entry.rate,
+      level: entry.level && snap
+        ? [...entry.level, { t, value: despike(entry.level, snap.fill ?? 0, LEVEL_MAX_FRACTION) }]
+        : entry.level,
+      rate: entry.rate && snap
+        ? [...entry.rate, { t, value: despike(entry.rate, snap.flowRateM3PerSec ?? 0, RATE_MAX_M3_PER_SEC) }]
+        : entry.rate,
     });
   }
   return next;
