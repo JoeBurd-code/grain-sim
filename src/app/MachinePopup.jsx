@@ -64,6 +64,26 @@ import { m3ToTonnes } from "../sim/units";
 // The operator's last-dragged position instead lives in PlantApp, above
 // the unmount boundary, so it survives close/reopen — and is still what
 // `armed` compares against, even though it's no longer what's displayed.
+// A native range input's click-to-position and drag both center the visible
+// thumb under the cursor, but our own tick mark (`capPct` below) is drawn at
+// a plain linear percentage of the track's full width — it never accounts
+// for the thumb's own physical width, which the browser insets from both
+// ends of the track when mapping a position to a value. The two disagree by
+// roughly half the thumb's width in pixels, which is why clicking (or
+// dragging) to what visually looks like dead-on the tick still lands `value`
+// a point or two off it: the readout tracks the thumb's true native
+// position, not the naively-drawn tick. Rather than chase the exact
+// thumb-width math (OS/browser-themed, not something this app controls, at
+// `appearance: auto`), both this arming check and PlantApp.jsx's own
+// return-to-normal release in onParamChange snap within a small tolerance
+// of the cap instead of requiring exact equality — the same fix on both
+// ends of the one comparison they share.
+// Exported so PlantApp.jsx's onParamChange snaps a return-to-normal release
+// on the exact same window this file arms/disarms on — the two must agree,
+// or a drag could read as "released" here while the engine below still
+// thinks it's touched at an off-cap fraction, or vice versa.
+export const OVERRIDE_SNAP = 2; // percentage points either side of the cap that still counts as "on it"
+
 function Slider({ param, value, touched, live, onChange }) {
   const cap = live?.cap ?? null;
   const overridable = live?.overridable ?? false;
@@ -72,8 +92,9 @@ function Slider({ param, value, touched, live, onChange }) {
   // from it, above *or* below, reads as a manual override, not only a value
   // dragged past the cap. (A full stop clamps `inputMax` to the cap, so the
   // dial can never actually diverge from it while `!overridable` — nothing
-  // further to gate here for that case.)
-  const armed = touched && cap != null && value !== Math.round(cap);
+  // further to gate here for that case.) Snapped within OVERRIDE_SNAP above,
+  // not exact equality — see that constant's own comment.
+  const armed = touched && cap != null && Math.abs(value - cap) > OVERRIDE_SNAP;
   const displayValue = armed ? value : (live?.actual != null ? Math.round(live.actual) : value);
 
   const range = param.max - param.min;

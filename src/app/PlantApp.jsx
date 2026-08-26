@@ -7,7 +7,7 @@ import { line } from "../line/lineData";
 import { validateLine } from "../line/validateLine";
 import { lineBounds, zoneBounds } from "../line/bounds";
 import Scene from "../scene/Scene";
-import MachinePopup from "./MachinePopup";
+import MachinePopup, { OVERRIDE_SNAP } from "./MachinePopup";
 import TransportControls from "./TransportControls";
 import PlantControls from "./PlantControls";
 import ChartDock from "./ChartDock";
@@ -196,7 +196,13 @@ export default function PlantApp() {
       const live = releaser && param.readBind
         ? PARAM_READERS[param.readBind]?.(engine.snap.machines.get(machineId))
         : null;
-      if (live?.cap != null && Math.round(value) === Math.round(live.cap)) {
+      // Snapped within OVERRIDE_SNAP, not exact equality — a native range
+      // input's click/drag centers the thumb under the cursor, but our own
+      // tick mark (MachinePopup.jsx's Slider) is drawn at a plain linear
+      // percentage that doesn't account for the thumb's own physical width,
+      // so a drag that visually lands dead-on the tick still comes back a
+      // point or two off it. See OVERRIDE_SNAP's own comment.
+      if (live?.cap != null && Math.abs(value - live.cap) <= OVERRIDE_SNAP) {
         setParamValues((prev) => {
           if (prev[machineId]?.[param.id] === undefined) return prev;
           const rest = { ...prev[machineId] };
