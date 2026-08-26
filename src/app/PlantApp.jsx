@@ -7,7 +7,7 @@ import { line } from "../line/lineData";
 import { validateLine } from "../line/validateLine";
 import { lineBounds, zoneBounds } from "../line/bounds";
 import Scene from "../scene/Scene";
-import MachinePopup, { OVERRIDE_SNAP } from "./MachinePopup";
+import MachinePopup, { OVERRIDE_SNAP, THUMB_PX } from "./MachinePopup";
 import TransportControls from "./TransportControls";
 import PlantControls from "./PlantControls";
 import ChartDock from "./ChartDock";
@@ -246,6 +246,23 @@ export default function PlantApp() {
         .machine .mname { transition: fill .15s ease; }
         .machine:hover .mname { fill: #ffffff; }
         .zonebtn:hover { color: #d4dad0; border-color: #6e7a71; }
+        /* Pinned to MachinePopup.jsx's own THUMB_PX so the cap tick's
+           thumb-center math there matches what actually renders here — an
+           OS-themed default thumb has no queryable size, so the size has to
+           be fixed at this end for that math to hold at all. */
+        .param-slider { cursor: pointer; }
+        .param-slider::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          width: ${THUMB_PX}px; height: ${THUMB_PX}px; border-radius: 50%;
+          background: var(--thumb-color);
+          cursor: pointer;
+        }
+        .param-slider::-moz-range-thumb {
+          width: ${THUMB_PX}px; height: ${THUMB_PX}px; border-radius: 50%;
+          background: var(--thumb-color);
+          border: none;
+          cursor: pointer;
+        }
         @keyframes instrumentPulse {
           0% { r: 9; opacity: 0.9; }
           100% { r: 20; opacity: 0; }

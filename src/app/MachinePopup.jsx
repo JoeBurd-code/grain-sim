@@ -84,6 +84,14 @@ import { m3ToTonnes } from "../sim/units";
 // thinks it's touched at an off-cap fraction, or vice versa.
 export const OVERRIDE_SNAP = 2; // percentage points either side of the cap that still counts as "on it"
 
+// The tick's own pixel position needs the thumb's diameter to correct for
+// the inset above — which means the thumb can no longer be left at its
+// OS-themed default size (unmeasurable from CSS). `.param-slider`
+// (PlantApp.jsx's own global `<style>`) pins the thumb to this exact size on
+// both engines, so `capLeft` below can compute the same geometry the browser
+// actually renders instead of guessing at it.
+export const THUMB_PX = 14;
+
 function Slider({ param, value, touched, live, onChange }) {
   const cap = live?.cap ?? null;
   const overridable = live?.overridable ?? false;
@@ -106,6 +114,17 @@ function Slider({ param, value, touched, live, onChange }) {
   const capPct = cap != null && range > 0
     ? ((Math.min(param.max, Math.max(param.min, cap)) - param.min) / range) * 100
     : null;
+  // A native thumb's *center* travels only the track width minus its own
+  // diameter — inset by half the thumb on each end, not the naive 0%/100%
+  // this plain-percentage `capPct` assumes — so the tick has to apply the
+  // same inset to land under the thumb's actual center once the dial is
+  // dragged to sit on the cap. See THUMB_PX's own comment. The extra -1px is
+  // the marker div's own half-width (it's 2px wide), so its center — not its
+  // left edge — is what lands on the thumb's center.
+  const TICK_PX = 2;
+  const capLeft = capPct != null
+    ? `calc(${THUMB_PX / 2 - TICK_PX / 2}px + (100% - ${THUMB_PX}px) * ${capPct / 100})`
+    : null;
 
   return (
     <div style={{ marginBottom: 10 }}>
@@ -119,17 +138,25 @@ function Slider({ param, value, touched, live, onChange }) {
       <div style={{ position: "relative", height: 14 }}>
         <input
           type="range"
+          className="param-slider"
           min={param.min}
           max={inputMax}
           value={thumbValue}
           onChange={(e) => onChange?.(Number(e.target.value))}
-          style={{ width: "100%", accentColor: armed ? C.red : C.wheat, height: 14 }}
+          style={{
+            width: "100%", height: 14,
+            accentColor: armed ? C.red : C.wheat,
+            // `.param-slider`'s own thumb rule (PlantApp.jsx) reads this
+            // custom property rather than a hardcoded color, since it's the
+            // one place the armed/not-armed color is actually decided.
+            "--thumb-color": armed ? C.red : C.wheat,
+          }}
         />
-        {capPct != null && (
+        {capLeft != null && (
           <div
             title={`interlock cap: ${Math.round(cap)} ${param.unit}`}
             style={{
-              position: "absolute", left: `${capPct}%`, top: 2, width: 2, height: 10,
+              position: "absolute", left: capLeft, top: 2, width: TICK_PX, height: 10,
               background: C.muted, pointerEvents: "none",
             }}
           />
