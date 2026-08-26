@@ -4,8 +4,16 @@
 // rendering involved (issue #36's acceptance criteria).
 import { describe, it, expect } from "vitest";
 import {
-  createPlotHistory, isSeriesPlotted, setSeriesPlotted, recordSample, sampleValueAt, RATE_AVG_WINDOW_SEC,
+  createPlotHistory, isSeriesPlotted, setSeriesPlotted, recordSample, sampleValueAt, RATE_EMA_TAU_SEC,
 } from "./plotHistory";
+
+// The exact single-step EMA update recordSample uses internally (see
+// plotHistory.js's nextEma), reproduced here so tests can assert against the
+// real formula's output instead of a value transcribed by hand.
+function emaStep(prevValue, elapsed, instRate) {
+  const alpha = 1 - Math.exp(-elapsed / RATE_EMA_TAU_SEC);
+  return prevValue + alpha * (instRate - prevValue);
+}
 
 // `cumulativeOutM3` is the machine's running total volume discharged so far
 // (engine.js's stepSim) -- what the rate series is now derived from, not an
@@ -66,7 +74,7 @@ describe("recordSample", () => {
     expect(h.get("bin").rate).toHaveLength(2);
     expect(h.get("bin").rate[0]).toEqual({ t: 1, value: 0 });
     expect(h.get("bin").rate[1].t).toBe(2);
-    expect(h.get("bin").rate[1].value).toBeCloseTo(0.02);
+    expect(h.get("bin").rate[1].value).toBeCloseTo(emaStep(0, 1, 0.02));
     expect(h.get("bin").level).toEqual([{ t: 2, value: 0.6 }]);
   });
 
@@ -120,36 +128,48 @@ describe("recordSample", () => {
     expect(h.get("bin").level).toEqual([{ t: 1, value: 0 }]);
   });
 
-  it("reads a single-tick discharge pulse at its raw instantaneous size before any idle time dilutes it", () => {
+  it("a single-tick discharge pulse only nudges the EMA by roughly volume/tau, not its raw instantaneous size", () => {
     let h = createPlotHistory();
     h = setSeriesPlotted(h, "bin", "rate", true);
     h = recordSample(h, 0, snap(0.5, 0)); // baseline
     h = recordSample(h, 0.05, snap(0.5, 0.2)); // a whole batch charge dumped in this one tick
-    expect(h.get("bin").rate.at(-1).value).toBeCloseTo(0.2 / 0.05); // 4 m3/s -- nothing yet to average it down
+    // The raw instantaneous rate this tick is 0.2/0.05 = 4 m3/s; an EMA's
+    // response to a brief pulse is approximately volume/tau (the classic
+    // low-pass-filter impulse response), not that raw size -- 4 m3/s would
+    // be ~11500 t/h, but 0.2/48 is under 4.2 t/h-equivalent.
+    expect(h.get("bin").rate.at(-1).value).toBeCloseTo(0.2 / RATE_EMA_TAU_SEC, 3);
   });
 
-  it("averages a discharge pulse down as idle time with no further volume moved accumulates after it", () => {
+  it("decays a discharge pulse's contribution exponentially once no further volume moves", () => {
     let h = createPlotHistory();
     h = setSeriesPlotted(h, "bin", "rate", true);
     h = recordSample(h, 0, snap(0.5, 0));
     h = recordSample(h, 0.05, snap(0.5, 0.2)); // pulse
     const justAfterPulse = h.get("bin").rate.at(-1).value;
     h = recordSample(h, 30, snap(0.5, 0.2)); // 30s of no further discharge
-    const midway = h.get("bin").rate.at(-1).value;
-    expect(midway).toBeCloseTo(0.2 / 30);
-    expect(midway).toBeLessThan(justAfterPulse);
+    const decayed = h.get("bin").rate.at(-1).value;
+    // With no new volume the instantaneous rate is 0, so the update reduces
+    // to prevValue * exp(-elapsed / tau) exactly.
+    expect(decayed).toBeCloseTo(justAfterPulse * Math.exp(-29.95 / RATE_EMA_TAU_SEC));
+    expect(decayed).toBeLessThan(justAfterPulse);
   });
 
-  it("drops a discharge pulse out of the average once it's older than the averaging window", () => {
+  it("decays smoothly toward zero over many time constants, with no sudden cliff", () => {
     let h = createPlotHistory();
     h = setSeriesPlotted(h, "bin", "rate", true);
     h = recordSample(h, 0, snap(0.5, 0));
-    h = recordSample(h, 0.05, snap(0.5, 0.2)); // pulse
-    h = recordSample(h, RATE_AVG_WINDOW_SEC + 1, snap(0.5, 0.2)); // long after, no more volume moved since
-    expect(h.get("bin").rate.at(-1).value).toBe(0);
+    h = recordSample(h, 0.05, snap(0.5, 0.2)); // pulse, then nothing further ever moves
+    const readings = [1, 10, 30, 60, 120, 5 * RATE_EMA_TAU_SEC].map((t) => {
+      h = recordSample(h, t, snap(0.5, 0.2));
+      return h.get("bin").rate.at(-1).value;
+    });
+    // Monotonically decreasing -- no cliff, no rebound.
+    for (let i = 1; i < readings.length; i++) expect(readings[i]).toBeLessThan(readings[i - 1]);
+    // Effectively fully decayed after several time constants.
+    expect(readings.at(-1)).toBeLessThan(0.2 / RATE_EMA_TAU_SEC * 0.01);
   });
 
-  it("starts a clean rate series and volume baseline when re-plotted after being toggled off", () => {
+  it("starts a clean rate series and EMA baseline when re-plotted after being toggled off", () => {
     let h = createPlotHistory();
     h = setSeriesPlotted(h, "bin", "rate", true);
     h = recordSample(h, 0, snap(0.5, 0));

@@ -15,33 +15,40 @@
 // that tick rather than jumping. Chart-only: it doesn't touch the snapshot
 // itself, so nothing outside this recorded series is affected.
 //
-// Rate is not a despike -- it's a windowed average. A machine like the
-// batch treater discharges its whole charge in the single 0.05s tick its
-// "discharging" phase begins (behaviors.js, batchCycle): read as a per-tick
-// instantaneous rate, a real 160 kg charge is a genuine ~11500 t/h for that
-// one tick, and the chart's own throttled ~10fps publish (useSimEngine.js)
-// either misses that tick entirely (most publishes) or shows the whole
-// undiluted spike (whichever publish's last simulated step happens to be the
-// discharging one) -- there is no meaningful per-tick "rate" to despike here,
-// only a genuine average over enough time to cover a full charge cycle.
-// recordSample instead tracks each rate series' own running
-// cumulativeOutM3 (engine.js's stepSim -- a volume total that can never skip
-// a tick's contribution, unlike flowRateM3PerSec) and reports the average
-// throughput over the trailing RATE_AVG_WINDOW_SEC, i.e. (volume moved in
-// the window) / (window length) -- the treater settles at its real ~12 t/h
-// sustained rate instead of oscillating between 0 and a five-figure spike.
+// Rate is not a despike -- it's an exponential moving average (EMA). A
+// machine like the batch treater discharges its whole charge in the single
+// 0.05s tick its "discharging" phase begins (behaviors.js, batchCycle): read
+// as a per-tick instantaneous rate, a real 160 kg charge is a genuine
+// ~11500 t/h for that one tick, and the chart's own throttled ~10fps publish
+// (useSimEngine.js) either misses that tick entirely (most publishes) or
+// shows the whole undiluted spike (whichever publish's last simulated step
+// happens to be the discharging one) -- there is no meaningful per-tick
+// "rate" to despike here, only a genuine average over enough time to cover a
+// full charge cycle. recordSample instead tracks each rate series' own
+// running cumulativeOutM3 (engine.js's stepSim -- a volume total that can
+// never skip a tick's contribution, unlike flowRateM3PerSec) and smooths the
+// throughput implied by it with an EMA of time constant RATE_EMA_TAU_SEC,
+// rather than a hard-cutoff windowed average: a fixed window means a pulse's
+// entire volume drops out in one step the instant it ages past the cutoff (a
+// visible cliff, immediately following a visible post-pulse spike, once per
+// cycle); an EMA has no cutoff to fall off of, so it settles toward the
+// treater's real ~12 t/h sustained rate as a smooth, monotonic curve instead.
 // Sanity cap for the level despike above. Level is a 0..1 fill fraction, so
 // 100% is an exact, not approximate, ceiling.
 const LEVEL_MAX_FRACTION = 1;
-// Longer than every batch-cycle machine's own cycle time on this line
-// (treater 48s, Concetti scale 15s, Flexicon 45s -- lineData.js) so each
-// one's average fully covers a charge/discharge cycle rather than catching
-// it mid-cycle; short enough that a genuine rate change (a presenter
-// dragging a feeder's dial) still reaches the chart within about a minute.
-export const RATE_AVG_WINDOW_SEC = 60;
+// Flattening one machine's own periodic pulsing needs the EMA to keep
+// "memory" back across at least about one of its own cycles; shrinking tau
+// below that just lets each pulse show through mostly undamped. Pinned to
+// the treater's cycle time (48s -- lineData.js, the longest of the batch
+// machines on this line: Concetti scale 15s, Flexicon 45s) as the smallest
+// value that still meaningfully flattens the slowest one, since any larger
+// only adds lag without flattening anything better -- a genuine rate change
+// is then ~63% visible after one tau and ~86% after two, rather than the
+// several-minute settling a longer window would cost.
+export const RATE_EMA_TAU_SEC = 48;
 
 export function createPlotHistory() {
-  return new Map(); // machineId -> { level: Sample[] | null, rate: Sample[] | null, rateVolume: VolumeSample[] | null }
+  return new Map(); // machineId -> { level: Sample[] | null, rate: Sample[] | null, rateEma: EmaState | null }
 }
 
 export function isSeriesPlotted(history, machineId, kind) {
@@ -51,16 +58,17 @@ export function isSeriesPlotted(history, machineId, kind) {
 // Starts (on=true) or discards (on=false) one machine's series. A no-op
 // (returns the same reference) when the requested state already holds, so
 // callers can dispatch unconditionally without needing to check first.
-// `rateVolume` (the internal cumulative-volume buffer recordSample averages
-// over) is toggled in lockstep with `rate`, never exposed or toggled on its
-// own -- it's not a plottable series, just what the visible `rate` series is
-// derived from.
+// `rateEma` (the internal EMA state recordSample derives the visible `rate`
+// series from) is toggled in lockstep with `rate`, never exposed or toggled
+// on its own -- it's not a plottable series, just what `rate` is derived
+// from. Reset to null on every toggle, on or off, so re-plotting later never
+// resumes an old EMA computed against a stale baseline from before the gap.
 export function setSeriesPlotted(history, machineId, kind, on) {
-  const entry = history.get(machineId) ?? { level: null, rate: null, rateVolume: null };
+  const entry = history.get(machineId) ?? { level: null, rate: null, rateEma: null };
   const already = entry[kind] != null;
   if (on === already) return history;
   const nextEntry = { ...entry, [kind]: on ? [] : null };
-  if (kind === "rate") nextEntry.rateVolume = on ? [] : null;
+  if (kind === "rate") nextEntry.rateEma = null;
   const next = new Map(history);
   if (nextEntry.level == null && nextEntry.rate == null) next.delete(machineId);
   else next.set(machineId, nextEntry);
@@ -76,31 +84,22 @@ function despike(samples, raw, max) {
   return samples.length > 0 ? samples[samples.length - 1].value : 0;
 }
 
-// Appends this tick's cumulative-volume reading and drops everything from
-// the front of the buffer older than RATE_AVG_WINDOW_SEC, except the single
-// entry right at or before that cutoff -- kept as the delta's baseline, so
-// the window this recordSample call averages over is always the full
-// RATE_AVG_WINDOW_SEC (once the series is that old) rather than shrinking
-// each time the oldest sample gets dropped. Bounds the buffer to roughly
-// window / publish-interval entries instead of growing for the whole run.
-function pushVolumeSample(volumeSamples, t, cumulative) {
-  const appended = [...volumeSamples, { t, cumulative }];
-  const cutoff = t - RATE_AVG_WINDOW_SEC;
-  let start = 0;
-  while (start + 1 < appended.length && appended[start + 1].t <= cutoff) start++;
-  return start === 0 ? appended : appended.slice(start);
-}
-
-// The average rate implied by a volume-sample buffer: the volume moved
-// between its oldest and newest entry, divided by the time between them.
-// Under two samples (a series' very first tick, with no elapsed time yet to
-// average over) reads as 0 rather than dividing by zero.
-function averageRate(volumeSamples) {
-  if (volumeSamples.length < 2) return 0;
-  const first = volumeSamples[0];
-  const last = volumeSamples[volumeSamples.length - 1];
-  const elapsed = last.t - first.t;
-  return elapsed > 0 ? (last.cumulative - first.cumulative) / elapsed : 0;
+// Folds this tick's cumulative-volume reading into the rate EMA: the
+// instantaneous rate since the last sample (this tick's volume moved, over
+// the time since then) is blended into the running average by `alpha`,
+// derived from how much sim-time actually elapsed so the same tau applies
+// however far apart two publishes land (a slower speed multiplier, a paused
+// tab, or a tick simply missed) rather than assuming a fixed publish
+// interval. The very first sample (`prev` null, nothing elapsed yet to
+// derive an instantaneous rate from) seeds the EMA at 0, same starting point
+// the old windowed average used.
+function nextEma(prev, t, cumulative) {
+  if (prev == null) return { t, cumulative, value: 0 };
+  const elapsed = t - prev.t;
+  if (elapsed <= 0) return { ...prev, t, cumulative };
+  const instRate = (cumulative - prev.cumulative) / elapsed;
+  const alpha = 1 - Math.exp(-elapsed / RATE_EMA_TAU_SEC);
+  return { t, cumulative, value: prev.value + alpha * (instRate - prev.value) };
 }
 
 // Appends one sample to every currently-plotted series, reading each
@@ -112,15 +111,13 @@ export function recordSample(history, t, machineSnapshots) {
   const next = new Map();
   for (const [machineId, entry] of history) {
     const snap = machineSnapshots.get(machineId);
-    const rateVolume = entry.rate && snap
-      ? pushVolumeSample(entry.rateVolume, t, snap.cumulativeOutM3 ?? 0)
-      : entry.rateVolume;
+    const rateEma = entry.rate && snap ? nextEma(entry.rateEma, t, snap.cumulativeOutM3 ?? 0) : entry.rateEma;
     next.set(machineId, {
       level: entry.level && snap
         ? [...entry.level, { t, value: despike(entry.level, snap.fill ?? 0, LEVEL_MAX_FRACTION) }]
         : entry.level,
-      rate: entry.rate && snap ? [...entry.rate, { t, value: averageRate(rateVolume) }] : entry.rate,
-      rateVolume,
+      rate: entry.rate && snap ? [...entry.rate, { t, value: rateEma.value }] : entry.rate,
+      rateEma,
     });
   }
   return next;
