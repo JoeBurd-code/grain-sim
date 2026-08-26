@@ -4,12 +4,14 @@
 // rendering involved (issue #36's acceptance criteria).
 import { describe, it, expect } from "vitest";
 import {
-  createPlotHistory, isSeriesPlotted, setSeriesPlotted, recordSample, sampleValueAt,
+  createPlotHistory, isSeriesPlotted, setSeriesPlotted, recordSample, sampleValueAt, RATE_AVG_WINDOW_SEC,
 } from "./plotHistory";
-import { tPerHourToM3PerSec } from "./units";
 
-function snap(fill, flowRateM3PerSec) {
-  return new Map([["bin", { fill, flowRateM3PerSec }]]);
+// `cumulativeOutM3` is the machine's running total volume discharged so far
+// (engine.js's stepSim) -- what the rate series is now derived from, not an
+// instantaneous flowRateM3PerSec.
+function snap(fill, cumulativeOutM3) {
+  return new Map([["bin", { fill, cumulativeOutM3 }]]);
 }
 
 describe("setSeriesPlotted", () => {
@@ -58,10 +60,13 @@ describe("recordSample", () => {
   it("records level and rate independently per their own toggle", () => {
     let h = createPlotHistory();
     h = setSeriesPlotted(h, "bin", "rate", true);
-    h = recordSample(h, 1, snap(0.5, 0.01));
+    h = recordSample(h, 1, snap(0.5, 0.01)); // rate's first sample: no elapsed time to average over yet
     h = setSeriesPlotted(h, "bin", "level", true);
-    h = recordSample(h, 2, snap(0.6, 0.02));
-    expect(h.get("bin").rate).toEqual([{ t: 1, value: 0.01 }, { t: 2, value: 0.02 }]);
+    h = recordSample(h, 2, snap(0.6, 0.03)); // +0.02 m3 over the 1s since the last rate sample
+    expect(h.get("bin").rate).toHaveLength(2);
+    expect(h.get("bin").rate[0]).toEqual({ t: 1, value: 0 });
+    expect(h.get("bin").rate[1].t).toBe(2);
+    expect(h.get("bin").rate[1].value).toBeCloseTo(0.02);
     expect(h.get("bin").level).toEqual([{ t: 2, value: 0.6 }]);
   });
 
@@ -115,25 +120,48 @@ describe("recordSample", () => {
     expect(h.get("bin").level).toEqual([{ t: 1, value: 0 }]);
   });
 
-  it("despikes a rate above 100 t/h by repeating the last accepted value", () => {
+  it("reads a single-tick discharge pulse at its raw instantaneous size before any idle time dilutes it", () => {
     let h = createPlotHistory();
     h = setSeriesPlotted(h, "bin", "rate", true);
-    h = recordSample(h, 1, snap(0.5, 0.005)); // ~13 t/h, well under the cap
-    h = recordSample(h, 2, snap(0.5, 5)); // absurd spike, e.g. flow blowing past 16000 t/h
-    h = recordSample(h, 3, snap(0.5, 0.006));
-    expect(h.get("bin").rate).toEqual([
-      { t: 1, value: 0.005 },
-      { t: 2, value: 0.005 },
-      { t: 3, value: 0.006 },
-    ]);
+    h = recordSample(h, 0, snap(0.5, 0)); // baseline
+    h = recordSample(h, 0.05, snap(0.5, 0.2)); // a whole batch charge dumped in this one tick
+    expect(h.get("bin").rate.at(-1).value).toBeCloseTo(0.2 / 0.05); // 4 m3/s -- nothing yet to average it down
   });
 
-  it("accepts a rate exactly at the 100 t/h cap", () => {
+  it("averages a discharge pulse down as idle time with no further volume moved accumulates after it", () => {
     let h = createPlotHistory();
     h = setSeriesPlotted(h, "bin", "rate", true);
-    const capM3PerSec = tPerHourToM3PerSec(100);
-    h = recordSample(h, 1, snap(0.5, capM3PerSec));
-    expect(h.get("bin").rate).toEqual([{ t: 1, value: capM3PerSec }]);
+    h = recordSample(h, 0, snap(0.5, 0));
+    h = recordSample(h, 0.05, snap(0.5, 0.2)); // pulse
+    const justAfterPulse = h.get("bin").rate.at(-1).value;
+    h = recordSample(h, 30, snap(0.5, 0.2)); // 30s of no further discharge
+    const midway = h.get("bin").rate.at(-1).value;
+    expect(midway).toBeCloseTo(0.2 / 30);
+    expect(midway).toBeLessThan(justAfterPulse);
+  });
+
+  it("drops a discharge pulse out of the average once it's older than the averaging window", () => {
+    let h = createPlotHistory();
+    h = setSeriesPlotted(h, "bin", "rate", true);
+    h = recordSample(h, 0, snap(0.5, 0));
+    h = recordSample(h, 0.05, snap(0.5, 0.2)); // pulse
+    h = recordSample(h, RATE_AVG_WINDOW_SEC + 1, snap(0.5, 0.2)); // long after, no more volume moved since
+    expect(h.get("bin").rate.at(-1).value).toBe(0);
+  });
+
+  it("starts a clean rate series and volume baseline when re-plotted after being toggled off", () => {
+    let h = createPlotHistory();
+    h = setSeriesPlotted(h, "bin", "rate", true);
+    h = recordSample(h, 0, snap(0.5, 0));
+    h = recordSample(h, 10, snap(0.5, 5)); // a lot moved while first plotted
+    h = setSeriesPlotted(h, "bin", "rate", false);
+    h = setSeriesPlotted(h, "bin", "rate", true);
+    expect(h.get("bin").rate).toEqual([]);
+    // cumulativeOutM3 keeps counting the whole run regardless of plot state
+    // -- re-plotting must not reuse the old baseline and read the gap as a
+    // burst of new volume.
+    h = recordSample(h, 100, snap(0.5, 5));
+    expect(h.get("bin").rate).toEqual([{ t: 100, value: 0 }]);
   });
 });
 

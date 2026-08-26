@@ -30,7 +30,11 @@ function publishSnap(sim) {
   // one figure instead of nothing at all.
   for (const [id, state] of sim.machines) {
     const kindSnap = BEHAVIORS[state.kind]?.snapshot?.(state);
-    machines.set(id, { flowRateM3PerSec: state.flowRateM3PerSec ?? 0, ...kindSnap });
+    // `cumulativeOutM3` (chart despike follow-up, engine.js's stepSim) rides
+    // alongside flowRateM3PerSec for the same reason: plotHistory's rate
+    // series derives from it instead, everything else that reads
+    // flowRateM3PerSec off this snapshot is untouched.
+    machines.set(id, { flowRateM3PerSec: state.flowRateM3PerSec ?? 0, cumulativeOutM3: state.cumulativeOutM3 ?? 0, ...kindSnap });
   }
   // A rule's event log and per-instrument state (issue #30: setpoint,
   // tripped, pulseGen — LT/LSH/LSL dots on the scene) are published on its

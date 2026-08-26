@@ -230,12 +230,28 @@ export function stepSim(sim, dt) {
         if (toId != null) addInflow(toId, outflow[p] ?? 0);
       }
       state.flowRateM3PerSec = totalOut / dt;
+      // Chart despike follow-up: a running total of every m3 this machine has
+      // ever discharged, alongside flowRateM3PerSec above but never reset or
+      // read by anything else. flowRateM3PerSec is this single tick's outflow
+      // over this single tick's dt -- exact, but for a batch-cycle machine
+      // that discharges a whole charge in the one tick its "discharging"
+      // phase begins, that reads as a huge instantaneous rate (a real 160 kg
+      // charge over a 0.05s tick is genuinely ~11500 t/h) even though the
+      // machine's actual sustained throughput is nowhere near that. The
+      // chart's own throttled ~10fps publish (useSimEngine.js) also can't
+      // just average flowRateM3PerSec over time, since a tick that isn't the
+      // last one before a publish is never observed at all -- this counter
+      // exists so the chart can instead derive rate from volume moved over
+      // time (this tick's contribution can never be dropped, whichever tick
+      // ends up being "last"), see plotHistory.js.
+      state.cumulativeOutM3 = (state.cumulativeOutM3 ?? 0) + totalOut;
     } else {
       const hasDownstream = shape.single != null;
       const downstreamCap = hasDownstream ? capAvail.get(shape.single) : 0;
       const outflow = BEHAVIORS[state.kind].apply(state, dt, inflow, capAvail.get(id), downstreamCap, hasDownstream);
       if (shape.single != null) addInflow(shape.single, outflow);
       state.flowRateM3PerSec = outflow / dt;
+      state.cumulativeOutM3 = (state.cumulativeOutM3 ?? 0) + outflow;
     }
   }
 
