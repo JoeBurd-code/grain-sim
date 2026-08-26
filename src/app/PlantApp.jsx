@@ -7,7 +7,7 @@ import { line } from "../line/lineData";
 import { validateLine } from "../line/validateLine";
 import { lineBounds, zoneBounds } from "../line/bounds";
 import Scene from "../scene/Scene";
-import MachinePopup, { OVERRIDE_SNAP, THUMB_PX } from "./MachinePopup";
+import MachinePopup, { OVERRIDE_SNAP, THUMB_PX, TRACK_PX } from "./MachinePopup";
 import TransportControls from "./TransportControls";
 import PlantControls from "./PlantControls";
 import ChartDock from "./ChartDock";
@@ -246,20 +246,47 @@ export default function PlantApp() {
         .machine .mname { transition: fill .15s ease; }
         .machine:hover .mname { fill: #ffffff; }
         .zonebtn:hover { color: #d4dad0; border-color: #6e7a71; }
-        /* Pinned to MachinePopup.jsx's own THUMB_PX so the cap tick's
-           thumb-center math there matches what actually renders here — an
-           OS-themed default thumb has no queryable size, so the size has to
-           be fixed at this end for that math to hold at all. */
-        .param-slider { cursor: pointer; }
+        /* Pinned to MachinePopup.jsx's own THUMB_PX/TRACK_PX so the cap
+           tick's own thumb-center math there matches what actually renders
+           here. Both the track and the thumb are styled explicitly on both
+           engines -- leaving one native and the other custom is what left
+           the thumb's *vertical* centering unreliable (confirmed live: a
+           thumb sized only via ::-webkit-slider-thumb, with the track still
+           native, rendered a few px lower than the input's own box center)
+           -- so nothing here is left for either engine to auto-position. */
+        .param-slider {
+          -webkit-appearance: none; appearance: none;
+          background: transparent; cursor: pointer;
+        }
+        .param-slider::-webkit-slider-runnable-track {
+          height: ${TRACK_PX}px; border-radius: ${TRACK_PX / 2}px;
+          /* --fill-stop (MachinePopup.jsx) is the same thumb-center inset
+             calc() the tick uses, so the filled/unfilled boundary lands
+             exactly under the thumb too, not at a plain linear percentage. */
+          background: linear-gradient(to right,
+            var(--slider-color) 0%, var(--slider-color) var(--fill-stop),
+            ${C.line} var(--fill-stop), ${C.line} 100%);
+        }
         .param-slider::-webkit-slider-thumb {
           -webkit-appearance: none;
           width: ${THUMB_PX}px; height: ${THUMB_PX}px; border-radius: 50%;
-          background: var(--thumb-color);
+          background: var(--slider-color);
+          /* Centers the thumb on the thinner track -- see TRACK_PX's own
+             comment (MachinePopup.jsx). */
+          margin-top: ${(TRACK_PX - THUMB_PX) / 2}px;
           cursor: pointer;
+        }
+        .param-slider::-moz-range-track {
+          height: ${TRACK_PX}px; border-radius: ${TRACK_PX / 2}px;
+          background: ${C.line};
+        }
+        .param-slider::-moz-range-progress {
+          height: ${TRACK_PX}px; border-radius: ${TRACK_PX / 2}px 0 0 ${TRACK_PX / 2}px;
+          background: var(--slider-color);
         }
         .param-slider::-moz-range-thumb {
           width: ${THUMB_PX}px; height: ${THUMB_PX}px; border-radius: 50%;
-          background: var(--thumb-color);
+          background: var(--slider-color);
           border: none;
           cursor: pointer;
         }

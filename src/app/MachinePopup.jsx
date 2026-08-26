@@ -86,11 +86,21 @@ export const OVERRIDE_SNAP = 2; // percentage points either side of the cap that
 
 // The tick's own pixel position needs the thumb's diameter to correct for
 // the inset above — which means the thumb can no longer be left at its
-// OS-themed default size (unmeasurable from CSS). `.param-slider`
-// (PlantApp.jsx's own global `<style>`) pins the thumb to this exact size on
-// both engines, so `capLeft` below can compute the same geometry the browser
-// actually renders instead of guessing at it.
+// OS-themed default size (unmeasurable from CSS, and its vertical position
+// within the input's box turned out not to be reliably centered either —
+// confirmed live: a thumb sized only via ::-webkit-slider-thumb, with the
+// runnable-track otherwise left native, rendered a few px lower than the
+// input's own box center, throwing off any tick math that assumed it was).
+// `.param-slider` (PlantApp.jsx's own global `<style>`) now styles both the
+// thumb *and* the track explicitly on both engines — leaving one native and
+// one custom is exactly what produced that unreliable vertical centering —
+// so this geometry is deterministic instead of guessed at.
 export const THUMB_PX = 14;
+// The track itself is a slim bar, not the full 14px row height — sized
+// deliberately less than THUMB_PX so the round thumb visibly sits proud of
+// it, same as a native slider. `.param-slider`'s own thumb rule centers on
+// this via `margin-top: (TRACK_PX - THUMB_PX) / 2`.
+export const TRACK_PX = 6;
 
 function Slider({ param, value, touched, live, onChange }) {
   const cap = live?.cap ?? null;
@@ -114,17 +124,22 @@ function Slider({ param, value, touched, live, onChange }) {
   const capPct = cap != null && range > 0
     ? ((Math.min(param.max, Math.max(param.min, cap)) - param.min) / range) * 100
     : null;
-  // A native thumb's *center* travels only the track width minus its own
-  // diameter — inset by half the thumb on each end, not the naive 0%/100%
-  // this plain-percentage `capPct` assumes — so the tick has to apply the
-  // same inset to land under the thumb's actual center once the dial is
-  // dragged to sit on the cap. See THUMB_PX's own comment. The extra -1px is
-  // the marker div's own half-width (it's 2px wide), so its center — not its
-  // left edge — is what lands on the thumb's center.
+  // A thumb's *center* travels only the track width minus its own diameter
+  // — inset by half the thumb on each end, not the naive 0%/100% a plain
+  // percentage-of-width assumes — for both engines, native or fully custom
+  // alike. `insetPosition` is shared by the tick below and the fill-boundary
+  // custom property passed to the input further down, so every piece of
+  // this slider that needs to land "under the thumb" agrees on the same
+  // geometry.
+  const insetPosition = (pct, offsetPx = 0) =>
+    `calc(${THUMB_PX / 2 + offsetPx}px + (100% - ${THUMB_PX}px) * ${pct / 100})`;
+  // The extra -1px (half its own 2px width) is the marker div's own
+  // half-width, so its center — not its left edge — is what lands on the
+  // thumb's center.
   const TICK_PX = 2;
-  const capLeft = capPct != null
-    ? `calc(${THUMB_PX / 2 - TICK_PX / 2}px + (100% - ${THUMB_PX}px) * ${capPct / 100})`
-    : null;
+  const capLeft = capPct != null ? insetPosition(capPct, -TICK_PX / 2) : null;
+  const fillPct = range > 0 ? ((thumbValue - param.min) / range) * 100 : 0;
+  const fillStop = insetPosition(fillPct);
 
   return (
     <div style={{ marginBottom: 10 }}>
@@ -145,11 +160,12 @@ function Slider({ param, value, touched, live, onChange }) {
           onChange={(e) => onChange?.(Number(e.target.value))}
           style={{
             width: "100%", height: 14,
-            accentColor: armed ? C.red : C.wheat,
-            // `.param-slider`'s own thumb rule (PlantApp.jsx) reads this
-            // custom property rather than a hardcoded color, since it's the
-            // one place the armed/not-armed color is actually decided.
-            "--thumb-color": armed ? C.red : C.wheat,
+            // `.param-slider`'s own track/thumb rules (PlantApp.jsx) read
+            // these custom properties rather than hardcoded values — this is
+            // the one place the armed/not-armed color, and where the filled
+            // portion currently ends, are actually decided.
+            "--slider-color": armed ? C.red : C.wheat,
+            "--fill-stop": fillStop,
           }}
         />
         {capLeft != null && (
