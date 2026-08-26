@@ -34,7 +34,13 @@ import { m3ToTonnes } from "../sim/units";
 // button uses while tripped, with an "OVERRIDE" tag. A full stop (cap
 // present but not overridable) instead clamps the input's own `max` to the
 // cap, so the dial physically cannot be dragged away from it at all
-// (point #3).
+// (point #3). Dragging a touched dial back onto the cap doesn't just disarm
+// the display here — PlantApp's own onParamChange (issue #63 follow-up)
+// treats that exact drop as "return to normal" and releases the dial
+// entirely (engine.js's releaseElevatorSpeed/releaseGateFraction) rather
+// than leaving it touched at a value that only coincidentally equals the
+// cap right now, so it keeps tracking the live cap afterward instead of
+// drifting (or spuriously re-arming) the next time the cap itself moves.
 //
 // There is only ever *one* number on display, not two: `displayValue` is
 // the dial itself while armed (an override is defined as "run it at what I

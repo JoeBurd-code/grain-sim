@@ -53,6 +53,22 @@ const PARAM_BINDERS = {
   wasteFraction: (engine, machineId, value) => engine.setWasteFraction(machineId, value / 100),
 };
 
+// "Return to normal" (issue #63 follow-up): the two params above whose
+// readBind reports a live `cap` (elevatorSpeed, gatePosition) also declare a
+// releaser here. onParamChange calls this instead of the plain binder above
+// the moment a drag lands back on that live cap, so the dial goes back to
+// its exact untouched-default shape (engine.js's releaseElevatorSpeed /
+// releaseGateFraction) rather than staying touched forever at a fraction
+// that only coincidentally matches the cap right now. Without this, a dial
+// dragged back to "normal" kept driving the real chain speed / gate at that
+// frozen fraction, silently diverging the moment the interlock's own cap
+// next moved — and could even re-arm the override with no further drag at
+// all, since the stored dial value no longer tracked the live cap either.
+const PARAM_RELEASERS = {
+  elevatorSpeed: (engine, machineId) => engine.releaseElevatorSpeed(machineId),
+  gatePosition: (engine, machineId) => engine.releaseGateFraction(machineId),
+};
+
 // Live "actual" readouts (issue #34): the same declarative shape as
 // PARAM_BINDERS above, but resolved against a machine's live published
 // snapshot instead of calling into the engine. Only params whose machine can
@@ -169,8 +185,27 @@ export default function PlantApp() {
   }, [engine]);
 
   const closePopup = useCallback(() => setSelectedId(null), []);
+  // Issue #63 follow-up: a drag that lands exactly back on the live cap is
+  // "return to normal", not just another touch — release instead of set (see
+  // PARAM_RELEASERS' own comment above), untouching the dial in paramValues
+  // too so a reopened popup, and every render until the next real drag,
+  // tracks the live cap the same way a never-touched dial does.
   const onParamChange = useCallback(
     (machineId, param, value) => {
+      const releaser = PARAM_RELEASERS[param.bind];
+      const live = releaser && param.readBind
+        ? PARAM_READERS[param.readBind]?.(engine.snap.machines.get(machineId))
+        : null;
+      if (live?.cap != null && Math.round(value) === Math.round(live.cap)) {
+        setParamValues((prev) => {
+          if (prev[machineId]?.[param.id] === undefined) return prev;
+          const rest = { ...prev[machineId] };
+          delete rest[param.id];
+          return { ...prev, [machineId]: rest };
+        });
+        releaser(engine, machineId);
+        return;
+      }
       setParamValues((prev) => ({
         ...prev,
         [machineId]: { ...prev[machineId], [param.id]: value },

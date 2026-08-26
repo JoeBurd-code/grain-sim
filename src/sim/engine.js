@@ -434,6 +434,27 @@ export function setElevatorSpeed(sim, id, fraction) {
   state.speedDialTouched = true;
 }
 
+// Presenter drags the dial back onto the interlock's own live cap ("return
+// to normal"): resets to the exact untouched-default shape
+// (initTransportDelay's own speedFraction/speedDialTouched), not just a
+// `speedFraction` that happens to numerically match the cap at this instant.
+// Without this, the dial stayed permanently touched at whatever fraction it
+// was released at — coincidentally equal to the cap right now, but frozen,
+// so the moment the cap next moved (the interlock re-throttling) the stale
+// dial silently diverged from it again, either quietly derating the real
+// chain speed below what a fresh dial would give or spuriously re-arming
+// the override with no further drag from the presenter. MachinePopup's own
+// Slider (via PlantApp.jsx's onParamChange) calls this instead of
+// setElevatorSpeed the moment a drag lands back on the live cap.
+export function releaseElevatorSpeed(sim, id) {
+  const state = sim.machines.get(id);
+  if (!state || (state.kind !== "transportDelay" && state.kind !== "routedTransportDelay")) {
+    throw new Error(`machine "${id}" is not a transport-delay machine`);
+  }
+  state.speedFraction = 1;
+  state.speedDialTouched = false;
+}
+
 // Presenter/demo control: jump an accumulator straight to a given fill
 // fraction, e.g. to stage a near-overflow scenario without waiting for the
 // source to fill it there. This adds or removes volume from outside the
@@ -510,6 +531,17 @@ export function setGateFraction(sim, id, fraction) {
   state.gateFraction = Math.max(0, Math.min(1, fraction));
   // Issue #63: stamped every call — see setElevatorSpeed's own comment above.
   state.gateDialTouched = true;
+}
+
+// Same "return to normal" release as releaseElevatorSpeed above, on the
+// gated feeder's own gateFraction/gateDialTouched pair.
+export function releaseGateFraction(sim, id) {
+  const state = sim.machines.get(id);
+  if (!state || state.gateFraction === undefined) {
+    throw new Error(`machine "${id}" is not a gated feeder`);
+  }
+  state.gateFraction = 1;
+  state.gateDialTouched = false;
 }
 
 // Live controls (issue #24): the batch treater's charge size and cycle time

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   createSim, stepSim, resetSim, resetTrips, getMachineState, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockHighHighSetpoint, setInterlockSignalDelay, getInterlockState,
-  getCombinedEvents, setElevatorSpeed, setGateFraction,
+  getCombinedEvents, setElevatorSpeed, releaseElevatorSpeed, setGateFraction, releaseGateFraction,
   setBatchSize, setBatchCycleSec, setSplitterWasteFraction, setSource, getSource,
   setDestination, getDestination,
   controlledStop, resumeLine, getControlledStopPhase,
@@ -1027,6 +1027,57 @@ describe("manual override of a gradedFeedSchedule band (issue #63)", () => {
     setElevatorSpeed(sim, ELEVATOR_ID, 1); // drag past the throttle band's own cap
     const capAfter = BEHAVIORS.transportDelay.capacityAvailable(getMachineState(sim, ELEVATOR_ID), DT);
     expect(capAfter).toBeGreaterThan(capBefore);
+  });
+
+  // "Return to normal" follow-up: dragging the dial back onto the live cap
+  // must behave exactly like a fresh, never-touched dial from that point on
+  // — not a dial that happens to numerically match the cap right now but
+  // stays touched, which would silently diverge again (or spuriously
+  // re-arm) the next time the band's own cap moves.
+  describe("releasing back to normal", () => {
+    it("releaseElevatorSpeed puts a touched, overriding dial back to the untouched default, restoring the governed rate", () => {
+      const sim = createSim(lineWithScheduleWithoutBatchTreater);
+      stepSim(sim, DT); // boost band, dial untouched: governed
+      const governedRate = getMachineState(sim, FEEDER_ID).rate;
+
+      setElevatorSpeed(sim, ELEVATOR_ID, 1); // drag past the boost band's own cap
+      stepSim(sim, DT);
+      expect(getMachineState(sim, FEEDER_ID).rate).toBeGreaterThan(governedRate);
+
+      releaseElevatorSpeed(sim, ELEVATOR_ID);
+      const elevator = getMachineState(sim, ELEVATOR_ID);
+      expect(elevator.speedFraction).toBe(1);
+      expect(elevator.speedDialTouched).toBe(false);
+      stepSim(sim, DT);
+      expect(getMachineState(sim, FEEDER_ID).rate).toBeCloseTo(governedRate, 2);
+    });
+
+    it("releaseElevatorSpeed rejects a non-transport-delay machine", () => {
+      const sim = createSim(lineWithoutFeedSchedule);
+      expect(() => releaseElevatorSpeed(sim, SOURCE_ID)).toThrow(/not a transport-delay/);
+    });
+
+    it("releaseGateFraction puts a touched, overriding gate dial back to the untouched default, restoring the governed rate", () => {
+      const sim = createSim(lineWithScheduleWithoutBatchTreater);
+      stepSim(sim, DT);
+      const governedRate = getMachineState(sim, FEEDER_ID).rate;
+
+      setGateFraction(sim, FEEDER_ID, 1); // drag past the boost band's own gate cap
+      stepSim(sim, DT);
+      expect(getMachineState(sim, FEEDER_ID).rate).toBeGreaterThan(governedRate);
+
+      releaseGateFraction(sim, FEEDER_ID);
+      const feeder = getMachineState(sim, FEEDER_ID);
+      expect(feeder.gateFraction).toBe(1);
+      expect(feeder.gateDialTouched).toBe(false);
+      stepSim(sim, DT);
+      expect(getMachineState(sim, FEEDER_ID).rate).toBeCloseTo(governedRate, 2);
+    });
+
+    it("releaseGateFraction rejects a non-gated machine", () => {
+      const sim = createSim(lineWithoutFeedSchedule);
+      expect(() => releaseGateFraction(sim, ELEVATOR_ID)).toThrow();
+    });
   });
 });
 
