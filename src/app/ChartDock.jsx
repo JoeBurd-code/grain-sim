@@ -56,7 +56,7 @@ const TAB_Z_INDEX = DOCK_Z_INDEX + 1;
 // range input) so the chart's controls read as the same widget family.
 function RangeSlider({ label, value, onChange, disabled, formatValue }) {
   return (
-    <div style={{ marginBottom: 10, opacity: disabled ? 0.4 : 1 }}>
+    <div style={{ marginBottom: 6, opacity: disabled ? 0.4 : 1 }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: C.muted, marginBottom: 3 }}>
         <span>{label}</span>
         <span style={{ color: C.text }}>{formatValue(value)}</span>
@@ -82,12 +82,12 @@ function MeasureToggle({ active, onClick }) {
       onClick={onClick}
       title={active ? "exit measure mode (Esc)" : "drag to measure a time span"}
       style={{
-        display: "block", width: "100%", marginBottom: 12,
+        display: "block", width: "100%", marginBottom: 8,
         background: active ? MEASURE_COLOR : "transparent",
         color: active ? "#1a1a14" : C.muted,
         border: `1px solid ${active ? MEASURE_COLOR : C.line}`,
         borderRadius: 4, cursor: "pointer", fontFamily: FONT_MONO,
-        fontSize: 10, letterSpacing: 1, padding: "6px 10px",
+        fontSize: 10, letterSpacing: 1, padding: "5px 10px",
       }}
     >
       {active ? "MEASURING ✕" : "⟷ MEASURE"}
@@ -272,7 +272,7 @@ export default function ChartDock({ history, events, onEventClick }) {
       }}>
         <div style={{ width: 190, flex: "none", padding: "12px 16px", borderRight: `1px solid ${C.line}` }}>
           <div style={{ fontFamily: FONT_DISP, fontSize: 13, letterSpacing: 0.5, color: C.text }}>SHARED CHART</div>
-          <div style={{ fontSize: 9, color: C.muted, marginTop: 4, marginBottom: 12, lineHeight: 1.6 }}>
+          <div style={{ fontSize: 9, color: C.muted, marginTop: 3, marginBottom: 6, lineHeight: 1.4 }}>
             level % · left axis, solid<br />rate t/h · right axis, dashed
           </div>
           <MeasureToggle active={measure.active} onClick={measure.toggle} />
@@ -284,8 +284,12 @@ export default function ChartDock({ history, events, onEventClick }) {
             label="shift" value={shiftFrac} onChange={setShiftFrac} disabled={shiftDisabled}
             formatValue={(v) => (shiftDisabled ? "—" : `${Math.round(v * 100)}%`)}
           />
+          {/* Sized to fit the hover readout's full 2-line content (label +
+              t=/value row) without pushing past the dock's fixed height --
+              this box used to overflow past the viewport bottom edge once a
+              real hover value (vs. the shorter placeholder) was showing. */}
           <div style={{
-            marginTop: 12, background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 6,
+            marginTop: 8, background: C.panel2, border: `1px solid ${C.line}`, borderRadius: 6,
             padding: "6px 8px", fontSize: 9.5, minHeight: 34,
           }}>
             {hover ? (
