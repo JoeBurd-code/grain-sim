@@ -258,7 +258,7 @@ export default function ChartDock({ history, events, onEventClick }) {
   // on-chart label below -- one string, two render sites.
   const hoverValueText = hover
     ? hover.series.kind === "level"
-      ? `${(hover.value * 100).toFixed(1)}% · ${m3ToTonnes(hover.value * hover.series.machine.sim.capacityM3).toFixed(1)} t`
+      ? `${(hover.value * 100).toFixed(1)}% · ${m3ToTonnes(hover.value * hover.series.machine.sim.capacityM3).toFixed(2)} t`
       : `${m3PerSecToTPerHour(hover.value).toFixed(2)} t/h`
     : null;
 

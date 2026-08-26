@@ -144,7 +144,7 @@ function LevelReadout({ fill, capacityM3 }) {
   const capacityT = m3ToTonnes(capacityM3);
   return (
     <div style={{ fontSize: 13, color: C.text, marginBottom: 4 }}>
-      {currentT.toFixed(1)} / {capacityT.toFixed(1)} t{" "}
+      {currentT.toFixed(2)} / {capacityT.toFixed(2)} t{" "}
       <span style={{ color: C.muted, fontSize: 11 }}>· {Math.round(fill * 100)}%</span>
     </div>
   );
