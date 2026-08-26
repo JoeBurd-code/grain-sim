@@ -7,12 +7,29 @@ import {
   createPlotHistory, isSeriesPlotted, setSeriesPlotted, recordSample, sampleValueAt, RATE_EMA_TAU_SEC,
 } from "./plotHistory";
 
-// The exact single-step EMA update recordSample uses internally (see
-// plotHistory.js's nextEma), reproduced here so tests can assert against the
-// real formula's output instead of a value transcribed by hand.
-function emaStep(prevValue, elapsed, instRate) {
-  const alpha = 1 - Math.exp(-elapsed / RATE_EMA_TAU_SEC);
-  return prevValue + alpha * (instRate - prevValue);
+// The exact cascaded two-stage EMA update recordSample uses internally (see
+// plotHistory.js's nextEma), replayed over a sequence of (t, cumulative)
+// readings so tests can assert against the real formula's output instead of
+// a value transcribed by hand. Returns the visible (stage2) value after each
+// reading, mirroring the `rate` series recordSample itself would produce.
+function replayCascade(events) {
+  let stage1 = 0;
+  let stage2 = 0;
+  let prevT = null;
+  let prevCumulative = null;
+  const values = [];
+  for (const { t, cumulative } of events) {
+    if (prevT != null && t > prevT) {
+      const alpha = 1 - Math.exp(-(t - prevT) / RATE_EMA_TAU_SEC);
+      const instRate = (cumulative - prevCumulative) / (t - prevT);
+      stage1 += alpha * (instRate - stage1);
+      stage2 += alpha * (stage1 - stage2);
+    }
+    values.push(stage2);
+    prevT = t;
+    prevCumulative = cumulative;
+  }
+  return values;
 }
 
 // `cumulativeOutM3` is the machine's running total volume discharged so far
@@ -74,7 +91,7 @@ describe("recordSample", () => {
     expect(h.get("bin").rate).toHaveLength(2);
     expect(h.get("bin").rate[0]).toEqual({ t: 1, value: 0 });
     expect(h.get("bin").rate[1].t).toBe(2);
-    expect(h.get("bin").rate[1].value).toBeCloseTo(emaStep(0, 1, 0.02));
+    expect(h.get("bin").rate[1].value).toBeCloseTo(replayCascade([{ t: 1, cumulative: 0.01 }, { t: 2, cumulative: 0.03 }]).at(-1));
     expect(h.get("bin").level).toEqual([{ t: 2, value: 0.6 }]);
   });
 
@@ -128,45 +145,42 @@ describe("recordSample", () => {
     expect(h.get("bin").level).toEqual([{ t: 1, value: 0 }]);
   });
 
-  it("a single-tick discharge pulse only nudges the EMA by roughly volume/tau, not its raw instantaneous size", () => {
+  it("a single-tick discharge pulse barely registers at first -- cascading delays and damps a brief pulse further than one stage would", () => {
     let h = createPlotHistory();
     h = setSeriesPlotted(h, "bin", "rate", true);
     h = recordSample(h, 0, snap(0.5, 0)); // baseline
     h = recordSample(h, 0.05, snap(0.5, 0.2)); // a whole batch charge dumped in this one tick
-    // The raw instantaneous rate this tick is 0.2/0.05 = 4 m3/s; an EMA's
-    // response to a brief pulse is approximately volume/tau (the classic
-    // low-pass-filter impulse response), not that raw size -- 4 m3/s would
-    // be ~11500 t/h, but 0.2/48 is under 4.2 t/h-equivalent.
-    expect(h.get("bin").rate.at(-1).value).toBeCloseTo(0.2 / RATE_EMA_TAU_SEC, 3);
+    // The raw instantaneous rate this tick is 0.2/0.05 = 4 m3/s (~11500
+    // t/h-equivalent). The first stage absorbs most of that jump, but the
+    // second (visible) stage has barely moved yet -- it still has to catch
+    // up to the first stage over the following samples (see the next test).
+    expect(h.get("bin").rate.at(-1).value).toBeLessThan(0.2 / RATE_EMA_TAU_SEC / 10);
   });
 
-  it("decays a discharge pulse's contribution exponentially once no further volume moves", () => {
-    let h = createPlotHistory();
-    h = setSeriesPlotted(h, "bin", "rate", true);
-    h = recordSample(h, 0, snap(0.5, 0));
-    h = recordSample(h, 0.05, snap(0.5, 0.2)); // pulse
-    const justAfterPulse = h.get("bin").rate.at(-1).value;
-    h = recordSample(h, 30, snap(0.5, 0.2)); // 30s of no further discharge
-    const decayed = h.get("bin").rate.at(-1).value;
-    // With no new volume the instantaneous rate is 0, so the update reduces
-    // to prevValue * exp(-elapsed / tau) exactly.
-    expect(decayed).toBeCloseTo(justAfterPulse * Math.exp(-29.95 / RATE_EMA_TAU_SEC));
-    expect(decayed).toBeLessThan(justAfterPulse);
-  });
-
-  it("decays smoothly toward zero over many time constants, with no sudden cliff", () => {
+  it("a single pulse's visible contribution rises to a peak around one tau later, then decays -- never an instant jump or a cliff", () => {
     let h = createPlotHistory();
     h = setSeriesPlotted(h, "bin", "rate", true);
     h = recordSample(h, 0, snap(0.5, 0));
     h = recordSample(h, 0.05, snap(0.5, 0.2)); // pulse, then nothing further ever moves
-    const readings = [1, 10, 30, 60, 120, 5 * RATE_EMA_TAU_SEC].map((t) => {
+    const times = [0.05, 1, 5, 10, 20, RATE_EMA_TAU_SEC, 40, 60, 90, 120, 150, 10 * RATE_EMA_TAU_SEC];
+    const readings = times.slice(1).map((t) => {
       h = recordSample(h, t, snap(0.5, 0.2));
       return h.get("bin").rate.at(-1).value;
     });
-    // Monotonically decreasing -- no cliff, no rebound.
-    for (let i = 1; i < readings.length; i++) expect(readings[i]).toBeLessThan(readings[i - 1]);
-    // Effectively fully decayed after several time constants.
-    expect(readings.at(-1)).toBeLessThan(0.2 / RATE_EMA_TAU_SEC * 0.01);
+    readings.unshift(h.get("bin").rate[0].value);
+    // Matches the exact formula (a two-pole impulse response), not just a
+    // qualitative shape.
+    const expected = replayCascade(times.map((t) => ({ t, cumulative: 0.2 })));
+    readings.forEach((v, i) => expect(v).toBeCloseTo(expected[i]));
+    // Unimodal: strictly rises to one peak, then strictly falls -- no cliff,
+    // no rebound, no oscillation.
+    const peakIndex = readings.indexOf(Math.max(...readings));
+    expect(peakIndex).toBeGreaterThan(0);
+    expect(peakIndex).toBeLessThan(readings.length - 1);
+    for (let i = 1; i <= peakIndex; i++) expect(readings[i]).toBeGreaterThan(readings[i - 1]);
+    for (let i = peakIndex + 1; i < readings.length; i++) expect(readings[i]).toBeLessThan(readings[i - 1]);
+    // Effectively fully decayed after ten time constants.
+    expect(readings.at(-1)).toBeLessThan(readings[peakIndex] * 0.01);
   });
 
   it("starts a clean rate series and EMA baseline when re-plotted after being toggled off", () => {
