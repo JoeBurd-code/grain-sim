@@ -133,11 +133,12 @@ function Slider({ param, value, touched, live, onChange }) {
   // geometry.
   const insetPosition = (pct, offsetPx = 0) =>
     `calc(${THUMB_PX / 2 + offsetPx}px + (100% - ${THUMB_PX}px) * ${pct / 100})`;
-  // The extra -1px (half its own 2px width) is the marker div's own
-  // half-width, so its center — not its left edge — is what lands on the
-  // thumb's center.
+  // The -TICK_PX/2 is the marker div's own half-width (so its center, not
+  // its left edge, is what lands on the thumb's center); the extra +2 is a
+  // further live-rendered nudge (2026-08-26), same idea as the tick's own
+  // vertical nudge above.
   const TICK_PX = 2;
-  const capLeft = capPct != null ? insetPosition(capPct, -TICK_PX / 2) : null;
+  const capLeft = capPct != null ? insetPosition(capPct, -TICK_PX / 2 + 2) : null;
   const fillPct = range > 0 ? ((thumbValue - param.min) / range) * 100 : 0;
   const fillStop = insetPosition(fillPct);
 
