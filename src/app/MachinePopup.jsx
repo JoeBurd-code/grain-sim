@@ -221,7 +221,12 @@ export default function MachinePopup({
           no events yet
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+        // Capped and independently scrollable (issue: a long event log was
+        // growing the whole popup, pushing the "shared chart" plot toggles
+        // below it down and off, since only the popup's own outer div had
+        // overflowY:auto) -- same fixed-section-scrolls pattern as the
+        // events list in EventLogPanel.jsx.
+        <div style={{ maxHeight: 180, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
           {[...events].reverse().map((e, i) => (
             <div key={i} style={{ fontSize: 10, lineHeight: 1.4 }}>
               <span style={{ color: C.wheat, fontFamily: FONT_MONO }}>{e.t.toFixed(1)}s</span>{" "}
