@@ -175,7 +175,10 @@ function Slider({ param, value, touched, live, onChange }) {
               // Doubled (was 10) and re-centered on the track's own
               // midline rather than just growing downward, so it still
               // reads as straddling the thumb rather than hanging off it.
-              position: "absolute", left: capLeft, top: -3, width: TICK_PX, height: 20,
+              // Shifted down 2px (2026-08-26) against the live-rendered
+              // thumb, which still sits a couple px below where the track's
+              // own geometry alone would put it.
+              position: "absolute", left: capLeft, top: -1, width: TICK_PX, height: 20,
               background: C.muted, pointerEvents: "none",
             }}
           />
