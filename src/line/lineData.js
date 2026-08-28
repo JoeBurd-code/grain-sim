@@ -844,8 +844,13 @@ export const line = {
       tag: "52.613.H01",
       status: "new",
       zone: "packaging",
-      // Repositioned 2026-08-12 (issue #44), see metalBin1's comment.
-      x: 1765, y: 460, w: 160, h: 172,
+      // Repositioned 2026-08-12 (issue #44), see metalBin1's comment; moved
+      // a further +30 in x during the label/arrow pass. The two bins sat 20
+      // units apart, but metalBin1's own instrument stack hangs 34 units off
+      // its right edge (symbols.jsx `Instruments`), so its LT and LSH dots
+      // were drawn on top of this bin's body. The gap is now 16 — a hair
+      // over LABEL_GAP — clear of the stack.
+      x: 1795, y: 460, w: 160, h: 172,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 80, y: 0 }, out: { x: 80, y: 162 } },
       fill: 0,
@@ -869,7 +874,9 @@ export const line = {
       tag: "STUB.DISCH2",
       status: "stub",
       zone: "packaging",
-      x: 1841, y: 700, w: 8, h: 8,
+      // Tracks metalBin2's own +30 move so this discharge still drops
+      // straight down out of the bin rather than on a slant.
+      x: 1871, y: 700, w: 8, h: 8,
       ports: { inputs: ["in"], outputs: [] },
       anchors: { in: { x: 4, y: 4 } },
     },
@@ -1269,7 +1276,7 @@ export const line = {
     { from: { machine: "grainBreak", port: "out" }, to: { machine: "outloadBufferBin", port: "in" }, kind: "product" },
     { from: { machine: "outloadBufferBin", port: "out" }, to: { machine: "outloadDiverter", port: "in" }, kind: "product" },
     { from: { machine: "outloadDiverter", port: "out1" }, to: { machine: "metalBin1", port: "in" }, kind: "product" },
-    { from: { machine: "outloadDiverter", port: "out2" }, to: { machine: "metalBin2", port: "in" }, kind: "product", via: [{ x: 1845, y: 416 }] },
+    { from: { machine: "outloadDiverter", port: "out2" }, to: { machine: "metalBin2", port: "in" }, kind: "product", via: [{ x: 1875, y: 416 }] },
     { from: { machine: "metalBin1", port: "out" }, to: { machine: "dischargeStub1", port: "in" }, kind: "product", tbc: true },
     { from: { machine: "metalBin2", port: "out" }, to: { machine: "dischargeStub2", port: "in" }, kind: "product", tbc: true },
     // branch C: big bag
