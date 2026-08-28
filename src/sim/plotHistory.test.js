@@ -4,28 +4,32 @@
 // rendering involved (issue #36's acceptance criteria).
 import { describe, it, expect } from "vitest";
 import {
-  createPlotHistory, isSeriesPlotted, setSeriesPlotted, recordSample, sampleValueAt, RATE_EMA_TAU_SEC,
+  createPlotHistory, isSeriesPlotted, setSeriesPlotted, recordSample, sampleValueAt,
+  RATE_EMA_TAU_SEC, RATE_EMA_STAGES,
 } from "./plotHistory";
 
-// The exact cascaded two-stage EMA update recordSample uses internally (see
+// The exact cascaded N-stage EMA update recordSample uses internally (see
 // plotHistory.js's nextEma), replayed over a sequence of (t, cumulative)
 // readings so tests can assert against the real formula's output instead of
-// a value transcribed by hand. Returns the visible (stage2) value after each
-// reading, mirroring the `rate` series recordSample itself would produce.
+// a value transcribed by hand. Returns the visible (last-stage) value after
+// each reading, mirroring the `rate` series recordSample itself would
+// produce.
 function replayCascade(events) {
-  let stage1 = 0;
-  let stage2 = 0;
+  let stages = new Array(RATE_EMA_STAGES).fill(0);
   let prevT = null;
   let prevCumulative = null;
   const values = [];
   for (const { t, cumulative } of events) {
     if (prevT != null && t > prevT) {
       const alpha = 1 - Math.exp(-(t - prevT) / RATE_EMA_TAU_SEC);
-      const instRate = (cumulative - prevCumulative) / (t - prevT);
-      stage1 += alpha * (instRate - stage1);
-      stage2 += alpha * (stage1 - stage2);
+      let input = (cumulative - prevCumulative) / (t - prevT);
+      stages = stages.map((stage) => {
+        const next = stage + alpha * (input - stage);
+        input = next;
+        return next;
+      });
     }
-    values.push(stage2);
+    values.push(stages.at(-1));
     prevT = t;
     prevCumulative = cumulative;
   }
@@ -145,30 +149,35 @@ describe("recordSample", () => {
     expect(h.get("bin").level).toEqual([{ t: 1, value: 0 }]);
   });
 
-  it("a single-tick discharge pulse barely registers at first -- cascading delays and damps a brief pulse further than one stage would", () => {
+  it("a single-tick discharge pulse barely registers at first -- cascading delays and damps a brief pulse further than fewer stages would", () => {
     let h = createPlotHistory();
     h = setSeriesPlotted(h, "bin", "rate", true);
     h = recordSample(h, 0, snap(0.5, 0)); // baseline
     h = recordSample(h, 0.05, snap(0.5, 0.2)); // a whole batch charge dumped in this one tick
     // The raw instantaneous rate this tick is 0.2/0.05 = 4 m3/s (~11500
-    // t/h-equivalent). The first stage absorbs most of that jump, but the
-    // second (visible) stage has barely moved yet -- it still has to catch
-    // up to the first stage over the following samples (see the next test).
-    expect(h.get("bin").rate.at(-1).value).toBeLessThan(0.2 / RATE_EMA_TAU_SEC / 10);
+    // t/h-equivalent). Each stage absorbs most of what the previous stage
+    // just did, but the last (visible) stage has barely moved yet -- it
+    // still has to catch up over the following samples (see the next test).
+    expect(h.get("bin").rate.at(-1).value).toBeLessThan(0.2 / RATE_EMA_TAU_SEC / 100);
   });
 
-  it("a single pulse's visible contribution rises to a peak around one tau later, then decays -- never an instant jump or a cliff", () => {
+  it("a single pulse's visible contribution rises to a peak around (stages-1)*tau later, then decays -- never an instant jump or a cliff", () => {
     let h = createPlotHistory();
     h = setSeriesPlotted(h, "bin", "rate", true);
     h = recordSample(h, 0, snap(0.5, 0));
     h = recordSample(h, 0.05, snap(0.5, 0.2)); // pulse, then nothing further ever moves
-    const times = [0.05, 1, 5, 10, 20, RATE_EMA_TAU_SEC, 40, 60, 90, 120, 150, 10 * RATE_EMA_TAU_SEC];
+    // An N-stage cascade's impulse response peaks at t=(N-1)*tau, not at
+    // tau itself -- each extra stage delays (and further damps) the peak.
+    const peakT = (RATE_EMA_STAGES - 1) * RATE_EMA_TAU_SEC;
+    const times = [0.05, 1, 5, 10, 20, 30, 40, peakT, 60, 80, 100, 120, 150, 10 * RATE_EMA_TAU_SEC]
+      .filter((t, i, arr) => arr.indexOf(t) === i) // dedupe in case peakT collides with a fixed sample point
+      .sort((a, b) => a - b);
     const readings = times.slice(1).map((t) => {
       h = recordSample(h, t, snap(0.5, 0.2));
       return h.get("bin").rate.at(-1).value;
     });
     readings.unshift(h.get("bin").rate[0].value);
-    // Matches the exact formula (a two-pole impulse response), not just a
+    // Matches the exact formula (an N-pole impulse response), not just a
     // qualitative shape.
     const expected = replayCascade(times.map((t) => ({ t, cumulative: 0.2 })));
     readings.forEach((v, i) => expect(v).toBeCloseTo(expected[i]));

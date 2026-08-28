@@ -16,36 +16,38 @@
 // itself, so nothing outside this recorded series is affected.
 //
 // Rate is not a despike -- it's a cascaded exponential moving average
-// (two EMA stages in series). A machine like the batch treater discharges
-// its whole charge in the single 0.05s tick its "discharging" phase begins
-// (behaviors.js, batchCycle): read as a per-tick instantaneous rate, a real
-// 160 kg charge is a genuine ~11500 t/h for that one tick, and the chart's
-// own throttled ~10fps publish (useSimEngine.js) either misses that tick
-// entirely (most publishes) or shows the whole undiluted spike (whichever
-// publish's last simulated step happens to be the discharging one) -- there
-// is no meaningful per-tick "rate" to despike here, only a genuine average
-// over enough time to cover a full charge cycle. recordSample instead tracks
-// each rate series' own running cumulativeOutM3 (engine.js's stepSim -- a
-// volume total that can never skip a tick's contribution, unlike
-// flowRateM3PerSec) and smooths the throughput implied by it.
+// (RATE_EMA_STAGES EMA stages in series). A machine like the batch treater
+// discharges its whole charge in the single 0.05s tick its "discharging"
+// phase begins (behaviors.js, batchCycle): read as a per-tick instantaneous
+// rate, a real 160 kg charge is a genuine ~11500 t/h for that one tick, and
+// the chart's own throttled ~10fps publish (useSimEngine.js) either misses
+// that tick entirely (most publishes) or shows the whole undiluted spike
+// (whichever publish's last simulated step happens to be the discharging
+// one) -- there is no meaningful per-tick "rate" to despike here, only a
+// genuine average over enough time to cover a full charge cycle.
+// recordSample instead tracks each rate series' own running cumulativeOutM3
+// (engine.js's stepSim -- a volume total that can never skip a tick's
+// contribution, unlike flowRateM3PerSec) and smooths the throughput implied
+// by it.
 //
-// A single EMA stage turns out not to flatten a *periodic* pulse train well
-// at any tau that's still fast enough to feel responsive: at tau equal to
-// the treater's own 48s cycle, each new pulse lands on a residual that's
-// only 63% decayed from the previous one, so steady state oscillates
-// ~7-19 t/h around the true ~12 t/h average -- a pronounced sawtooth, not a
-// flat line (confirmed both by simulating it and by a live run). Cascading
-// two EMA stages (each fed the previous stage's output) rolls off the
-// periodic ripple far more steeply per unit of lag than widening a single
-// stage's tau does, so it gets meaningfully flatter *and* faster at once:
-// two 30s stages settles to roughly 9.7-13.2 t/h (vs 7-19 for one 48s
-// stage) while a genuine rate change is ~63% visible within 64s and ~95%
-// within 143s, well under what a single wider-tau stage would need for
-// comparable flatness.
+// A single EMA stage doesn't flatten a *periodic* pulse train well at any
+// tau that's still fast enough to feel responsive: at tau equal to the
+// treater's own 48s cycle, each new pulse lands on a residual that's only
+// 63% decayed from the previous one, so steady state oscillates ~7-19 t/h
+// around the true ~12 t/h average -- a pronounced sawtooth. Two cascaded 30s
+// stages narrows that to ~9.7-13.2 t/h, but still shows a visible repeating
+// arch (confirmed live) -- a 2-pole filter's rolloff past the ripple
+// frequency is only so steep. Each added stage rolls off the periodic
+// ripple considerably more per unit of lag added, so three stages gets
+// flatter *and* comparably fast rather than trading one for the other: at
+// 24s per stage steady state narrows to ~11.2-12.6 t/h while a genuine rate
+// change is still ~63% visible within 78s and ~95% within 151s (simulated
+// sweep across stage count and tau; see the commit that introduced this).
 // Sanity cap for the level despike above. Level is a 0..1 fill fraction, so
 // 100% is an exact, not approximate, ceiling.
 const LEVEL_MAX_FRACTION = 1;
-export const RATE_EMA_TAU_SEC = 30;
+export const RATE_EMA_TAU_SEC = 24;
+export const RATE_EMA_STAGES = 3;
 
 export function createPlotHistory() {
   return new Map(); // machineId -> { level: Sample[] | null, rate: Sample[] | null, rateEma: CascadedEmaState | null }
@@ -88,22 +90,26 @@ function despike(samples, raw, max) {
 // Folds this tick's cumulative-volume reading into the rate's cascaded EMA:
 // the instantaneous rate since the last sample (this tick's volume moved,
 // over the time since then) is blended into the first stage by `alpha`,
-// whose output is then blended into the second stage the same way -- each
-// stage smooths what the previous one already smoothed. `alpha` is derived
-// from how much sim-time actually elapsed so the same tau applies however
-// far apart two publishes land (a slower speed multiplier, a paused tab, or
-// a tick simply missed) rather than assuming a fixed publish interval. The
-// very first sample (`prev` null, nothing elapsed yet to derive an
-// instantaneous rate from) seeds both stages at 0.
+// whose output is then blended into the next stage the same way, and so on
+// through RATE_EMA_STAGES stages -- each stage smooths what the previous one
+// already smoothed. `alpha` is derived from how much sim-time actually
+// elapsed so the same tau applies however far apart two publishes land (a
+// slower speed multiplier, a paused tab, or a tick simply missed) rather
+// than assuming a fixed publish interval. The very first sample (`prev`
+// null, nothing elapsed yet to derive an instantaneous rate from) seeds
+// every stage at 0.
 function nextEma(prev, t, cumulative) {
-  if (prev == null) return { t, cumulative, stage1: 0, stage2: 0 };
+  if (prev == null) return { t, cumulative, stages: new Array(RATE_EMA_STAGES).fill(0) };
   const elapsed = t - prev.t;
   if (elapsed <= 0) return { ...prev, t, cumulative };
-  const instRate = (cumulative - prev.cumulative) / elapsed;
   const alpha = 1 - Math.exp(-elapsed / RATE_EMA_TAU_SEC);
-  const stage1 = prev.stage1 + alpha * (instRate - prev.stage1);
-  const stage2 = prev.stage2 + alpha * (stage1 - prev.stage2);
-  return { t, cumulative, stage1, stage2 };
+  let input = (cumulative - prev.cumulative) / elapsed;
+  const stages = prev.stages.map((stage) => {
+    const next = stage + alpha * (input - stage);
+    input = next;
+    return next;
+  });
+  return { t, cumulative, stages };
 }
 
 // Appends one sample to every currently-plotted series, reading each
@@ -120,7 +126,7 @@ export function recordSample(history, t, machineSnapshots) {
       level: entry.level && snap
         ? [...entry.level, { t, value: despike(entry.level, snap.fill ?? 0, LEVEL_MAX_FRACTION) }]
         : entry.level,
-      rate: entry.rate && snap ? [...entry.rate, { t, value: rateEma.stage2 }] : entry.rate,
+      rate: entry.rate && snap ? [...entry.rate, { t, value: rateEma.stages.at(-1) }] : entry.rate,
       rateEma,
     });
   }
