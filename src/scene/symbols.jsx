@@ -228,13 +228,15 @@ export function ElevatorSymbol({ machine: m, dynamic }) {
       {/* head motor */}
       <rect x={w + 2} y="6" width="30" height="26" fill={C.panel2} stroke={C.line} />
       <path d={`M${w + 6},10 L${w + 28},28 M${w + 6},28 L${w + 28},10`} stroke={C.line} strokeWidth="1" />
-      <text x={w + 17} y="46" fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="middle">5,0 kW</text>
       {/* live chain speed readout (issue #31), already folding in the manual VFD dial and any interlock throttle */}
-      <text x={w + 17} y="58" fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="middle">
+      <text x={w + 17} y="46" fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="middle">
         {dynamic?.chainSpeedMPerMin != null ? `${dynamic.chainSpeedMPerMin.toFixed(1)} m/min` : "– m/min"}
       </text>
       {(m.instruments ?? []).includes("ST") && (
-        <InstrumentDot x={w + 17} y={-22} code="ST" leaderFrom={{ x: w + 17, y: 4 }} />
+        <InstrumentDot
+          x={w + 17} y={-22} code="ST" leaderFrom={{ x: w + 17, y: 4 }}
+          value={dynamic?.chainSpeedMPerMin != null ? dynamic.chainSpeedMPerMin.toFixed(1) : "–"}
+        />
       )}
     </g>
   );
