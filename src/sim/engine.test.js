@@ -1699,7 +1699,7 @@ describe("the treating zone keeps cycling indefinitely under steady supply, neve
     // time, with generous margin, no matter how deep into the run it falls.
     expect(maxGapSec).toBeLessThan(treater.cycleSec + 20);
     expect(completedCycles).toBeGreaterThan(200); // far more than the original report's implied zero
-  }, 20000);
+  }, 60000); // ~4x the measured 11 s — see the sweep below on why 4x
 
   // The single-rate test above only exercises 15 t/h. The overshoot theory
   // it rules out (`held` clamped past `chargeM3` by the Math.max(0, ...) in
@@ -1752,7 +1752,13 @@ describe("the treating zone keeps cycling indefinitely under steady supply, neve
       expect(everOvershot).toBe(false);
       expect(maxGapSec).toBeLessThan(maxAllowedGapSec);
     }
-  }, 30000);
+    // Budgets on this file's long sweeps are set at roughly 4x the measured
+    // quiet-machine run, not just above it. This one measured 26.4 s against
+    // a 30 s budget — 12% of headroom — and duly timed out the first time it
+    // ran alongside a dev server and a browser, which stretched the whole
+    // file to 2.4x its usual wall time. A margin that thin fails on load, not
+    // on a regression, which is the least useful way for a test to go red.
+  }, 120000);
 
   // Issue #40's acceptance criteria name TREATER BUFFER BIN and TREATER
   // AFTER-BIN specifically. The after-bin can't be one of the two here — see
@@ -1790,7 +1796,7 @@ describe("the treating zone keeps cycling indefinitely under steady supply, neve
 
     const lateEvents = events.filter((e) => e.t > 3000);
     expect(lateEvents.length).toBeGreaterThan(1); // still logging well past the run's midpoint, not silent after an early transient
-  }, 20000);
+  }, 40000); // ~4x the measured 8 s — see the sweep above on why 4x
 
   // Structural, not rate-dependent: a single charge can raise the after-bin
   // by at most chargeM3/capacity, comfortably under its own 60% high set
@@ -1998,7 +2004,7 @@ describe("Pro Box source and the source selector (issue #46)", () => {
     for (let i = 0; i < Math.round(6000 / DT); i++) stepSim(sim, DT);
     expect(afterBinInterlock(sim).phase).toBe("held"); // tripped, unlike the treating-line-selected case
     expect(() => assertConserved(sim)).not.toThrow();
-  }, 20000);
+  }, 40000); // ~4x the measured 7 s — see the #40 sweep above on why 4x
 });
 
 describe("the packaging conveyor carries product to the outload buffer bin (issue #46)", () => {
