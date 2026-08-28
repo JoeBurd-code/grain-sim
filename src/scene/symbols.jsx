@@ -5,7 +5,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { C, FONT_DISP, FONT_MONO, ratioColor } from "./theme";
 import { labelPlacement } from "./labelLayout";
-import { elevatorChain, chainSceneSpeed, computeElevatorBuckets, BUCKET_SPACING, BUCKET_EMPTY_THRESHOLD } from "./elevatorMotion";
+import { elevatorChain, chainSceneSpeed, computeElevatorBuckets, bucketGeneration, BUCKET_SPACING, BUCKET_EMPTY_THRESHOLD } from "./elevatorMotion";
 
 // Halo width for the knockout stroke painted behind a label's glyphs. A
 // connection path that has to run past a label reads as passing *behind* it
@@ -196,17 +196,22 @@ function ElevatorBuckets({ m, dynamic, motion }) {
 
   useLayoutEffect(() => {
     const id = m.id;
+    const slotUsed = new Array(poolSize);
     function applyFrame(phase) {
       const buckets = computeElevatorBuckets(mRef.current, dynamicRef.current, phase);
-      for (let i = 0; i < poolSize; i++) {
-        const outlineEl = outlineRefs.current[i];
-        const grainEl = grainRefs.current[i];
-        const b = buckets[i];
-        if (!b) {
-          outlineEl?.setAttribute("opacity", "0");
-          grainEl?.setAttribute("opacity", "0");
-          continue;
-        }
+      slotUsed.fill(false);
+      // Keyed by bucketGeneration, not array index: a bucket's own array
+      // index shifts by one every time a new bucket enters the boot or an
+      // old one discharges off the head, which would otherwise hand an
+      // unrelated bucket's fill to whatever DOM node used to occupy that
+      // index mid-transit — the exact "front bucket keeps refilling" glitch
+      // this replaced (see this symbol's own comment above).
+      for (const b of buckets) {
+        const gen = bucketGeneration(b.pos, phase);
+        const slot = ((gen % poolSize) + poolSize) % poolSize;
+        slotUsed[slot] = true;
+        const outlineEl = outlineRefs.current[slot];
+        const grainEl = grainRefs.current[slot];
         const left = b.x - BUCKET_W / 2, top = b.y - BUCKET_H / 2, bottom = b.y + BUCKET_H / 2, right = b.x + BUCKET_W / 2;
         outlineEl?.setAttribute("d", `M${left},${top} V${bottom} H${right} V${top}`);
         outlineEl?.setAttribute("opacity", "1");
@@ -219,6 +224,11 @@ function ElevatorBuckets({ m, dynamic, motion }) {
           grainEl?.setAttribute("y", (bottom - BUCKET_GRAIN_FLOOR_GAP - grainH).toFixed(1));
           grainEl?.setAttribute("height", grainH.toFixed(1));
         }
+      }
+      for (let slot = 0; slot < poolSize; slot++) {
+        if (slotUsed[slot]) continue;
+        outlineRefs.current[slot]?.setAttribute("opacity", "0");
+        grainRefs.current[slot]?.setAttribute("opacity", "0");
       }
     }
     motion.frameRef(id)(applyFrame);

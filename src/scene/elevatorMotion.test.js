@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { elevatorChain, chainSceneSpeed, computeElevatorBuckets, BUCKET_SPACING } from "./elevatorMotion";
+import { elevatorChain, chainSceneSpeed, computeElevatorBuckets, bucketGeneration, BUCKET_SPACING } from "./elevatorMotion";
 import { line } from "../line/lineData";
 
 // Small fixture mirroring the real treatingElevator's own geometry shape
@@ -44,7 +44,7 @@ describe("computeElevatorBuckets", () => {
   it("reproduces the original static layout at phaseOffset 0 with no live data", () => {
     const buckets = computeElevatorBuckets(FIXTURE, undefined, 0);
     // First bucket sits exactly at the chain's own start point.
-    expect(buckets[0]).toEqual({ x: 20, y: 246, fillRatio: 1 });
+    expect(buckets[0]).toEqual({ x: 20, y: 246, fillRatio: 1, pos: 0 });
     // Every bucket is BUCKET_SPACING apart along a straight run.
     const onBottomRun = buckets.filter((b) => b.y === 246);
     for (let i = 1; i < onBottomRun.length; i++) {
@@ -103,5 +103,41 @@ describe("computeElevatorBuckets", () => {
     const negative = computeElevatorBuckets(FIXTURE, dynamic, -5);
     const wrappedEquivalent = computeElevatorBuckets(FIXTURE, dynamic, BUCKET_SPACING - 5);
     expect(negative).toEqual(wrappedEquivalent);
+  });
+});
+
+describe("bucketGeneration", () => {
+  it("stays exactly constant for one physical bucket as phase advances continuously", () => {
+    // A bucket that entered the boot at cumulative travel P0 sits at
+    // pos = phase - P0 at any later phase — its generation must come back
+    // out exactly constant, not just close, since this is what a DOM pool
+    // slot keys off across every animation frame.
+    const spacing = BUCKET_SPACING;
+    const P0 = spacing * 4;
+    for (const phase of [P0, P0 + 3, P0 + spacing - 0.01, P0 + 12.345]) {
+      const pos = phase - P0;
+      expect(bucketGeneration(pos, phase)).toBe(4);
+    }
+  });
+
+  it("never collides two simultaneously-visible buckets into the same pool slot", () => {
+    // Reproduces issue #65's follow-up bug: keying a fixed-size DOM pool by
+    // a bucket's own array index (instead of this stable identity) handed
+    // an unrelated bucket's fill to whatever node used to sit at that index
+    // the moment a new bucket entered the boot or an old one discharged,
+    // which read as the front-most bucket repeatedly "filling and
+    // refilling" instead of a train advancing smoothly.
+    const { totalLen } = elevatorChain(FIXTURE);
+    const poolSize = Math.floor(totalLen / BUCKET_SPACING) + 3;
+    const dynamic = { densityProfile: new Array(24).fill(0.5) };
+    for (let phase = 0; phase < BUCKET_SPACING * 3; phase += 0.37) {
+      const buckets = computeElevatorBuckets(FIXTURE, dynamic, phase);
+      const slots = new Set();
+      for (const b of buckets) {
+        const slot = ((bucketGeneration(b.pos, phase) % poolSize) + poolSize) % poolSize;
+        expect(slots.has(slot)).toBe(false);
+        slots.add(slot);
+      }
+    }
   });
 });

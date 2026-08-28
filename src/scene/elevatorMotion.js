@@ -56,12 +56,32 @@ export function chainSceneSpeed(m, chainSpeedMPerMin) {
   return (chainSpeedMPerMin / 60) * (totalLen / distanceM);
 }
 
+// Which physical bucket (a stable integer identity, constant for that
+// bucket's entire transit) currently sits at scene position `pos` when the
+// chain has travelled `phaseOffset` in total. A bucket entering the boot
+// (pos 0) at cumulative travel P0 sits at `pos = phaseOffset - P0` once the
+// chain has travelled `phaseOffset`, and buckets enter at regular
+// BUCKET_SPACING intervals of travel, so P0 is always a multiple of
+// spacing — solving for that multiple gives an identity that only changes
+// once per full BUCKET_SPACING of travel, exactly when this bucket instance
+// hands off to the next one. Used to key a stable DOM slot per physical
+// bucket (see ElevatorBuckets, symbols.jsx) rather than a positional array
+// index, which reshuffles every time a bucket enters or leaves the visible
+// chain and would otherwise make an unrelated bucket's fill flash into an
+// existing DOM node mid-transit.
+export function bucketGeneration(pos, phaseOffset, spacing = BUCKET_SPACING) {
+  return Math.round((phaseOffset - pos) / spacing);
+}
+
 // Bucket positions + fill ratios along the chain, offset by `phaseOffset`
 // (scene units the chain has travelled so far). The bucket train is
 // periodic with period BUCKET_SPACING, so only phaseOffset's remainder mod
-// spacing actually matters — passing 0 (no motion) reproduces the original,
-// pre-#65 static layout exactly, which is what the decorative fallback and
-// the binary leadingProgress/trailingProgress path (issue #21) still use.
+// spacing actually matters for *positioning* — passing 0 (no motion)
+// reproduces the original, pre-#65 static layout exactly, which is what the
+// decorative fallback and the binary leadingProgress/trailingProgress path
+// (issue #21) still use. Each bucket also carries its own raw path position
+// (`pos`) so a caller can derive a stable identity via bucketGeneration
+// above, using this same (un-wrapped) `phaseOffset`.
 //
 // Bucket *positions* move with phase; which density band a bucket samples
 // stays a function of where it now sits on the path (pathFrac), not of the
@@ -99,7 +119,7 @@ export function computeElevatorBuckets(m, dynamic, phaseOffset = 0) {
       } else {
         fillRatio = y <= 19 && x > gapX ? 0 : 1; // static decorative fallback, unchanged from before issue #21
       }
-      buckets.push({ x, y, fillRatio });
+      buckets.push({ x, y, fillRatio, pos: covered + d });
     }
     carry = spacing - ((len - carry) % spacing);
     if (carry === spacing) carry = 0;
