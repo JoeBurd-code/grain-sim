@@ -101,7 +101,11 @@ export const line = {
       zone: "treating",
       x: 140, y: 90, w: 90, h: 50,
       ports: { inputs: ["in"], outputs: ["out", "waste"] },
-      anchors: { in: { x: 0, y: 25 }, out: { x: 45, y: 50 }, waste: { x: 90, y: 40 } },
+      // Fed from the top, not the left face: grain falls through the magnet
+      // and straight out the bottom ("must pass straight through with zero
+      // holdup" — see below), so `in` over `out` on the same centreline is
+      // how the machine actually works. Metal leaves out the side.
+      anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 50 }, waste: { x: 90, y: 40 } },
       label: { side: "right", align: "center" },
       // "Must pass straight through with zero holdup, or the magnets will
       // not work" [CONFIRMED 2026-06-30, REAL_LINE_SPECS.md §5]. Extracted
@@ -209,10 +213,17 @@ export const line = {
       tag: "52.506.E00",
       status: "new",
       zone: "treating",
-      x: 250, y: 222, w: 420, h: 240,
+      // Height taken from 240 to 264 so the boot sits clear of the inlet
+      // drum feeder above it. At 240 the boot's top surface was exactly the
+      // feeder's underside, so the run between them had nowhere to be drawn
+      // and disappeared under the two machines. Grown rather than moved down
+      // because `out` is measured from the top: lowering y would have
+      // dragged the head discharge down with it and turned the short drop
+      // into the pre-bin into a slant.
+      x: 250, y: 222, w: 420, h: 264,
       geom: { colX: 200, duct: 36 },
       ports: { inputs: ["in"], outputs: ["out"] },
-      anchors: { in: { x: 25, y: 204 }, out: { x: 376, y: 44 } },
+      anchors: { in: { x: 25, y: 228 }, out: { x: 376, y: 44 } },
       instruments: ["ST"],
       label: { side: "above", align: "center" },
       // `readBind` (issue #34): the pre-bin's graded feed schedule
@@ -298,7 +309,7 @@ export const line = {
         out: { x: 30, y: 110 },
         wasteOut: { x: 100, y: 110 },
       },
-      label: { side: "left", align: "bottom" },
+      label: { side: "right", align: "center" },
       // Confirmed 2026-06-30: 160 kg per charge, held as a single unsplit
       // cycle — the engineer was explicit he could not give a fill/treat/
       // discharge breakdown and would have to ask the supplier (Niklas).
@@ -375,7 +386,12 @@ export const line = {
       zone: "treating",
       x: 620, y: 680, w: 140, h: 70,
       ports: { inputs: ["in"], outputs: ["out", "waste"] },
-      anchors: { in: { x: 30, y: 0 }, out: { x: 140, y: 35 }, waste: { x: 70, y: 70 } },
+      // Both discharges now leave the underside rather than the right face:
+      // scalpings off the left-hand corner, product straight down into the
+      // hopper waiting beneath. `out` on the right face at mid-height meant
+      // its line spent its first 35 units running along the screen's own
+      // right border before it cleared the machine at all.
+      anchors: { in: { x: 30, y: 0 }, out: { x: 100, y: 70 }, waste: { x: 20, y: 70 } },
       label: { side: "left", align: "center" },
       params: [{ id: "wasteFrac", label: "scalpings split", min: 0, max: 20, value: 3, unit: "%", bind: "wasteFraction" }],
       // First splitter on the line (issue #26): a fixed fraction of infeed
@@ -405,10 +421,12 @@ export const line = {
       zone: "treating",
       // Sited directly under the scalping screen (its real position — a
       // discharge hopper catches what the screen above it drops), x aligned
-      // with the screen's own product ("out") anchor at 760 so the
-      // connection between them is a straight vertical drop, not an elbow.
-      // DISCARD SCALPINGS BIN, below, moved left to make room.
-      x: 730, y: 790, w: 60, h: 46,
+      // with the screen's own product ("out") anchor so the connection
+      // between them is a straight vertical drop, not an elbow. Moved with
+      // that anchor when it came off the screen's right face and onto its
+      // underside at 720. DISCARD SCALPINGS BIN, below, moved left to make
+      // room.
+      x: 690, y: 790, w: 60, h: 46,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 30, y: 0 }, out: { x: 30, y: 46 } },
       fill: 0,
@@ -776,9 +794,16 @@ export const line = {
       zone: "packaging",
       x: 1699, y: 400, w: 32, h: 32,
       ports: { inputs: ["in"], outputs: ["out1", "out2"] },
-      anchors: { in: { x: 16, y: 0 }, out1: { x: 8, y: 24 }, out2: { x: 32, y: 16 } },
+      // The two outlets are the diamond's own left and right vertices, so
+      // the legs to the two metal bins leave at the same height and mirror
+      // each other. out1 used to sit on the lower-left face, which made its
+      // leg a slant against out2's square dog-leg.
+      anchors: { in: { x: 16, y: 0 }, out1: { x: 0, y: 16 }, out2: { x: 32, y: 16 } },
       smallLabel: true,
-      label: { side: "left", align: "center" },
+      // Below, not left: with both outlets now leaving at the vertices, a
+      // left-hand label would sit on out1's own leg. Below drops it into the
+      // clear triangle the two legs open up.
+      label: { side: "below", align: "center" },
       // Issue #47: a `router` (behaviors.js) — holds no material, sends the
       // whole of its inflow to whichever metal bin the destination selector
       // currently has chosen (setDestination, engine.js), never both at
@@ -1229,19 +1254,25 @@ export const line = {
 
   connections: [
     // treating
-    { from: { machine: "upstreamStub", port: "out" }, to: { machine: "treatMetalRemover", port: "in" }, kind: "product", via: [{ x: 120, y: 64 }, { x: 120, y: 115 }] },
+    // Runs across at the stub's own height and turns down onto the metal
+    // remover's centreline, so it drops in from above (see that machine's
+    // `anchors` comment) instead of poking into its left face.
+    { from: { machine: "upstreamStub", port: "out" }, to: { machine: "treatMetalRemover", port: "in" }, kind: "product", via: [{ x: 185, y: 64 }] },
     { from: { machine: "treatMetalRemover", port: "waste" }, to: { machine: "metalRejectStub1", port: "in" }, kind: "waste", tbc: true },
     { from: { machine: "treatMetalRemover", port: "out" }, to: { machine: "treaterBufferBin", port: "in" }, kind: "product" },
     { from: { machine: "treaterBufferBin", port: "out" }, to: { machine: "treatDrumFeeder", port: "in" }, kind: "product" },
-    { from: { machine: "treatDrumFeeder", port: "out" }, to: { machine: "treatingElevator", port: "in" }, kind: "product" },
+    // Drops out of the feeder, steps across, and falls into the boot from
+    // above — 12 units of clear air under the feeder and 12 over the boot,
+    // so the whole run is visible rather than hidden along the two edges.
+    { from: { machine: "treatDrumFeeder", port: "out" }, to: { machine: "treatingElevator", port: "in" }, kind: "product", via: [{ x: 225, y: 438 }, { x: 275, y: 438 }] },
     { from: { machine: "treatingElevator", port: "out" }, to: { machine: "treaterPreBin", port: "in" }, kind: "product" },
     { from: { machine: "treaterPreBin", port: "out" }, to: { machine: "batchTreater", port: "in" }, kind: "product" },
     { from: { machine: "batchTreater", port: "out" }, to: { machine: "treaterAfterBin", port: "in" }, kind: "product" },
     { from: { machine: "treaterAfterBin", port: "out" }, to: { machine: "scalpingScreen", port: "in" }, kind: "product" },
-    // A plain diagonal, not a right-angle elbow — the discard bin sits down
-    // and to the left of the screen's own waste port, and there's nothing
-    // else in that gap for a right-angle routing to dodge.
-    { from: { machine: "scalpingScreen", port: "waste" }, to: { machine: "discardBin", port: "in" }, kind: "waste" },
+    // Now a right-angle chute off the screen's left-hand corner rather than
+    // the long shallow diagonal it used to cut across the gap: drop clear of
+    // the screen, run left above the discard bin, then down into its top.
+    { from: { machine: "scalpingScreen", port: "waste" }, to: { machine: "discardBin", port: "in" }, kind: "waste", via: [{ x: 640, y: 775 }, { x: 490, y: 775 }] },
     // treating -> packaging (the cross-zone product run). Issue #62 inserts
     // the scalping screen's own discharge hopper between the screen and
     // inletDrumFeeder2 — the cross-zone hop is now the hopper's own outlet,
@@ -1275,7 +1306,7 @@ export const line = {
     { from: { machine: "pendulumConveyor", port: "outBuffer" }, to: { machine: "grainBreak", port: "in" }, kind: "product" },
     { from: { machine: "grainBreak", port: "out" }, to: { machine: "outloadBufferBin", port: "in" }, kind: "product" },
     { from: { machine: "outloadBufferBin", port: "out" }, to: { machine: "outloadDiverter", port: "in" }, kind: "product" },
-    { from: { machine: "outloadDiverter", port: "out1" }, to: { machine: "metalBin1", port: "in" }, kind: "product" },
+    { from: { machine: "outloadDiverter", port: "out1" }, to: { machine: "metalBin1", port: "in" }, kind: "product", via: [{ x: 1665, y: 416 }] },
     { from: { machine: "outloadDiverter", port: "out2" }, to: { machine: "metalBin2", port: "in" }, kind: "product", via: [{ x: 1875, y: 416 }] },
     { from: { machine: "metalBin1", port: "out" }, to: { machine: "dischargeStub1", port: "in" }, kind: "product", tbc: true },
     { from: { machine: "metalBin2", port: "out" }, to: { machine: "dischargeStub2", port: "in" }, kind: "product", tbc: true },
