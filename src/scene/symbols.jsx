@@ -3,23 +3,39 @@
 // coloured by ratioColor, no gradients. Every symbol draws in local coords;
 // the Scene positions it at the machine's world (x, y).
 import { C, FONT_DISP, FONT_MONO, ratioColor } from "./theme";
+import { labelPlacement } from "./labelLayout";
 
+// Halo width for the knockout stroke painted behind a label's glyphs. A
+// connection path that has to run past a label reads as passing *behind* it
+// rather than through it, which is what the old flat text could not do.
+const LABEL_HALO = 3.5;
 
+// A machine's name, placed by labelLayout from the side/alignment the machine
+// data declares (never a hand-guessed pixel offset — see labelLayout.js).
 export function MachineLabel({ machine: m }) {
-  const at = m.labelAt ?? { x: 0, y: m.h + 18 };
-  if (m.smallLabel) {
-    return (
-      <text x={at.x} y={at.y} fontFamily={FONT_MONO} fontSize="8" fill={C.muted}>
-        {m.name}
-      </text>
-    );
-  }
+  const { x, y, anchor, lines, lineHeight, size } = labelPlacement(m);
+  const small = size === "small";
   return (
-    <g>
-      <text className="mname" x={at.x} y={at.y} fontFamily={FONT_DISP} fontSize="13" letterSpacing="0.06em" fill={C.text}>
-        {m.name}
-      </text>
-    </g>
+    <text
+      className={small ? undefined : "mname"}
+      x={x}
+      y={y}
+      textAnchor={anchor}
+      fontFamily={small ? FONT_MONO : FONT_DISP}
+      fontSize={small ? 8 : 13}
+      letterSpacing={small ? undefined : "0.06em"}
+      fill={small ? C.muted : C.text}
+      stroke={C.bg}
+      strokeWidth={LABEL_HALO}
+      strokeLinejoin="round"
+      paintOrder="stroke"
+    >
+      {lines.map((text, i) => (
+        <tspan key={text} x={x} dy={i === 0 ? 0 : lineHeight}>
+          {text}
+        </tspan>
+      ))}
+    </text>
   );
 }
 
@@ -517,16 +533,23 @@ export function PalletiserSymbol({ machine: m }) {
 // `sim.kind` publishes one (terminalSink's optional `bagSizeM3`, issue #48),
 // so this reads generically off whatever the snapshot happens to carry
 // rather than special-casing any one stub by id.
+// The caption clears the point itself horizontally: a stub is the end of a
+// connection, so its own line arrives at (or leaves from) the dot's centre,
+// and a caption starting at x=0 sat directly on that line wherever the run
+// was vertical (both metal-bin discharges, the pallet outfeed).
+const STUB_LABEL_X = 14;
+
 export function StubSymbol({ machine: m, dynamic }) {
   const count = dynamic?.bagCount;
+  const halo = { stroke: C.bg, strokeWidth: 3, strokeLinejoin: "round", paintOrder: "stroke" };
   return (
     <g>
       {count != null && (
-        <text x="0" y="-20" fontFamily={FONT_MONO} fontSize="8" fill={C.wheat}>
+        <text x={STUB_LABEL_X} y="-20" fontFamily={FONT_MONO} fontSize="8" fill={C.wheat} {...halo}>
           {count} bags
         </text>
       )}
-      <text x="0" y="-10" fontFamily={FONT_MONO} fontSize="8" fill={C.muted}>
+      <text x={STUB_LABEL_X} y="-10" fontFamily={FONT_MONO} fontSize="8" fill={C.muted} {...halo}>
         {m.name}
       </text>
       <circle cx="4" cy="4" r="3.5" fill={C.muted} />

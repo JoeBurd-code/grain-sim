@@ -102,7 +102,7 @@ export const line = {
       x: 140, y: 90, w: 90, h: 50,
       ports: { inputs: ["in"], outputs: ["out", "waste"] },
       anchors: { in: { x: 0, y: 25 }, out: { x: 45, y: 50 }, waste: { x: 90, y: 40 } },
-      labelAt: { x: 110, y: 14 },
+      label: { side: "right", align: "center" },
       // "Must pass straight through with zero holdup, or the magnets will
       // not work" [CONFIRMED 2026-06-30, REAL_LINE_SPECS.md §5]. Extracted
       // metal is real but negligible in volume; not modelled as a split.
@@ -136,7 +136,7 @@ export const line = {
       anchors: { in: { x: 45, y: 0 }, out: { x: 85, y: 190 } },
       fill: 0,
       instruments: ["LT", "LSHH", "LSH", "LSL"],
-      labelAt: { x: -6, y: -16 },
+      label: { side: "left", align: "center" },
       // Live jump, not just an initial condition: dragging this sets the
       // running sim's current level immediately (see PARAM_BINDERS.levelJump
       // in PlantApp.jsx), for staging a scenario mid-presentation —
@@ -173,7 +173,7 @@ export const line = {
       x: 185, y: 390, w: 80, h: 36,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 36 } },
-      labelAt: { x: -160, y: 24 },
+      label: { side: "left", align: "center" },
       // Confirmed 2-20 t/h operating range [CONFIRMED 2026-06-30,
       // REAL_LINE_SPECS.md §5]. The real feeder is not a direct rate control
       // but a non-proportional percentage opening (the FD, 2026-08-05,
@@ -214,7 +214,7 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 25, y: 204 }, out: { x: 376, y: 44 } },
       instruments: ["ST"],
-      labelAt: { x: 200, y: -14 },
+      label: { side: "above", align: "center" },
       // `readBind` (issue #34): the pre-bin's graded feed schedule
       // (preBinFeedSchedule below) can throttle or stop this elevator out
       // from under the presenter's own VFD dial.
@@ -250,7 +250,7 @@ export const line = {
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 100 } },
       fill: 0,
       instruments: ["LT", "LSHH", "LSH", "LSL"],
-      labelAt: { x: -10, y: -16 },
+      label: { side: "right", align: "center" },
       // Reuses the same accumulator behaviour as the buffer bin (issue #18)
       // unchanged — issue #22's own reuse claim, material physics written
       // once and configured seven times per the parent spec. The graded feed
@@ -298,7 +298,7 @@ export const line = {
         out: { x: 30, y: 110 },
         wasteOut: { x: 100, y: 110 },
       },
-      labelAt: { x: -160, y: 75 },
+      label: { side: "left", align: "bottom" },
       // Confirmed 2026-06-30: 160 kg per charge, held as a single unsplit
       // cycle — the engineer was explicit he could not give a fill/treat/
       // discharge breakdown and would have to ask the supplier (Niklas).
@@ -340,7 +340,7 @@ export const line = {
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 80 } },
       fill: 0,
       instruments: ["LSH", "LSL"],
-      labelAt: { x: -150, y: 30 },
+      label: { side: "left", align: "center" },
       // Reuses the same accumulator behaviour as the buffer bin (issue #18)
       // and the pre-bin (issue #22) unchanged — the third reuse the parent
       // spec names explicitly. What's new is afterBinHoldTreater below: the
@@ -376,7 +376,7 @@ export const line = {
       x: 620, y: 680, w: 140, h: 70,
       ports: { inputs: ["in"], outputs: ["out", "waste"] },
       anchors: { in: { x: 30, y: 0 }, out: { x: 140, y: 35 }, waste: { x: 70, y: 70 } },
-      labelAt: { x: -210, y: 40 },
+      label: { side: "left", align: "center" },
       params: [{ id: "wasteFrac", label: "scalpings split", min: 0, max: 20, value: 3, unit: "%", bind: "wasteFraction" }],
       // First splitter on the line (issue #26): a fixed fraction of infeed
       // diverts to waste, the rest to product, with negligible holdup
@@ -413,7 +413,7 @@ export const line = {
       anchors: { in: { x: 30, y: 0 }, out: { x: 30, y: 46 } },
       fill: 0,
       instruments: ["LSH"],
-      labelAt: { x: 70, y: 15 },
+      label: { side: "right", align: "center" },
       params: [{ id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" }],
       // Issue #62: a small catch tray under the Treatment Scalping Screen
       // (52.602.F00, above), feeding Inlet Drum Feeder 2 (52.603.L00 —
@@ -460,7 +460,7 @@ export const line = {
       ports: { inputs: ["in"], outputs: [] },
       anchors: { in: { x: 50, y: 0 } },
       fill: 0.01,
-      labelAt: { x: 0, y: 106 },
+      label: { side: "below", align: "center" },
       // Terminal sink (issue #26): the treating zone's waste destination,
       // holding an unbounded running total rather than a working volume —
       // emptied "when full" is an operator/truck event out of scope, not a
@@ -500,7 +500,7 @@ export const line = {
       x: 1270, y: 600, w: 120, h: 80,
       ports: { inputs: [], outputs: ["out"] },
       anchors: { out: { x: 60, y: 80 } },
-      labelAt: { x: 0, y: -14 },
+      label: { side: "above", align: "center" },
       // Issue #46: a live source, same shape as upstreamStub — returns
       // already-treated stored seed to be re-bagged, confirmed to bypass the
       // entire treating half [CONFIRMED FD 2026-08-05, REAL_LINE_SPECS.md
@@ -538,7 +538,7 @@ export const line = {
       x: 1290, y: 818, w: 80, h: 36,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 36 } },
-      labelAt: { x: 90, y: 24 },
+      label: { side: "below", align: "center", nudge: { y: 30 } },
       // Issue #46: the Pro Box's own feeder. Reuses meteredFeeder unchanged
       // (issue #20), same confirmed 2-20 t/h range as the treating-side
       // feeder. Starts disabled: the source selector (setSource, engine.js)
@@ -600,7 +600,7 @@ export const line = {
       x: 1160, y: 818, w: 80, h: 36,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 0, y: 18 }, out: { x: 40, y: 36 } },
-      labelAt: { x: -160, y: 24 },
+      label: { side: "above", align: "center" },
       // Issue #46: the treating line's own feeder, downstream of the
       // scalping screen. `enabled` defaults true — the source selector
       // starts on the treating line — so selecting the Pro Box instead
@@ -652,7 +652,7 @@ export const line = {
         outConcetti: { x: 1745, y: 26 },
       },
       instruments: ["LSH"],
-      labelAt: { x: 560, y: -14 },
+      label: { side: "above", align: "center" },
       // Issue #47: now `routedTransportDelay` (behaviors.js) — the router
       // concept combined with real transport lag, so material discharges
       // through whichever of the three outlets the destination selector
@@ -720,7 +720,7 @@ export const line = {
       anchors: { in: { x: 30, y: 0 }, out: { x: 65, y: 145 } },
       fill: 0,
       instruments: ["LSH", "LSL"],
-      labelAt: { x: -190, y: 30 },
+      label: { side: "left", align: "center" },
       // Issue #46: the same accumulator behaviour as every other bin on the
       // line (issue #18), configured a fourth time. 4.51 m3 / 3.25 t working
       // volume [CONFIRMED, PLC_FUNCTIONAL_DESCRIPTION.md §8.3 / §8.4 mimic
@@ -753,7 +753,7 @@ export const line = {
       x: 1656, y: 190, w: 48, h: 36,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 24, y: 0 }, out: { x: 24, y: 36 } },
-      labelAt: { x: -140, y: 44 },
+      label: { side: "left", align: "center" },
       // Issue #46: pass-through, no holdup — the engineer confirmed this
       // exists as an unpowered cascade chute (see the tag comment above),
       // the same reasoning treatMetalRemover's own passThrough already
@@ -778,7 +778,7 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out1", "out2"] },
       anchors: { in: { x: 16, y: 0 }, out1: { x: 8, y: 24 }, out2: { x: 32, y: 16 } },
       smallLabel: true,
-      labelAt: { x: 44, y: -4 },
+      label: { side: "left", align: "center" },
       // Issue #47: a `router` (behaviors.js) — holds no material, sends the
       // whole of its inflow to whichever metal bin the destination selector
       // currently has chosen (setDestination, engine.js), never both at
@@ -803,7 +803,7 @@ export const line = {
       anchors: { in: { x: 80, y: 0 }, out: { x: 80, y: 162 } },
       fill: 0,
       instruments: ["LT", "LSH"],
-      labelAt: { x: 0, y: 198 },
+      label: { side: "left", align: "center" },
       // Issue #47: an accumulator (issue #18's behaviour, configured a
       // fifth time), with a live level-jump slider for staging a near-full
       // trip demo, the same pattern every other bin on the line already
@@ -850,7 +850,7 @@ export const line = {
       anchors: { in: { x: 80, y: 0 }, out: { x: 80, y: 162 } },
       fill: 0,
       instruments: ["LT", "LSH"],
-      labelAt: { x: 0, y: 198 },
+      label: { side: "right", align: "center" },
       // Issue #47: same accumulator configuration as metalBin1, sixth
       // reuse of issue #18's behaviour — see metalBin1's own comment for
       // the working-volume and no-modelled-discharge reasoning. Starts
@@ -884,7 +884,7 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 30, y: 0 }, out: { x: 30, y: 36 } },
       smallLabel: true,
-      labelAt: { x: -180, y: 40 },
+      label: { side: "left", align: "center" },
       // Issue #48: pass-through, no holdup — the same reasoning
       // treatMetalRemover's and grainBreak's own passThrough already rest
       // on (an in-line sampler diverts a negligible probe volume, modelled
@@ -916,7 +916,7 @@ export const line = {
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 90 } },
       fill: 0,
       instruments: ["LSH", "LSL"],
-      labelAt: { x: 120, y: 55 },
+      label: { side: "left", align: "center" },
       params: [
         { id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" },
         { id: "highSetpoint", label: "LSH set point", min: 45, max: 100, value: 85, unit: "%", bind: "interlockHighSetpoint" },
@@ -951,7 +951,7 @@ export const line = {
       x: 2520, y: 560, w: 120, h: 30,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 110, y: 30 } },
-      labelAt: { x: -188, y: 2 },
+      label: { side: "left", align: "center" },
       // Issue #48: meters the pre-bin's discharge, reusing the drum
       // feeders' own meteredFeeder behaviour unchanged (issue #20) — the
       // parent spec's own reuse claim for this machine. No document gives
@@ -977,7 +977,7 @@ export const line = {
       x: 2585, y: 620, w: 90, h: 70,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 70 } },
-      labelAt: { x: 105, y: 30 },
+      label: { side: "left", align: "center" },
       // Issue #48: the one genuinely new configuration on this branch, and
       // the parent spec's own largest reuse claim landing — the batch
       // treater's batchCycle primitive (issue #24), unchanged, takes a
@@ -1015,7 +1015,7 @@ export const line = {
       x: 2540, y: 720, w: 180, h: 26,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 90, y: 0 }, out: { x: 170, y: 13 } },
-      labelAt: { x: 0, y: 46 },
+      label: { side: "below", align: "center" },
       // Issue #48: pass-through, no holdup — a filled bag rides straight
       // across the rollers and over the belt scale to the terminus, per
       // the parent issue's own description; the weighing itself has
@@ -1063,7 +1063,7 @@ export const line = {
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 30, y: 0 }, out: { x: 30, y: 36 } },
       smallLabel: true,
-      labelAt: { x: 75, y: 22 },
+      label: { side: "left", align: "center" },
       // Issue #49: pass-through, no holdup — same reasoning binSegSampler's
       // own passThrough already rests on (REAL_LINE_SPECS.md §6: "Pass-
       // through, no holdup. Sample taken ~every 3 hours").
@@ -1089,7 +1089,7 @@ export const line = {
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 90 } },
       fill: 0,
       instruments: ["LT", "LSHH", "LSH", "LSL"],
-      labelAt: { x: 110, y: 30 },
+      label: { side: "left", align: "center" },
       // Issue #61: LSL/LSH/LSHH set points and the graded feed schedule
       // itself (concettiFeedSchedule, below) are the same shape issue #60
       // gave the Treater pre-bin — see that machine's own params/comment.
@@ -1130,7 +1130,7 @@ export const line = {
       x: 3150, y: 470, w: 80, h: 46,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 46 } },
-      labelAt: { x: -220, y: 30 },
+      label: { side: "left", align: "center" },
       // Issue #49: the branch's second genuinely new configuration, reusing
       // batchCycle (issue #24) a fourth time — the parent spec's own reuse
       // claim landing in full — takes a charge, holds it for a cycle,
@@ -1166,7 +1166,7 @@ export const line = {
       x: 3140, y: 550, w: 100, h: 70,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 50, y: 0 }, out: { x: 50, y: 70 } },
-      labelAt: { x: 115, y: 35 },
+      label: { side: "left", align: "center" },
       // Issue #49: pass-through, no holdup — a weighed charge off the scale
       // rides straight through the sewing head to palletising, per the
       // parent issue's own description; nothing further for the sim to
@@ -1183,7 +1183,7 @@ export const line = {
       x: 3120, y: 660, w: 140, h: 80,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 70, y: 0 }, out: { x: 70, y: 80 } },
-      labelAt: { x: -260, y: 40 },
+      label: { side: "left", align: "center" },
       // Issue #49: pass-through, no holdup — the discrete pallet-building
       // machinery downstream of the sewn bag is out of scope (see the
       // parent spec's own Out of Scope section); product is counted as it
@@ -1253,8 +1253,15 @@ export const line = {
     { from: { machine: "proBoxStation", port: "out" }, to: { machine: "inletDrumFeeder1", port: "in" }, kind: "product" },
     // Floor-run height (the first/second via y) follows the two feeders'
     // own move down (issue #62 follow-up, +88 from the original 800).
-    { from: { machine: "inletDrumFeeder1", port: "out" }, to: { machine: "pendulumConveyor", port: "in1" }, kind: "product", via: [{ x: 1330, y: 888 }, { x: 1440, y: 888 }, { x: 1440, y: 148 }] },
-    { from: { machine: "inletDrumFeeder2", port: "out" }, to: { machine: "pendulumConveyor", port: "in2" }, kind: "product", via: [{ x: 1200, y: 888 }, { x: 1440, y: 888 }, { x: 1440, y: 160 }] },
+    //
+    // The two runs are deliberately given their own floor height and their
+    // own climb column: routed at a shared y=888 / x=1440 they drew exactly
+    // on top of each other from the floor all the way up the climb, so two
+    // feeds read as one line. Feeder 1 (the nearer one) takes the higher
+    // floor run and the inner column; feeder 2 passes underneath it and
+    // climbs outside, so neither run crosses nor covers the other.
+    { from: { machine: "inletDrumFeeder1", port: "out" }, to: { machine: "pendulumConveyor", port: "in1" }, kind: "product", via: [{ x: 1330, y: 888 }, { x: 1424, y: 888 }, { x: 1424, y: 148 }] },
+    { from: { machine: "inletDrumFeeder2", port: "out" }, to: { machine: "pendulumConveyor", port: "in2" }, kind: "product", via: [{ x: 1200, y: 920 }, { x: 1440, y: 920 }, { x: 1440, y: 160 }] },
     // branch B: outload metal bins. No lift here (issue #44): the phantom
     // packaging bucket elevator is gone, so the buffer bin discharges
     // straight into the diverter by gravity.
