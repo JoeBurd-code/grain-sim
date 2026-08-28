@@ -2,8 +2,10 @@
 // flat fills, hairline strokes, fill level clipped inside the silhouette and
 // coloured by ratioColor, no gradients. Every symbol draws in local coords;
 // the Scene positions it at the machine's world (x, y).
+import { useLayoutEffect, useRef } from "react";
 import { C, FONT_DISP, FONT_MONO, ratioColor } from "./theme";
 import { labelPlacement } from "./labelLayout";
+import { elevatorChain, chainSceneSpeed, computeElevatorBuckets, BUCKET_SPACING, BUCKET_EMPTY_THRESHOLD } from "./elevatorMotion";
 
 // Halo width for the knockout stroke painted behind a label's glyphs. A
 // connection path that has to run past a label reads as passing *behind* it
@@ -151,72 +153,110 @@ export function MetalBinSymbol({ machine: m, dynamic }) {
   );
 }
 
-// A bucket right at the sweep's edge would otherwise flicker between loaded
-// and empty as floating-point progress crosses the boundary each tick.
-const PROGRESS_BAND_SLACK = 0.02;
+// Bucket outline size for the live, density-driven treatment below — large
+// enough to read as a real open-topped bucket (roughly 14x12) while still
+// leaving about half of BUCKET_SPACING as a visible gap to the next one.
+const BUCKET_W = 14;
+const BUCKET_H = 12;
+// Small inset so the grain rect never visually merges with the bucket's own
+// outline stroke.
+const BUCKET_GRAIN_INSET = 2;
+const BUCKET_GRAIN_FLOOR_GAP = 1.5;
+// Fixed opacity a loaded bucket used before density existed (issue #31) —
+// kept as a literal for the legacy binary-fill paths below (decorative
+// fallback, and the leadingProgress/trailingProgress sweep) now that the
+// opacity-as-density trick itself (BUCKET_FILL_OPACITY_MIN/RANGE) is
+// retired along with the density-driven fill it used to stand in for.
+const LEGACY_BUCKET_OPACITY = 0.9;
+const LEGACY_BUCKET_SIZE = 7;
 
-// A near-zero fillRatio still renders as the true "empty" outline (fill
-// none) rather than a barely-visible smear of amber. Loaded buckets get an
-// opacity floor so even a thin band reads as "carrying something" against
-// the panel background, scaling up to the same 0.9 a fully loaded bucket
-// used before density existed.
-const BUCKET_EMPTY_THRESHOLD = 0.03;
-const BUCKET_FILL_OPACITY_MIN = 0.3;
-const BUCKET_FILL_OPACITY_RANGE = 0.6;
+// One pool slot's DOM refs for the live bucket-motion path — an outline
+// path element and its own grain-level rect, both mutated in place by
+// useMachineMotion's per-frame callback rather than re-rendered by React.
+function ElevatorBuckets({ m, dynamic, motion }) {
+  const { totalLen } = elevatorChain(m);
+  // A couple of slots beyond the steady-state bucket count so a bucket
+  // entering or leaving at the chain's own wrap point always has an
+  // element to appear in/disappear from, rather than being clipped.
+  const poolSize = Math.floor(totalLen / BUCKET_SPACING) + 3;
+  const outlineRefs = useRef([]);
+  const grainRefs = useRef([]);
+  const mRef = useRef(m);
+  const dynamicRef = useRef(dynamic);
+
+  // Runs every render (no deps): keeps the frame callback below reading the
+  // latest machine/dynamic without re-registering it, and the live chain
+  // speed can change on any publish tick (a cheap Map write, not a
+  // subscription).
+  useLayoutEffect(() => {
+    mRef.current = m;
+    dynamicRef.current = dynamic;
+    motion.setRate(m.id, chainSceneSpeed(m, dynamic?.chainSpeedMPerMin));
+  });
+
+  useLayoutEffect(() => {
+    const id = m.id;
+    function applyFrame(phase) {
+      const buckets = computeElevatorBuckets(mRef.current, dynamicRef.current, phase);
+      for (let i = 0; i < poolSize; i++) {
+        const outlineEl = outlineRefs.current[i];
+        const grainEl = grainRefs.current[i];
+        const b = buckets[i];
+        if (!b) {
+          outlineEl?.setAttribute("opacity", "0");
+          grainEl?.setAttribute("opacity", "0");
+          continue;
+        }
+        const left = b.x - BUCKET_W / 2, top = b.y - BUCKET_H / 2, bottom = b.y + BUCKET_H / 2, right = b.x + BUCKET_W / 2;
+        outlineEl?.setAttribute("d", `M${left},${top} V${bottom} H${right} V${top}`);
+        outlineEl?.setAttribute("opacity", "1");
+        const filled = b.fillRatio > BUCKET_EMPTY_THRESHOLD;
+        grainEl?.setAttribute("opacity", filled ? "1" : "0");
+        if (filled) {
+          const grainH = Math.min(1, b.fillRatio) * (BUCKET_H - BUCKET_GRAIN_FLOOR_GAP);
+          grainEl?.setAttribute("x", (left + BUCKET_GRAIN_INSET).toFixed(1));
+          grainEl?.setAttribute("width", (BUCKET_W - 2 * BUCKET_GRAIN_INSET).toFixed(1));
+          grainEl?.setAttribute("y", (bottom - BUCKET_GRAIN_FLOOR_GAP - grainH).toFixed(1));
+          grainEl?.setAttribute("height", grainH.toFixed(1));
+        }
+      }
+    }
+    motion.frameRef(id)(applyFrame);
+    applyFrame(motion.getPhase(id));
+    return () => motion.frameRef(id)(null);
+  }, [m.id, motion, poolSize]);
+
+  return (
+    <g>
+      {Array.from({ length: poolSize }, (_, i) => (
+        <g key={i}>
+          <path ref={(el) => { outlineRefs.current[i] = el; }} fill="none" stroke={C.line} strokeWidth="1.5" opacity="0" />
+          <rect ref={(el) => { grainRefs.current[i] = el; }} fill={C.wheat} opacity="0" />
+        </g>
+      ))}
+    </g>
+  );
+}
 
 // Simatek pendulum bucket elevator: lower horizontal run, climb, upper run.
 // Geometry from machine data: w, h, geom.colX (column left edge), geom.duct.
 // `dynamic.densityProfile` (issue #31, transportDelay's snapshot) gives each
-// decorative bucket's fill a real local-density value instead of a binary
-// full/empty split, so a mismatch between feed rate and chain speed shows up
-// as buckets visibly thinning or filling, not just as a full/empty sweep.
+// bucket's fill a real local-density value instead of a binary full/empty
+// split, so a mismatch between feed rate and chain speed shows up as
+// buckets visibly thinning or filling, not just as a full/empty sweep; that
+// same live data drives real chain travel (issue #65, useMachineMotion) —
+// bucket positions advance at the live chainSpeedMPerMin, frozen while
+// paused and scaled by the speed multiplier, wrapping every BUCKET_SPACING.
 // Falls back to `leadingProgress`/`trailingProgress` (issue #21) for a
-// binary sweep when no density profile is published yet, and to the
-// original static half-loaded decoration when the machine has no live
-// transit data at all (not sim-enabled yet, e.g. the packaging elevator).
-export function ElevatorSymbol({ machine: m, dynamic }) {
+// binary, stationary sweep when no density profile is published yet, and to
+// the original static half-loaded decoration when the machine has no live
+// transit data at all (not sim-enabled yet, e.g. the packaging elevator) —
+// both of those two fallbacks are untouched from before this issue.
+export function ElevatorSymbol({ machine: m, dynamic, motion }) {
   const { w, h } = m;
   const { colX, duct } = m.geom;
   const gapX = w - 60;
-  const chain = [
-    [20, h - 18],
-    [colX + 18, h - 18],
-    [colX + 18, 18],
-    [w - 20, 18],
-  ];
-  const totalLen = chain.slice(1).reduce((a, [x1, y1], i) => a + Math.hypot(x1 - chain[i][0], y1 - chain[i][1]), 0);
-
-  const live = dynamic?.leadingProgress != null;
-  const leading = dynamic?.leadingProgress ?? 0;
-  const trailing = dynamic?.trailingProgress ?? 0;
-  const density = dynamic?.densityProfile;
-  const bandCount = density?.length ?? 0;
-
-  const buckets = [];
-  const spacing = 26, size = 7;
-  let carry = 0, covered = 0;
-  for (let i = 0; i < chain.length - 1; i++) {
-    const [x0, y0] = chain[i], [x1, y1] = chain[i + 1];
-    const len = Math.hypot(x1 - x0, y1 - y0);
-    for (let d = carry; d <= len; d += spacing) {
-      const t = d / len;
-      const x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
-      const pathFrac = totalLen > 0 ? (covered + d) / totalLen : 0;
-      let fillRatio;
-      if (bandCount > 0) {
-        const idx = Math.min(bandCount - 1, Math.floor(pathFrac * bandCount));
-        fillRatio = density[idx];
-      } else if (live) {
-        fillRatio = pathFrac < trailing - PROGRESS_BAND_SLACK || pathFrac > leading + PROGRESS_BAND_SLACK ? 0 : 1;
-      } else {
-        fillRatio = y <= 19 && x > gapX ? 0 : 1; // static decorative fallback, unchanged from before issue #21
-      }
-      buckets.push({ x, y, fillRatio });
-    }
-    carry = spacing - ((len - carry) % spacing);
-    if (carry === spacing) carry = 0;
-    covered += len;
-  }
+  const bandCount = dynamic?.densityProfile?.length ?? 0;
 
   return (
     <g>
@@ -229,16 +269,20 @@ export function ElevatorSymbol({ machine: m, dynamic }) {
         d={`M20,${h - 18} H${colX + 18} V18 H${w - 20}`}
         fill="none" stroke={C.line} strokeWidth="1.5" strokeDasharray="3 5"
       />
-      {buckets.map((b, i) => (
-        <rect
-          key={i}
-          x={(b.x - size / 2).toFixed(1)} y={(b.y - size / 2).toFixed(1)}
-          width={size} height={size}
-          fill={b.fillRatio > BUCKET_EMPTY_THRESHOLD ? C.wheat : "none"}
-          opacity={b.fillRatio > BUCKET_EMPTY_THRESHOLD ? BUCKET_FILL_OPACITY_MIN + b.fillRatio * BUCKET_FILL_OPACITY_RANGE : 1}
-          stroke={C.line}
-        />
-      ))}
+      {bandCount > 0 ? (
+        <ElevatorBuckets m={m} dynamic={dynamic} motion={motion} />
+      ) : (
+        computeElevatorBuckets(m, dynamic, 0).map((b, i) => (
+          <rect
+            key={i}
+            x={(b.x - LEGACY_BUCKET_SIZE / 2).toFixed(1)} y={(b.y - LEGACY_BUCKET_SIZE / 2).toFixed(1)}
+            width={LEGACY_BUCKET_SIZE} height={LEGACY_BUCKET_SIZE}
+            fill={b.fillRatio > BUCKET_EMPTY_THRESHOLD ? C.wheat : "none"}
+            opacity={b.fillRatio > BUCKET_EMPTY_THRESHOLD ? LEGACY_BUCKET_OPACITY : 1}
+            stroke={C.line}
+          />
+        ))
+      )}
       {/* discharge gap in the duct floor; pulses while actively discharging */}
       <rect x={gapX} y={duct - 4} width="32" height="9" fill={dynamic?.backlogVol > 0 ? C.wheat : C.bg} opacity={dynamic?.backlogVol > 0 ? 0.5 : 1} />
       {/* head motor */}

@@ -375,6 +375,8 @@ export default function PlantApp() {
               selectedId={selectedId}
               onSelect={setSelectedId}
               simSnap={engine.snap.machines}
+              running={engine.running}
+              speed={engine.speed}
             />
           )}
           {selected && (

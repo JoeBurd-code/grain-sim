@@ -1,8 +1,11 @@
 // Renders the line definition as an SVG scene: connection paths underneath,
 // machine silhouettes + labels on top. Scene structure is declarative React
 // (it only changes when the line data changes); per-frame animation (the
-// flow-dash overlay, issue #35) mutates attributes imperatively via refs
-// through useFlowAnimation, per the locked architecture.
+// flow-dash overlay, issue #35, via useFlowAnimation; machine motion like
+// the bucket elevator's chain travel, issue #65, via useMachineMotion)
+// mutates attributes imperatively via refs, per the locked architecture.
+// `running`/`speed` (useSimEngine.js) are threaded through so machine
+// motion freezes on pause and scales with the speed multiplier.
 import { C, SELECT_STROKE } from "./theme";
 import {
   BinSymbol, MetalBinSymbol, ElevatorSymbol, DiverterSymbol,
@@ -13,6 +16,7 @@ import {
   ScaleSymbol, FillerSymbol, PalletiserSymbol,
 } from "./symbols";
 import { useFlowAnimation, FLOW_DASH_PATTERN } from "./useFlowAnimation";
+import { useMachineMotion } from "./useMachineMotion";
 
 // Temporary direction markers: flip to false (or delete usages) when the
 // animated flow shimmer replaces them. One flag = the one-step removal.
@@ -74,8 +78,9 @@ function resolveDynamic(machine, simSnap) {
   return { ...live, fill: live.fill ?? machine.fill };
 }
 
-export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelect, simSnap }) {
+export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelect, simSnap, running, speed }) {
   const flowPathRef = useFlowAnimation(line, simSnap);
+  const motion = useMachineMotion(running, speed);
   return (
     <svg
       viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`}
@@ -169,7 +174,7 @@ export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelec
                 fill="none" stroke={SELECT_STROKE} strokeWidth="1.5" strokeDasharray="6 4" opacity="0.9" rx="4"
               />
             )}
-            <Symbol machine={m} dynamic={resolveDynamic(m, simSnap)} />
+            <Symbol machine={m} dynamic={resolveDynamic(m, simSnap)} motion={motion} />
             {m.type !== "stub" && <MachineLabel machine={m} />}
           </g>
         );
