@@ -3,66 +3,60 @@
 // a kind snapshot to what gets drawn is unit-testable without rendering —
 // same reasoning as elevatorMotion.js's pure bucket geometry.
 
-// snapshotBatchCycle's `phase` (src/sim/behaviors.js): the treater's Lit
-// signal is specifically "actively mixing" (`holding`, the hold-for-a-
-// cycle dwell), not "cycling at all" — charging/discharging are both
-// comparatively instantaneous once a well-stocked pre-bin is feeding it
-// (batchCycle's own atomic charge draw, see applyBatchCycle's comment), so
-// treating either of those as lit too made the on/off boundary barely
-// register as a real event. `stopped`/`waiting`/an undefined phase before
-// the sim has primed all fall out of this the same way: none of them is
-// "holding".
-export function treaterMixing(phase) {
-  return phase === "holding";
+// Cosmetic dark stretch faked at the start of every assumed batch period
+// (issue #66 follow-up — not a plant figure). Why faked rather than
+// detected: useSimEngine.js only publishes a snapshot every
+// PUBLISH_INTERVAL_MS (100ms) of real time, but batchCycle's charge draw is
+// atomic (see applyBatchCycle's own comment) — once the pre-bin holds ample
+// stock, "charging" completes and flips back to "holding" within a single
+// 0.05s sim tick. That tick essentially never lands on the instant a
+// snapshot is taken, so `dynamic.phase` in the running app never actually
+// reads anything but "holding" once the first batch completes — there is
+// no real transition left to debounce. Confirmed live and explicitly
+// signed off by the user: "i dont mind if we just fake this on the visual
+// side and keep the sim how it is" (2026-08-31) — so this synthesizes a
+// periodic pulse from the sim's own clock instead of trying to observe a
+// transition that can't be observed this way.
+export const TREATER_FAKE_DARK_SEC = 3;
+
+// Latches the sim-time of the treater's first-ever completed batch, so
+// every later batch's fake dark window can be phased off it. "holding"
+// observed for the first time is a genuinely long, reliably-published
+// stretch (the whole downstream chain has to prime from empty — ~100+
+// sim-seconds on the real line data, see this ticket's original headless
+// trace), unlike every subsequent charging->holding edge (see
+// TREATER_FAKE_DARK_SEC's own comment). "charging" clears the anchor back
+// to null: at true boot or right after a RESET/RESTART (also a genuinely
+// long, reliably-published stretch, since the chain has to re-prime) this
+// correctly holds the display dark until the next real batch completes; on
+// the rare occasion a mid-run instant is caught by pure timing luck, this
+// self-corrects harmlessly (the fake cadence just re-phases off whichever
+// "holding" is next observed).
+export function nextTreaterAnchor(phase, firstMixingAt, now) {
+  if (phase === "charging") return null;
+  if (phase === "holding" && firstMixingAt == null) return now;
+  return firstMixingAt;
 }
 
-// Cosmetic minimum dark stretch between mixing dwells (issue #66 follow-up
-// — not a plant figure): the real machine has a grain-fall downtime between
-// the pre-bin's discharge and the vessel actually starting to mix that this
-// sim deliberately doesn't model. Without a floor, a well-stocked pre-bin's
-// near-instant charge draw turns that gap into a single sim-tick flicker
-// rather than a visible pause a viewer can actually see land and end.
-export const TREATER_MIN_DARK_SEC = 3;
-
-export const INITIAL_TREATER_LIT_STATE = { lit: false, offSince: -Infinity, lastNow: -Infinity };
-
-// Debounces the raw `treaterMixing` signal against sim time so a real batch
-// boundary reads as a visible dark period. `now` is the sim's own published
-// clock (`snap.t`, useSimEngine.js), not wall time — deliberately not
-// useMachineMotion's rAF clock, which would also freeze this under
-// prefers-reduced-motion; that's right for actual motion (spin, travel) but
-// wrong for a plain lit/unlit state indicator that carries real
-// information. Reading `now` off the sim clock instead means this freezes
-// on pause for free (the sim just stops stepping) and scales with the speed
-// multiplier for free (the clock is sim-seconds, not wall-seconds).
-//
-// Self-resets if `now` ever goes backward (RESET / a fresh createSim):
-// without this, a stale `offSince` left over from the previous run's clock
-// could hold the display artificially dark for a long stretch of the new
-// run's own timeline.
-//
-// MUST return `state` itself, unchanged, whenever nothing about the visible
-// result actually changes — never a fresh `{ ...state }` copy. The caller
-// (TreaterSymbol, symbols.jsx) calls this during render and only commits via
-// setState when the result is a *different reference*, React's own blessed
-// "adjust state during rendering" pattern; a version of this that always
-// returned a new object even on a no-op tick made that check always true,
-// which is exactly what shipped a black-screen "Minified React error #301
-// (too many re-renders)" regression to production — every render called
-// setState, which triggered another render, forever. `lastNow` only needs
-// to track the highest `now` seen at the last *real* transition (time is
-// monotonic outside of a reset, so that's sufficient for the check above),
-// not every call.
-export function nextTreaterLitState(state, mixingNow, now) {
-  if (now < state.lastNow) state = INITIAL_TREATER_LIT_STATE;
-  if (!mixingNow) {
-    return state.lit ? { lit: false, offSince: now, lastNow: now } : state;
-  }
-  if (state.lit) return state;
-  if (now - state.offSince >= TREATER_MIN_DARK_SEC) {
-    return { lit: true, offSince: state.offSince, lastNow: now };
-  }
-  return state;
+// Whether the treater reads lit right now. Genuinely `stopped` (utilities
+// trip) or `waiting` (starved by the pre-bin) always reads dark, same as a
+// treater that hasn't completed even one real batch yet (`firstMixingAt`
+// still null). Once a real batch has completed at least once, every
+// subsequent boundary is the faked periodic pulse described above: dark
+// for TREATER_FAKE_DARK_SEC at the start of every `cycleSec`-length window
+// since the first observed batch, lit for the rest of it. `now` is the
+// sim's own published clock (`snap.t`, useSimEngine.js), not wall time —
+// this freezes on pause for free (the sim just stops stepping) and scales
+// with the speed multiplier for free (the clock is sim-seconds, not
+// wall-seconds), without needing useMachineMotion's rAF clock, which would
+// also incorrectly freeze this under prefers-reduced-motion (right for
+// actual motion, wrong for a plain state indicator).
+export function treaterLit(phase, cycleSec, firstMixingAt, now) {
+  if (phase !== "holding" && phase !== "charging") return false;
+  if (firstMixingAt == null) return false;
+  if (!(cycleSec > 0)) return true; // no known period to phase against; stay lit rather than divide by zero
+  const sincePeriodStart = (((now - firstMixingAt) % cycleSec) + cycleSec) % cycleSec;
+  return sincePeriodStart >= TREATER_FAKE_DARK_SEC;
 }
 
 // Threshold below which a published flowRateM3PerSec (issue #28, engine.js's

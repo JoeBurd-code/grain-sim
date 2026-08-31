@@ -6,7 +6,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { C, FONT_DISP, FONT_MONO, ratioColor } from "./theme";
 import { labelPlacement } from "./labelLayout";
 import { elevatorChain, chainSceneSpeed, computeElevatorBuckets, carryBucketLoads, bucketGeneration, BUCKET_SPACING, BUCKET_EMPTY_THRESHOLD } from "./elevatorMotion";
-import { treaterMixing, nextTreaterLitState, INITIAL_TREATER_LIT_STATE, vibratoryFlowing } from "./litState";
+import { nextTreaterAnchor, treaterLit, vibratoryFlowing } from "./litState";
 
 // Halo width for the knockout stroke painted behind a label's glyphs. A
 // connection path that has to run past a label reads as passing *behind* it
@@ -397,34 +397,43 @@ export function ScreenSymbol({ machine: m, dynamic }) {
 }
 
 // Batch treater: vessel with top motor and agitator paddles. Lit only
-// (issue #66, revised after review — no rotation): the working element —
-// agitator shaft and paddle X, not the vessel housing — picks up a wheat
-// tint only while `batchCycle` is actually mixing (`holding`), debounced
-// against the sim's own clock (nextTreaterLitState, litState.js) so a real
-// batch boundary reads as a visible dark pause rather than a possible
-// single-tick flicker. `simTime` (Scene.jsx, ultimately `snap.t` from
-// useSimEngine.js) rather than useMachineMotion's rAF clock: this is a
-// state indicator, not motion, so it should keep updating under
-// prefers-reduced-motion (useMachineMotion's clock would freeze it, which
-// is right for actual spin/travel but wrong here) — and reading real sim
-// time gets pause-freeze and speed-multiplier scaling for free regardless.
+// (issue #66, revised twice after review — no rotation, and no longer a
+// real debounce): the working element — agitator shaft and paddle X, not
+// the vessel housing — picks up a wheat tint on a faked periodic pulse
+// (treaterLit, litState.js), not by tracking `batchCycle`'s real phase
+// transitions directly. Why: useSimEngine.js only publishes a snapshot
+// every 100ms of real time, but a well-stocked pre-bin's charge draw is
+// atomic — the real "charging" tick between batches lasts a single 0.05s
+// sim step and essentially never lands on a publish, so `dynamic.phase` in
+// the running app never actually reads anything but "holding" once the
+// first batch completes. There is no real transition left to observe, so
+// this fakes one instead — signed off by the user after seeing the
+// (correct, but visibly useless) real-transition version always read as
+// on. `simTime` (Scene.jsx, ultimately `snap.t`) is what phases the fake
+// pulse: sim time rather than useMachineMotion's rAF clock, so this
+// freezes on pause and scales with the speed multiplier for free, and
+// (being a plain state indicator, not motion) keeps updating under
+// prefers-reduced-motion rather than incorrectly freezing under it.
 export function TreaterSymbol({ machine: m, dynamic, simTime }) {
   const { w, h } = m;
   const cx = w / 2;
-  const mixing = treaterMixing(dynamic?.phase);
-  const [litState, setLitState] = useState(INITIAL_TREATER_LIT_STATE);
+  const phase = dynamic?.phase;
+  const now = simTime ?? 0;
+  const [anchor, setAnchor] = useState(null);
 
-  // "Adjusting state during rendering" (React's own recommended pattern for
-  // this exact shape: a value derived from previous state + new inputs,
-  // committed via setState only when it actually changes) rather than an
-  // effect — nextTreaterLitState needs to react to `simTime` ticking even
-  // while `mixing` itself hasn't changed (to notice the dark window has
-  // elapsed), and an effect would render one frame behind on every
-  // transition.
-  const nextLitState = nextTreaterLitState(litState, mixing, simTime ?? 0);
-  if (nextLitState !== litState) setLitState(nextLitState);
+  // "Adjust state during rendering" (React's own pattern, not an effect):
+  // nextTreaterAnchor is a one-time-per-batch latch, and treaterLit below
+  // needs this render's own fresh anchor immediately — an effect would only
+  // apply it starting the *next* render, one throttled publish (~100ms)
+  // late on every transition. Safe here (unlike a spread-object version of
+  // this pattern shipped and reverted earlier in this same file's history)
+  // because the anchor is a bare primitive (a number, or null): `!==`
+  // compares by value, so a no-op call can never be mistaken for a change
+  // the way a fresh `{ ...state }` copy was.
+  const nextAnchor = nextTreaterAnchor(phase, anchor, now);
+  if (nextAnchor !== anchor) setAnchor(nextAnchor);
 
-  const agitatorColor = nextLitState.lit ? C.wheat : C.muted;
+  const agitatorColor = treaterLit(phase, dynamic?.cycleSec, nextAnchor, now) ? C.wheat : C.muted;
 
   return (
     <g>

@@ -1,99 +1,67 @@
 import { describe, it, expect } from "vitest";
 import {
-  treaterMixing, nextTreaterLitState, INITIAL_TREATER_LIT_STATE, TREATER_MIN_DARK_SEC,
+  nextTreaterAnchor, treaterLit, TREATER_FAKE_DARK_SEC,
   vibratoryFlowing,
 } from "./litState";
 
-describe("treaterMixing", () => {
-  it("is true only for holding", () => {
-    expect(treaterMixing("holding")).toBe(true);
+describe("nextTreaterAnchor", () => {
+  it("latches the sim-time of the first-ever observed holding", () => {
+    expect(nextTreaterAnchor("holding", null, 102.15)).toBe(102.15);
   });
 
-  it("is false for charging, discharging, waiting, stopped, and undefined", () => {
-    for (const phase of ["charging", "discharging", "waiting", "stopped", undefined]) {
-      expect(treaterMixing(phase)).toBe(false);
-    }
+  it("leaves an already-latched anchor alone on later holding observations", () => {
+    expect(nextTreaterAnchor("holding", 102.15, 998)).toBe(102.15);
+  });
+
+  it("clears the anchor whenever charging is observed (boot or a RESET's re-prime)", () => {
+    expect(nextTreaterAnchor("charging", 102.15, 998)).toBe(null);
+  });
+
+  it("stays null while charging with no anchor yet (ordinary boot ramp-up)", () => {
+    expect(nextTreaterAnchor("charging", null, 40)).toBe(null);
+  });
+
+  it("leaves the anchor untouched through stopped/waiting so a resumed batch keeps its old phase", () => {
+    expect(nextTreaterAnchor("stopped", 102.15, 500)).toBe(102.15);
+    expect(nextTreaterAnchor("waiting", 102.15, 500)).toBe(102.15);
   });
 });
 
-describe("nextTreaterLitState", () => {
-  it("lights up immediately on the very first mixing dwell (boot's offSince is -Infinity)", () => {
-    const next = nextTreaterLitState(INITIAL_TREATER_LIT_STATE, true, 5);
-    expect(next.lit).toBe(true);
-  });
-
-  it("stays dark while not mixing, returning the exact same reference (no-op, not just no-op values)", () => {
-    // Regression test for a real production incident: an earlier version of
-    // this function returned a fresh `{ ...state }` copy even when nothing
-    // changed. TreaterSymbol (symbols.jsx) calls this during render and
-    // commits via setState only when the result is a *different reference*
-    // — a version that always returns a new object on every call makes that
-    // check always true, so every render calls setState, which triggers
-    // another render, forever: "Minified React error #301 (too many
-    // re-renders)", a black screen on production. Reference equality here
-    // is the actual contract, not an implementation detail — `toEqual`
-    // alone would not have caught this.
-    const off = { lit: false, offSince: 10, lastNow: 10 };
-    const next = nextTreaterLitState(off, false, 12);
-    expect(next).toBe(off);
-  });
-
-  it("turns off the instant mixing ends, recording the current clock as offSince", () => {
-    const lit = { lit: true, offSince: -Infinity, lastNow: 40 };
-    const next = nextTreaterLitState(lit, false, 40.05);
-    expect(next).toEqual({ lit: false, offSince: 40.05, lastNow: 40.05 });
-  });
-
-  it("withholds lighting back up until the minimum dark stretch has elapsed, even if mixing has resumed (also a no-op: same reference)", () => {
-    const off = { lit: false, offSince: 10, lastNow: 10 };
-    const next = nextTreaterLitState(off, true, 10 + TREATER_MIN_DARK_SEC - 0.5);
-    expect(next).toBe(off);
-  });
-
-  it("lights back up once the minimum dark stretch has elapsed", () => {
-    const off = { lit: false, offSince: 10, lastNow: 10 };
-    const next = nextTreaterLitState(off, true, 10 + TREATER_MIN_DARK_SEC + 0.5);
-    expect(next.lit).toBe(true);
-  });
-
-  it("stays lit through a steady mixing dwell, returning the exact same reference", () => {
-    const lit = { lit: true, offSince: 5, lastNow: 20 };
-    const next = nextTreaterLitState(lit, true, 20.05);
-    expect(next).toBe(lit);
-  });
-
-  it("self-resets when the clock runs backward (a RESET / fresh sim)", () => {
-    // stale state from a previous, longer-running session: still counting
-    // down a dark window anchored to a clock value far ahead of the fresh
-    // run's own timeline.
-    const stale = { lit: false, offSince: 350, lastNow: 350 };
-    const next = nextTreaterLitState(stale, true, 1);
-    expect(next.lit).toBe(true); // lights immediately, not stuck dark until t=353
-  });
-
-  it("is idempotent under repeated application with the same inputs (safe under StrictMode double-invoke)", () => {
-    const state = { lit: false, offSince: 10, lastNow: 10 };
-    const once = nextTreaterLitState(state, true, 20);
-    const twice = nextTreaterLitState(once, true, 20);
-    expect(twice).toBe(once);
-  });
-
-  it("converges within a couple of applications for every scenario, the actual contract TreaterSymbol's render-time setState loop depends on", () => {
-    const scenarios = [
-      { state: INITIAL_TREATER_LIT_STATE, mixing: false, now: 0 },
-      { state: INITIAL_TREATER_LIT_STATE, mixing: true, now: 5 },
-      { state: { lit: false, offSince: 10, lastNow: 10 }, mixing: false, now: 12 },
-      { state: { lit: false, offSince: 10, lastNow: 10 }, mixing: true, now: 10.5 },
-      { state: { lit: false, offSince: 10, lastNow: 10 }, mixing: true, now: 20 },
-      { state: { lit: true, offSince: 5, lastNow: 20 }, mixing: true, now: 20.05 },
-      { state: { lit: true, offSince: -Infinity, lastNow: 40 }, mixing: false, now: 40.05 },
-      { state: { lit: false, offSince: 350, lastNow: 350 }, mixing: true, now: 1 },
-    ];
-    for (const { state, mixing, now } of scenarios) {
-      const once = nextTreaterLitState(state, mixing, now);
-      const twice = nextTreaterLitState(once, mixing, now);
-      expect(twice).toBe(once); // a real render-time-adjustment loop stops calling setState here
+describe("treaterLit", () => {
+  it("is dark for stopped, waiting, and an undefined phase regardless of anchor", () => {
+    for (const phase of ["stopped", "waiting", undefined]) {
+      expect(treaterLit(phase, 48, 100, 200)).toBe(false);
     }
+  });
+
+  it("is dark before any batch has ever completed (no anchor yet)", () => {
+    expect(treaterLit("charging", 48, null, 40)).toBe(false);
+    expect(treaterLit("holding", 48, null, 40)).toBe(false);
+  });
+
+  it("is dark for the fake window right at the start of a period", () => {
+    expect(treaterLit("holding", 48, 100, 100)).toBe(false); // sincePeriodStart = 0
+    expect(treaterLit("holding", 48, 100, 100 + TREATER_FAKE_DARK_SEC - 0.5)).toBe(false);
+  });
+
+  it("lights up once the fake window has elapsed within a period", () => {
+    expect(treaterLit("holding", 48, 100, 100 + TREATER_FAKE_DARK_SEC)).toBe(true);
+    expect(treaterLit("holding", 48, 100, 145)).toBe(true);
+  });
+
+  it("goes dark again at the start of every subsequent period (wraps on cycleSec)", () => {
+    expect(treaterLit("holding", 48, 100, 148)).toBe(false); // 100 + 48 = start of period 2
+    expect(treaterLit("holding", 48, 100, 148 + TREATER_FAKE_DARK_SEC)).toBe(true);
+    expect(treaterLit("holding", 48, 100, 100 + 2 * 48 + 1)).toBe(false); // start of period 3
+  });
+
+  it("treats a rare directly-observed charging tick mid-cycle the same as holding", () => {
+    expect(treaterLit("charging", 48, 100, 145)).toBe(true);
+  });
+
+  it("stays lit rather than dividing by zero when cycleSec is missing or non-positive", () => {
+    expect(treaterLit("holding", 0, 100, 145)).toBe(true);
+    expect(treaterLit("holding", undefined, 100, 145)).toBe(true);
   });
 });
 
