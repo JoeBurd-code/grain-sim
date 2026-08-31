@@ -264,6 +264,23 @@ function ElevatorBuckets({ m, dynamic, motion }) {
   );
 }
 
+// The pre-#65 static decoration: a binary full/empty sweep with no live
+// motion, for a machine with no live transit data at all (not sim-enabled
+// yet). Shared by ElevatorSymbol and ConveyorSymbol (issue #69) — both fall
+// back to this exact treatment when `dynamic` carries no densityProfile.
+function LegacyBuckets({ m, dynamic }) {
+  return computeElevatorBuckets(m, dynamic, 0).map((b, i) => (
+    <rect
+      key={i}
+      x={(b.x - LEGACY_BUCKET_SIZE / 2).toFixed(1)} y={(b.y - LEGACY_BUCKET_SIZE / 2).toFixed(1)}
+      width={LEGACY_BUCKET_SIZE} height={LEGACY_BUCKET_SIZE}
+      fill={b.fillRatio > BUCKET_EMPTY_THRESHOLD ? C.wheat : "none"}
+      opacity={b.fillRatio > BUCKET_EMPTY_THRESHOLD ? LEGACY_BUCKET_OPACITY : 1}
+      stroke={C.line}
+    />
+  ));
+}
+
 // Simatek pendulum bucket elevator: lower horizontal run, climb, upper run.
 // Geometry from machine data: w, h, geom.colX (column left edge), geom.duct.
 // `dynamic.densityProfile` (issue #31, transportDelay's snapshot) gives each
@@ -298,16 +315,7 @@ export function ElevatorSymbol({ machine: m, dynamic, motion }) {
       {bandCount > 0 ? (
         <ElevatorBuckets m={m} dynamic={dynamic} motion={motion} />
       ) : (
-        computeElevatorBuckets(m, dynamic, 0).map((b, i) => (
-          <rect
-            key={i}
-            x={(b.x - LEGACY_BUCKET_SIZE / 2).toFixed(1)} y={(b.y - LEGACY_BUCKET_SIZE / 2).toFixed(1)}
-            width={LEGACY_BUCKET_SIZE} height={LEGACY_BUCKET_SIZE}
-            fill={b.fillRatio > BUCKET_EMPTY_THRESHOLD ? C.wheat : "none"}
-            opacity={b.fillRatio > BUCKET_EMPTY_THRESHOLD ? LEGACY_BUCKET_OPACITY : 1}
-            stroke={C.line}
-          />
-        ))
+        <LegacyBuckets m={m} dynamic={dynamic} />
       )}
       {/* discharge gap in the duct floor; pulses while actively discharging */}
       <rect x={gapX} y={duct - 4} width="32" height="9" fill={dynamic?.backlogVol > 0 ? C.wheat : C.bg} opacity={dynamic?.backlogVol > 0 ? 0.5 : 1} />
@@ -414,16 +422,7 @@ export function ConveyorSymbol({ machine: m, dynamic, motion }) {
       {bandCount > 0 ? (
         <ElevatorBuckets m={m} dynamic={dynamic} motion={motion} />
       ) : (
-        computeElevatorBuckets(m, dynamic, 0).map((b, i) => (
-          <rect
-            key={i}
-            x={(b.x - LEGACY_BUCKET_SIZE / 2).toFixed(1)} y={(b.y - LEGACY_BUCKET_SIZE / 2).toFixed(1)}
-            width={LEGACY_BUCKET_SIZE} height={LEGACY_BUCKET_SIZE}
-            fill={b.fillRatio > BUCKET_EMPTY_THRESHOLD ? C.wheat : "none"}
-            opacity={b.fillRatio > BUCKET_EMPTY_THRESHOLD ? LEGACY_BUCKET_OPACITY : 1}
-            stroke={C.line}
-          />
-        ))
+        <LegacyBuckets m={m} dynamic={dynamic} />
       )}
       {/* discharge gap at the selected outlet's own anchor position; pulses while actively discharging */}
       {dischargeAnchor && (

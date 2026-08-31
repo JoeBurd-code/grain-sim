@@ -42,6 +42,13 @@
 
 import { tPerHourToM3PerSec, BULK_DENSITY_T_PER_M3 } from "../sim/units";
 
+// Pendulum conveyor (52.604.E00) carrying-side path: lower horizontal
+// (7.084 m) + vertical rise (9.157 m) + upper horizontal (14.846 m), sheet
+// 52-13's own spec block (PDF-text exact, REAL_LINE_SPECS.md §8). Named here
+// since issue #69's own per-outlet `portDistanceM` (below) apportions this
+// same total three more times, not just once as the whole-run `distanceM`.
+const PENDULUM_CONVEYOR_RUN_M = 7.084 + 9.157 + 14.846;
+
 export const line = {
   zones: [
     { id: "treating", name: "TREATING" },
@@ -715,7 +722,7 @@ export const line = {
       sim: {
         kind: "routedTransportDelay",
         defaultPort: "outConcetti",
-        distanceM: 7.084 + 9.157 + 14.846,
+        distanceM: PENDULUM_CONVEYOR_RUN_M,
         // Issue #69: per-outlet transit distance. No document gives each
         // outlet's own along-belt distance from the infeed (docs/OPEN_QUESTIONS.md
         // already flagged the gap, issue #52) — this apportions the confirmed
@@ -730,9 +737,9 @@ export const line = {
         // shorter ones. Marked `derived`, not `confirmed` — the *split* itself
         // is assumed, only the total is PDF-text exact. See docs/OPEN_QUESTIONS.md.
         portDistanceM: {
-          outBuffer: (7.084 + 9.157 + 14.846) * (240 / 1745),
-          outBinSeg: (7.084 + 9.157 + 14.846) * (1120 / 1745),
-          outConcetti: 7.084 + 9.157 + 14.846,
+          outBuffer: PENDULUM_CONVEYOR_RUN_M * (240 / 1745),
+          outBinSeg: PENDULUM_CONVEYOR_RUN_M * (1120 / 1745),
+          outConcetti: PENDULUM_CONVEYOR_RUN_M,
         },
         speedMPerMin: 10.08,
         ceilingM3PerSec: tPerHourToM3PerSec(20.84),
