@@ -6,6 +6,7 @@ import { useLayoutEffect, useRef } from "react";
 import { C, FONT_DISP, FONT_MONO, ratioColor } from "./theme";
 import { labelPlacement } from "./labelLayout";
 import { elevatorChain, chainSceneSpeed, computeElevatorBuckets, carryBucketLoads, bucketGeneration, BUCKET_SPACING, BUCKET_EMPTY_THRESHOLD } from "./elevatorMotion";
+import { treaterVisualState, TREATER_PADDLE_DEG_PER_SEC, vibratoryFlowing } from "./litState";
 
 // Halo width for the knockout stroke painted behind a label's glyphs. A
 // connection path that has to run past a label reads as passing *behind* it
@@ -395,17 +396,52 @@ export function ScreenSymbol({ machine: m, dynamic }) {
   );
 }
 
-// Batch treater: vessel with top motor and agitator paddles.
-export function TreaterSymbol({ machine: m }) {
+// Batch treater: vessel with top motor and agitator paddles. Lit + Motion
+// (issue #66): the vessel picks up a wheat tint while `batchCycle` is
+// cycling at all (charging/holding/discharging), and the paddle X — the
+// only part of this glyph that reads as blades rather than the static
+// drive-line silhouette — turns while it is actually mixing (`holding`),
+// so `stopped`/`waiting` (both read as not-cycling) are visibly distinct
+// from a running cycle rather than looking identical to it. Rotation
+// itself is driven off useMachineMotion's shared rAF clock (same pattern as
+// ElevatorSymbol's chain travel, issue #65) so it freezes on pause and
+// scales with the speed multiplier; the vertical shaft line stays static
+// since rotating it about the paddle center would swing it sideways out of
+// the vessel rather than read as spin.
+export function TreaterSymbol({ machine: m, dynamic, motion }) {
   const { w, h } = m;
   const cx = w / 2;
+  const paddleCy = h - 32;
+  const { cycling, mixing } = treaterVisualState(dynamic?.phase);
+  const paddleRef = useRef(null);
+
+  useLayoutEffect(() => {
+    motion.setRate(m.id, mixing ? TREATER_PADDLE_DEG_PER_SEC : 0);
+  });
+
+  useLayoutEffect(() => {
+    const id = m.id;
+    function applyFrame(phaseDeg) {
+      paddleRef.current?.setAttribute("transform", `rotate(${phaseDeg % 360},${cx},${paddleCy})`);
+    }
+    motion.frameRef(id)(applyFrame);
+    applyFrame(motion.getPhase(id));
+    return () => motion.frameRef(id)(null);
+  }, [m.id, motion, cx, paddleCy]);
+
   return (
     <g>
-      <rect className="body" x="0" y="16" width={w} height={h - 16} rx="14" fill={C.panel} stroke={C.line} strokeWidth="1.5" />
+      <rect
+        className="body" x="0" y="16" width={w} height={h - 16} rx="14"
+        fill={cycling ? C.wheat : C.panel} fillOpacity={cycling ? 0.22 : 1}
+        stroke={cycling ? C.wheat : C.line} strokeWidth="1.5"
+      />
       <rect x={cx - 13} y="0" width="26" height="18" fill={C.panel2} stroke={C.line} />
       <line x1={cx} y1="18" x2={cx} y2={h - 30} stroke={C.muted} strokeWidth="1.5" />
-      <line x1={cx - 26} y1={h - 38} x2={cx + 26} y2={h - 26} stroke={C.muted} strokeWidth="1.5" />
-      <line x1={cx - 26} y1={h - 26} x2={cx + 26} y2={h - 38} stroke={C.muted} strokeWidth="1.5" />
+      <g ref={paddleRef}>
+        <line x1={cx - 26} y1={h - 38} x2={cx + 26} y2={h - 26} stroke={C.muted} strokeWidth="1.5" />
+        <line x1={cx - 26} y1={h - 26} x2={cx + 26} y2={h - 38} stroke={C.muted} strokeWidth="1.5" />
+      </g>
       <Instruments machine={m} x={w + 24} y={14} />
     </g>
   );
@@ -484,14 +520,27 @@ export function ProBoxSymbol({ machine: m }) {
   );
 }
 
-// Vibrating conveyor: tray on springs.
-export function VibratorySymbol({ machine: m }) {
+// Vibrating conveyor: tray on springs. Lit (issue #66, same treatment the
+// scalping screen established, issue #26): the material bed picks up
+// C.wheat while it is actually conveying — read off the live
+// flowRateM3PerSec rather than the commanded `rate`, so a conveyor dialed up
+// but starved by an empty Flexicon pre-bin above it reads dark rather than
+// running. Deliberately not a shake animation (rejected, see issue #64: the
+// oscillation didn't look good at this scale) — lit only.
+export function VibratorySymbol({ machine: m, dynamic }) {
   const { w, h } = m;
   const trayH = h - 12;
   const springs = [w * 0.2, w * 0.5, w * 0.8];
+  const flowing = vibratoryFlowing(dynamic);
   return (
     <g>
       <rect className="body" width={w} height={trayH} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
+      <line
+        x1="6" y1={trayH - 8} x2={w - 6} y2={trayH - 8}
+        stroke={flowing ? C.wheat : "rgba(255,255,255,0.07)"}
+        strokeWidth={flowing ? 3 : 1.5}
+        opacity={flowing ? 0.85 : 1}
+      />
       {springs.map((x) => (
         <path
           key={x}
