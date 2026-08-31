@@ -5,7 +5,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { C, FONT_DISP, FONT_MONO, ratioColor } from "./theme";
 import { labelPlacement } from "./labelLayout";
-import { elevatorChain, chainSceneSpeed, computeElevatorBuckets, bucketGeneration, BUCKET_SPACING, BUCKET_EMPTY_THRESHOLD } from "./elevatorMotion";
+import { elevatorChain, chainSceneSpeed, computeElevatorBuckets, carryBucketLoads, bucketGeneration, BUCKET_SPACING, BUCKET_EMPTY_THRESHOLD } from "./elevatorMotion";
 
 // Halo width for the knockout stroke painted behind a label's glyphs. A
 // connection path that has to run past a label reads as passing *behind* it
@@ -183,6 +183,10 @@ function ElevatorBuckets({ m, dynamic, motion }) {
   const grainRefs = useRef([]);
   const mRef = useRef(m);
   const dynamicRef = useRef(dynamic);
+  // Each physical bucket's carried load, keyed by bucketGeneration and kept
+  // across frames — see carryBucketLoads (elevatorMotion.js) for why a
+  // bucket's fill can't just be sampled at wherever it currently sits.
+  const heldLoadsRef = useRef(new Map());
 
   // Runs every render (no deps): keeps the frame callback below reading the
   // latest machine/dynamic without re-registering it, and the live chain
@@ -198,7 +202,16 @@ function ElevatorBuckets({ m, dynamic, motion }) {
     const id = m.id;
     const slotUsed = new Array(poolSize);
     function applyFrame(phase) {
-      const buckets = computeElevatorBuckets(mRef.current, dynamicRef.current, phase);
+      const dyn = dynamicRef.current;
+      const buckets = carryBucketLoads(
+        computeElevatorBuckets(mRef.current, dyn, phase),
+        phase,
+        heldLoadsRef.current,
+        {
+          bandCount: dyn?.densityProfile?.length ?? 0,
+          hasMaterial: dyn?.inTransitVol > 0 || dyn?.backlogVol > 0,
+        },
+      );
       slotUsed.fill(false);
       // Keyed by bucketGeneration, not array index: a bucket's own array
       // index shifts by one every time a new bucket enters the boot or an

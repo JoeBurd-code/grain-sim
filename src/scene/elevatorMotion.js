@@ -83,10 +83,11 @@ export function bucketGeneration(pos, phaseOffset, spacing = BUCKET_SPACING) {
 // (`pos`) so a caller can derive a stable identity via bucketGeneration
 // above, using this same (un-wrapped) `phaseOffset`.
 //
-// Bucket *positions* move with phase; which density band a bucket samples
-// stays a function of where it now sits on the path (pathFrac), not of the
-// bucket's identity, so grain still reads as riding along with the chain
-// rather than teleporting between fixed slots.
+// Bucket *positions* move with phase; the fill this returns is the local
+// density where the bucket now sits (pathFrac), which is only the raw
+// sample — carryBucketLoads below turns that into the load a bucket
+// actually scooped at the boot and carries up. Each bucket carries its own
+// pathFrac as well as its raw path position (`pos`, for bucketGeneration).
 export function computeElevatorBuckets(m, dynamic, phaseOffset = 0) {
   const { points, totalLen } = elevatorChain(m);
   const { w } = m;
@@ -119,11 +120,63 @@ export function computeElevatorBuckets(m, dynamic, phaseOffset = 0) {
       } else {
         fillRatio = y <= 19 && x > gapX ? 0 : 1; // static decorative fallback, unchanged from before issue #21
       }
-      buckets.push({ x, y, fillRatio, pos: covered + d });
+      buckets.push({ x, y, fillRatio, pos: covered + d, pathFrac });
     }
     carry = spacing - ((len - carry) % spacing);
     if (carry === spacing) carry = 0;
     covered += len;
   }
+  return buckets;
+}
+
+// Fraction of the chain, measured from the boot, over which a bucket is
+// still passing through the loading zone and filling up. One density band
+// wide: with ~24 bands over ~24 bucket pitches, that is almost exactly the
+// one bucket-spacing of travel a bucket spends under the inlet.
+const LOADING_ZONE_BANDS = 1;
+
+// A real bucket fills where grain is fed in — at the boot, the tail of the
+// chain nearest the inlet drum feeder — and then carries that load unchanged
+// all the way to the head. computeElevatorBuckets on its own can't show
+// that: it samples the live density profile at wherever the bucket *now*
+// sits, and a band only partly occupied by the material front reads as a
+// half-empty bucket. So a loaded bucket climbing into the empty chain ahead
+// of it emptied and refilled once per band it crossed, which is what read
+// as the level animation happening at the head of the chain instead of at
+// the tail (the earlier bucketGeneration/DOM-pool fix addressed a real
+// second bug, but not this one).
+//
+// This carries a per-bucket load instead, keyed by the same stable
+// bucketGeneration identity: while a bucket is inside the loading zone its
+// level ramps up to the boot's live local density (the visible filling
+// animation, at the tail where it belongs), and once clear of the zone it
+// holds whatever it left with for the rest of the climb. A bucket first
+// seen already up the chain — first frame after mount, or a resume with
+// material mid-transit — seeds from where it sits, so an in-flight chain
+// still renders its real material rather than needing a full transit to
+// refill.
+//
+// `held` is the caller's own Map<generation, load>, carried across frames
+// (ElevatorBuckets keeps it in a ref) and pruned here to the buckets
+// currently on the chain. Mutates each bucket's fillRatio in place and
+// returns the same array. A no-op without a live density profile: both
+// fallback paths (the binary leadingProgress sweep, the static decoration)
+// keep their position-sampled fill exactly as before.
+export function carryBucketLoads(buckets, phase, held, { bandCount, hasMaterial = true, spacing = BUCKET_SPACING } = {}) {
+  if (!(bandCount > 0)) return buckets;
+  // Nothing left in transit at all (a cleared plant, or a chain that has
+  // fully drained): drop every carried load rather than letting buckets
+  // keep showing grain the sim no longer has anywhere.
+  if (!hasMaterial) held.clear();
+  const loadingFrac = LOADING_ZONE_BANDS / bandCount;
+  const live = new Set();
+  for (const b of buckets) {
+    const gen = bucketGeneration(b.pos, phase, spacing);
+    live.add(gen);
+    if (b.pathFrac < loadingFrac) held.set(gen, b.fillRatio * (b.pathFrac / loadingFrac));
+    else if (!held.has(gen)) held.set(gen, b.fillRatio);
+    b.fillRatio = held.get(gen);
+  }
+  for (const gen of held.keys()) if (!live.has(gen)) held.delete(gen);
   return buckets;
 }
