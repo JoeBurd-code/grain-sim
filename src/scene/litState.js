@@ -3,36 +3,53 @@
 // a kind snapshot to what gets drawn is unit-testable without rendering —
 // same reasoning as elevatorMotion.js's pure bucket geometry.
 
-// snapshotBatchCycle's `phase` (src/sim/behaviors.js) collapses to what the
-// batch treater symbol draws: the agitator lit while any real batch is in
-// progress, turning only during the mixing dwell ("holding" — the
-// hold-for-a-cycle step, not the fill or the discharge pulse). `stopped`
-// (utilities trip, issue #51) and `waiting` (starved by the pre-bin,
-// derived in snapshotBatchCycle itself) both read as not-cycling, same as
-// an undefined phase before the sim has primed.
-//
-// `phase` alone isn't enough: initBatchCycle boots into "charging" with
-// `held` at 0, and stays there — not "waiting" — for as long as nothing has
-// asked it to block (i.e. before the sim has ever run at all, or while a
-// genuinely empty upstream just hasn't sent anything yet). Treating bare
-// "charging" as cycling lit the vessel at boot with no batch underway. Only
-// count charging as cycling once `fill` shows a real charge actually
-// accumulating; holding/discharging always imply fill > 0 by construction
-// (a phase can't reach either without a full charge first), so the guard is
-// a no-op for them.
-export function treaterVisualState(phase, fill = 0) {
-  const hasCharge = fill > 0;
-  const cycling = hasCharge && (phase === "charging" || phase === "holding" || phase === "discharging");
-  const mixing = phase === "holding";
-  return { cycling, mixing };
+// snapshotBatchCycle's `phase` (src/sim/behaviors.js): the treater's Lit
+// signal is specifically "actively mixing" (`holding`, the hold-for-a-
+// cycle dwell), not "cycling at all" — charging/discharging are both
+// comparatively instantaneous once a well-stocked pre-bin is feeding it
+// (batchCycle's own atomic charge draw, see applyBatchCycle's comment), so
+// treating either of those as lit too made the on/off boundary barely
+// register as a real event. `stopped`/`waiting`/an undefined phase before
+// the sim has primed all fall out of this the same way: none of them is
+// "holding".
+export function treaterMixing(phase) {
+  return phase === "holding";
 }
 
-// Agitator rotation rate while mixing, in degrees per sim-second. A
-// legibility pick for readable motion at the scene's scale, not a plant
-// figure: no document gives the real Niklas WNS/200 agitator speed
-// (docs/OPEN_QUESTIONS.md has no entry for it), so this deliberately gets
-// no provenance marker and must never be presented as one.
-export const TREATER_PADDLE_DEG_PER_SEC = 90;
+// Cosmetic minimum dark stretch between mixing dwells (issue #66 follow-up
+// — not a plant figure): the real machine has a grain-fall downtime between
+// the pre-bin's discharge and the vessel actually starting to mix that this
+// sim deliberately doesn't model. Without a floor, a well-stocked pre-bin's
+// near-instant charge draw turns that gap into a single sim-tick flicker
+// rather than a visible pause a viewer can actually see land and end.
+export const TREATER_MIN_DARK_SEC = 3;
+
+export const INITIAL_TREATER_LIT_STATE = { lit: false, offSince: -Infinity, lastNow: -Infinity };
+
+// Debounces the raw `treaterMixing` signal against sim time so a real batch
+// boundary reads as a visible dark period. `now` is the sim's own published
+// clock (`snap.t`, useSimEngine.js), not wall time — deliberately not
+// useMachineMotion's rAF clock, which would also freeze this under
+// prefers-reduced-motion; that's right for actual motion (spin, travel) but
+// wrong for a plain lit/unlit state indicator that carries real
+// information. Reading `now` off the sim clock instead means this freezes
+// on pause for free (the sim just stops stepping) and scales with the speed
+// multiplier for free (the clock is sim-seconds, not wall-seconds).
+//
+// Self-resets if `now` ever goes backward (RESET / a fresh createSim):
+// without this, a stale `offSince` left over from the previous run's clock
+// could hold the display artificially dark for a long stretch of the new
+// run's own timeline.
+export function nextTreaterLitState(state, mixingNow, now) {
+  if (now < state.lastNow) state = INITIAL_TREATER_LIT_STATE;
+  if (!mixingNow) {
+    return state.lit ? { lit: false, offSince: now, lastNow: now } : { ...state, lastNow: now };
+  }
+  if (state.lit || now - state.offSince >= TREATER_MIN_DARK_SEC) {
+    return { lit: true, offSince: state.offSince, lastNow: now };
+  }
+  return { ...state, lastNow: now };
+}
 
 // Threshold below which a published flowRateM3PerSec (issue #28, engine.js's
 // generic per-tick outflow, unit m3/s) reads as "not actually flowing"

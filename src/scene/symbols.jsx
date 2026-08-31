@@ -2,11 +2,11 @@
 // flat fills, hairline strokes, fill level clipped inside the silhouette and
 // coloured by ratioColor, no gradients. Every symbol draws in local coords;
 // the Scene positions it at the machine's world (x, y).
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { C, FONT_DISP, FONT_MONO, ratioColor } from "./theme";
 import { labelPlacement } from "./labelLayout";
 import { elevatorChain, chainSceneSpeed, computeElevatorBuckets, carryBucketLoads, bucketGeneration, BUCKET_SPACING, BUCKET_EMPTY_THRESHOLD } from "./elevatorMotion";
-import { treaterVisualState, TREATER_PADDLE_DEG_PER_SEC, vibratoryFlowing } from "./litState";
+import { treaterMixing, nextTreaterLitState, INITIAL_TREATER_LIT_STATE, vibratoryFlowing } from "./litState";
 
 // Halo width for the knockout stroke painted behind a label's glyphs. A
 // connection path that has to run past a label reads as passing *behind* it
@@ -396,50 +396,43 @@ export function ScreenSymbol({ machine: m, dynamic }) {
   );
 }
 
-// Batch treater: vessel with top motor and agitator paddles. Lit + Motion
-// (issue #66): the working element — agitator shaft and paddle X, not the
-// vessel housing — picks up a wheat tint while `batchCycle` has a real
-// charge cycling (charging/holding/discharging with fill > 0, see
-// treaterVisualState's own comment on why "charging" alone isn't enough),
-// and the paddle X additionally turns while it is actually mixing
-// (`holding`), so the phase distinction is visible rather than just a
-// lamp. Rotation is driven off useMachineMotion's shared rAF clock (same
-// pattern as ElevatorSymbol's chain travel, issue #65) so it freezes on
-// pause and scales with the speed multiplier; the shaft itself stays put
-// (doesn't rotate) since sweeping it about the paddle's pivot would swing
-// it sideways out of the vessel rather than read as spin — only its color
-// picks up the lit state, same as the paddles.
-export function TreaterSymbol({ machine: m, dynamic, motion }) {
+// Batch treater: vessel with top motor and agitator paddles. Lit only
+// (issue #66, revised after review — no rotation): the working element —
+// agitator shaft and paddle X, not the vessel housing — picks up a wheat
+// tint only while `batchCycle` is actually mixing (`holding`), debounced
+// against the sim's own clock (nextTreaterLitState, litState.js) so a real
+// batch boundary reads as a visible dark pause rather than a possible
+// single-tick flicker. `simTime` (Scene.jsx, ultimately `snap.t` from
+// useSimEngine.js) rather than useMachineMotion's rAF clock: this is a
+// state indicator, not motion, so it should keep updating under
+// prefers-reduced-motion (useMachineMotion's clock would freeze it, which
+// is right for actual spin/travel but wrong here) — and reading real sim
+// time gets pause-freeze and speed-multiplier scaling for free regardless.
+export function TreaterSymbol({ machine: m, dynamic, simTime }) {
   const { w, h } = m;
   const cx = w / 2;
-  const paddleCy = h - 32;
-  const { cycling, mixing } = treaterVisualState(dynamic?.phase, dynamic?.fill);
-  const agitatorColor = cycling ? C.wheat : C.muted;
-  const paddleRef = useRef(null);
+  const mixing = treaterMixing(dynamic?.phase);
+  const [litState, setLitState] = useState(INITIAL_TREATER_LIT_STATE);
 
-  useLayoutEffect(() => {
-    motion.setRate(m.id, mixing ? TREATER_PADDLE_DEG_PER_SEC : 0);
-  });
+  // "Adjusting state during rendering" (React's own recommended pattern for
+  // this exact shape: a value derived from previous state + new inputs,
+  // committed via setState only when it actually changes) rather than an
+  // effect — nextTreaterLitState needs to react to `simTime` ticking even
+  // while `mixing` itself hasn't changed (to notice the dark window has
+  // elapsed), and an effect would render one frame behind on every
+  // transition.
+  const nextLitState = nextTreaterLitState(litState, mixing, simTime ?? 0);
+  if (nextLitState !== litState) setLitState(nextLitState);
 
-  useLayoutEffect(() => {
-    const id = m.id;
-    function applyFrame(phaseDeg) {
-      paddleRef.current?.setAttribute("transform", `rotate(${phaseDeg % 360},${cx},${paddleCy})`);
-    }
-    motion.frameRef(id)(applyFrame);
-    applyFrame(motion.getPhase(id));
-    return () => motion.frameRef(id)(null);
-  }, [m.id, motion, cx, paddleCy]);
+  const agitatorColor = nextLitState.lit ? C.wheat : C.muted;
 
   return (
     <g>
       <rect className="body" x="0" y="16" width={w} height={h - 16} rx="14" fill={C.panel} stroke={C.line} strokeWidth="1.5" />
       <rect x={cx - 13} y="0" width="26" height="18" fill={C.panel2} stroke={C.line} />
       <line x1={cx} y1="18" x2={cx} y2={h - 30} stroke={agitatorColor} strokeWidth="1.5" />
-      <g ref={paddleRef}>
-        <line x1={cx - 26} y1={h - 38} x2={cx + 26} y2={h - 26} stroke={agitatorColor} strokeWidth="1.5" />
-        <line x1={cx - 26} y1={h - 26} x2={cx + 26} y2={h - 38} stroke={agitatorColor} strokeWidth="1.5" />
-      </g>
+      <line x1={cx - 26} y1={h - 38} x2={cx + 26} y2={h - 26} stroke={agitatorColor} strokeWidth="1.5" />
+      <line x1={cx - 26} y1={h - 26} x2={cx + 26} y2={h - 38} stroke={agitatorColor} strokeWidth="1.5" />
       <Instruments machine={m} x={w + 24} y={14} />
     </g>
   );

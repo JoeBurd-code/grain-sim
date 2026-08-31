@@ -78,7 +78,7 @@ function resolveDynamic(machine, simSnap) {
   return { ...live, fill: live.fill ?? machine.fill };
 }
 
-export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelect, simSnap, running, speed }) {
+export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelect, simSnap, running, speed, simTime }) {
   const flowPathRef = useFlowAnimation(line, simSnap);
   const motion = useMachineMotion(running, speed);
   return (
@@ -174,7 +174,7 @@ export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelec
                 fill="none" stroke={SELECT_STROKE} strokeWidth="1.5" strokeDasharray="6 4" opacity="0.9" rx="4"
               />
             )}
-            <Symbol machine={m} dynamic={resolveDynamic(m, simSnap)} motion={motion} />
+            <Symbol machine={m} dynamic={resolveDynamic(m, simSnap)} motion={motion} simTime={simTime} />
             {m.type !== "stub" && <MachineLabel machine={m} />}
           </g>
         );

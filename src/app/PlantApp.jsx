@@ -377,6 +377,7 @@ export default function PlantApp() {
               simSnap={engine.snap.machines}
               running={engine.running}
               speed={engine.speed}
+              simTime={engine.snap.t}
             />
           )}
           {selected && (
