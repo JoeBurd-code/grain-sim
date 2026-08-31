@@ -8,6 +8,7 @@ import { labelPlacement } from "./labelLayout";
 import { elevatorChain, chainSceneSpeed, computeElevatorBuckets, carryBucketLoads, bucketGeneration, BUCKET_SPACING, BUCKET_EMPTY_THRESHOLD } from "./elevatorMotion";
 import { nextTreaterAnchor, treaterLit, vibratoryFlowing } from "./litState";
 import { drumSpinDegPerSec, drumGateFraction } from "./drumFeederMotion";
+import { diverterFlapperPoint, diverterSwingPoint } from "./diverterMotion";
 
 // Halo width for the knockout stroke painted behind a label's glyphs. A
 // connection path that has to run past a label reads as passing *behind* it
@@ -327,12 +328,57 @@ export function ElevatorSymbol({ machine: m, dynamic, motion }) {
   );
 }
 
-// 2-way pneumatic diverter: diamond with a flapper showing the set route.
-export function DiverterSymbol() {
+// 2-way pneumatic diverter: diamond with a flapper that swings to the
+// vertex matching the router's own live `selected` port (issue #68) — out1
+// at the left vertex, out2 at the right, per the anchors lineData.js sets
+// (issue #44). The swing eases over DIVERTER_SWING_SEC rather than snapping,
+// so a route change is noticed rather than missed between publish ticks
+// (useSimEngine's own throttle, see flowAnimation.js's own comment on this).
+// Driven off useMachineMotion's shared per-machine clock (frozen while
+// paused, scaled by the speed multiplier) via a plain 1-unit-per-sim-second
+// rate, exactly the elapsed-time clock useMachineMotion.js's own comment
+// earmarked for this.
+export function DiverterSymbol({ machine: m, dynamic, motion }) {
+  const selected = dynamic?.selected ?? "out1";
+  const lineRef = useRef(null);
+  const stateRef = useRef(null);
+  if (stateRef.current === null) {
+    stateRef.current = { port: selected, from: diverterFlapperPoint(selected), changePhase: 0 };
+  }
+
+  useLayoutEffect(() => {
+    motion.setRate(m.id, 1);
+  });
+
+  useLayoutEffect(() => {
+    const st = stateRef.current;
+    if (st.port === selected) return;
+    // Capture wherever the flapper is actually drawn right now (mid-swing or
+    // settled) as the new swing's own starting point, so reversing the
+    // selection mid-motion eases smoothly back rather than jumping.
+    st.from = diverterSwingPoint(st.from, st.port, motion.getPhase(m.id), st.changePhase);
+    st.port = selected;
+    st.changePhase = motion.getPhase(m.id);
+  }, [selected, motion, m.id]);
+
+  useLayoutEffect(() => {
+    const id = m.id;
+    function applyFrame(phase) {
+      const st = stateRef.current;
+      const p = diverterSwingPoint(st.from, st.port, phase, st.changePhase);
+      lineRef.current?.setAttribute("x2", p.x.toFixed(2));
+      lineRef.current?.setAttribute("y2", p.y.toFixed(2));
+    }
+    motion.frameRef(id)(applyFrame);
+    applyFrame(motion.getPhase(id));
+    return () => motion.frameRef(id)(null);
+  }, [m.id, motion]);
+
+  const initial = diverterFlapperPoint(selected);
   return (
     <g>
       <path className="body" d="M16,0 L32,16 L16,32 L0,16 Z" fill={C.panel2} stroke={C.line} strokeWidth="1.5" />
-      <line x1="16" y1="16" x2="7" y2="26" stroke={C.wheat} strokeWidth="2" />
+      <line ref={lineRef} x1="16" y1="16" x2={initial.x} y2={initial.y} stroke={C.wheat} strokeWidth="2" />
     </g>
   );
 }

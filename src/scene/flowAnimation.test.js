@@ -3,7 +3,7 @@
 // itself uses — a fabricated snapshot risks silently drifting from what
 // publishSnap (useSimEngine.js) actually hands the scene.
 import { describe, it, expect } from "vitest";
-import { createSim, stepSim, setFeederRate, setAccumulatorLevel, setSourceRate, setBatchCycleSec, getMachineState, DT } from "../sim/engine";
+import { createSim, stepSim, setFeederRate, setAccumulatorLevel, setSourceRate, setBatchCycleSec, setDestination, getMachineState, DT } from "../sim/engine";
 import { BEHAVIORS } from "../sim/behaviors";
 import { line } from "../line/lineData";
 import { tPerHourToM3PerSec } from "../sim/units";
@@ -171,5 +171,36 @@ describe("computeConnectionFlowRatios", () => {
     expect(selectedRatio).toBeGreaterThan(0);
     expect(otherRatio1).toBe(0);
     expect(otherRatio2).toBe(0);
+  });
+
+  // Issue #68: the outload diverter is the same router-family kind
+  // (`router` here, not `routedTransportDelay`), and unlike the conveyor
+  // above it holds no material of its own — the buffer bin ahead of it
+  // (an accumulator with no rate limit of its own) dumps its whole stored
+  // volume in the single tick it has any downstream room, so each half of
+  // this test samples the tick right after topping the bin up rather than
+  // running to a sustained steady state (there isn't one here). Covers
+  // "the flow moving when the selection changes" (the DiverterSymbol
+  // flapper swings on the same `selected` field, see diverterMotion.js).
+  it("moves the diverter's flow dashes onto the newly selected metal bin leg, and off the old one, when the destination changes", () => {
+    const sim = createSim(line);
+    const bin1Idx = indexOfConnection("outloadDiverter", "metalBin1");
+    const bin2Idx = indexOfConnection("outloadDiverter", "metalBin2");
+
+    setDestination(sim, "metalBin1");
+    setAccumulatorLevel(sim, "outloadBufferBin", 0.5);
+    stepSim(sim, DT);
+
+    let ratios = computeConnectionFlowRatios(line, snapshotOf(sim));
+    expect(ratios.get(bin1Idx)).toBeGreaterThan(0);
+    expect(ratios.get(bin2Idx)).toBe(0);
+
+    setDestination(sim, "metalBin2");
+    setAccumulatorLevel(sim, "outloadBufferBin", 0.5);
+    stepSim(sim, DT);
+
+    ratios = computeConnectionFlowRatios(line, snapshotOf(sim));
+    expect(ratios.get(bin2Idx)).toBeGreaterThan(0);
+    expect(ratios.get(bin1Idx)).toBe(0);
   });
 });
