@@ -976,6 +976,20 @@ describe("routedTransportDelay (issue #47)", () => {
     expect(firstHalf.some((v) => v > 0)).toBe(true);
     expect(secondHalf.every((v) => v === 0)).toBe(true); // past "near" (the selected outlet): masked
   });
+
+  // Issue #69: the density-band mask above isn't enough on its own — the
+  // render's own bucket-load carrying (elevatorMotion.js) ignores live
+  // density past a bucket's loading zone, so a bucket already loaded before
+  // the selected outlet would otherwise keep showing that fill for the rest
+  // of the run. `selectedSpanFraction` is published so the renderer can
+  // re-apply the same cutoff at the bucket level.
+  it("publishes selectedSpanFraction: the selected outlet's own distance as a fraction of the whole run", () => {
+    const state = initState({ distanceM: 10, portDistanceM: { near: 4, far: 10 }, ports: ["near", "far"] });
+    B.selectPort(state, "near");
+    expect(B.snapshot(state).selectedSpanFraction).toBeCloseTo(0.4);
+    B.selectPort(state, "far");
+    expect(B.snapshot(state).selectedSpanFraction).toBeCloseTo(1);
+  });
 });
 
 describe("batchCycle (issue #24)", () => {

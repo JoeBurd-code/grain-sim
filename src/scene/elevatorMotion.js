@@ -176,7 +176,20 @@ const LOADING_ZONE_BANDS = 1;
 // returns the same array. A no-op without a live density profile: both
 // fallback paths (the binary leadingProgress sweep, the static decoration)
 // keep their position-sampled fill exactly as before.
-export function carryBucketLoads(buckets, phase, held, { bandCount, hasMaterial = true, spacing = BUCKET_SPACING } = {}) {
+//
+// `cutoffFrac` (issue #69): a routed machine's own live density profile is
+// masked past whichever outlet is selected (behaviors.js's
+// snapshotRoutedTransportDelay), but a bucket that already loaded *before*
+// that point would otherwise keep carrying its fill for the rest of the
+// climb regardless — carrying exists specifically to *ignore* the live,
+// position-sampled density past the loading zone, which is exactly what
+// masking relies on downstream of the selected outlet. So this re-applies
+// the same cutoff after carrying, at the bucket level: once a bucket's own
+// `pathFrac` reaches it, it reads empty, same as material genuinely
+// discharging there rather than riding through. `undefined` (plain
+// transportDelay's own snapshot, which has no masking concept) means no
+// cutoff — unchanged from before this parameter existed.
+export function carryBucketLoads(buckets, phase, held, { bandCount, hasMaterial = true, spacing = BUCKET_SPACING, cutoffFrac } = {}) {
   if (!(bandCount > 0)) return buckets;
   // Nothing left in transit at all (a cleared plant, or a chain that has
   // fully drained): drop every carried load rather than letting buckets
@@ -190,6 +203,7 @@ export function carryBucketLoads(buckets, phase, held, { bandCount, hasMaterial 
     if (b.pathFrac < loadingFrac) held.set(gen, b.fillRatio * (b.pathFrac / loadingFrac));
     else if (!held.has(gen)) held.set(gen, b.fillRatio);
     b.fillRatio = held.get(gen);
+    if (cutoffFrac != null && b.pathFrac >= cutoffFrac) b.fillRatio = 0;
   }
   for (const gen of held.keys()) if (!live.has(gen)) held.delete(gen);
   return buckets;

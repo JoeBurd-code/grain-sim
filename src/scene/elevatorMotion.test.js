@@ -268,4 +268,30 @@ describe("carryBucketLoads", () => {
     expect(carried).toEqual(raw);
     expect(held.size).toBe(0);
   });
+
+  // Issue #69: without a cutoff, a bucket loaded near the boot keeps
+  // whatever it carried for the rest of the climb — that's the whole point
+  // of carrying (see this function's own comment). A routed machine masks
+  // its live densityProfile past the selected outlet specifically to defeat
+  // that for a bucket that already loaded before reaching it, so `cutoffFrac`
+  // has to re-apply the same cutoff at the bucket level, not just rely on
+  // the (already-zeroed) live density past that point.
+  it("empties a bucket once it passes cutoffFrac, even though it already carries a full load", () => {
+    const held = new Map();
+    const dynamic = withDensity(1); // every band loaded, so every bucket carries a full load
+    const buckets = carryBucketLoads(
+      computeElevatorBuckets(FIXTURE, dynamic, 0), 0, held, { bandCount: BANDS, cutoffFrac: 0.5 },
+    );
+    for (const b of buckets) {
+      if (b.pathFrac < loadingFrac) continue; // still loading, not carrying yet
+      expect(b.fillRatio).toBe(b.pathFrac >= 0.5 ? 0 : 1);
+    }
+  });
+
+  it("without cutoffFrac, a bucket keeps its full carried load all the way to the head (unchanged prior behaviour)", () => {
+    const held = new Map();
+    const dynamic = withDensity(1);
+    const buckets = carryBucketLoads(computeElevatorBuckets(FIXTURE, dynamic, 0), 0, held, { bandCount: BANDS });
+    for (const b of buckets) if (b.pathFrac >= loadingFrac) expect(b.fillRatio).toBe(1);
+  });
 });

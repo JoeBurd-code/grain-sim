@@ -751,6 +751,18 @@ function snapshotRoutedTransportDelay(state) {
     chainSpeedMPerMin: v * 60,
     selected: state.selected,
     densityProfile,
+    // Issue #69: the render's own bucket-load carrying (elevatorMotion.js's
+    // carryBucketLoads) deliberately ignores the live density past a
+    // bucket's loading zone — once loaded, a bucket "carries" that fill
+    // unchanged for the rest of its ride, which is exactly what defeats
+    // `densityProfile`'s own masking above if left alone: a bucket loaded
+    // before the selected outlet would keep showing that same fill for the
+    // rest of the run instead of reading empty once it passes the outlet.
+    // Published so the renderer can re-apply the same cutoff at the bucket
+    // level, not just the band level. Plain transportDelay's own snapshot
+    // has no masking concept and never sets this, so callers default it to
+    // "no cutoff" (see ElevatorBuckets, symbols.jsx).
+    selectedSpanFraction: selectedFraction,
   };
 }
 // Interlock throttle command (issue #22's own shape, e.g. the metal bins'

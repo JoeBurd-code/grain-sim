@@ -213,6 +213,9 @@ function ElevatorBuckets({ m, dynamic, motion }) {
         {
           bandCount: dyn?.densityProfile?.length ?? 0,
           hasMaterial: dyn?.inTransitVol > 0 || dyn?.backlogVol > 0,
+          // Issue #69: undefined for plain transportDelay's own snapshot
+          // (treatingElevator) — no masking concept there, so no cutoff.
+          cutoffFrac: dyn?.selectedSpanFraction,
         },
       );
       slotUsed.fill(false);
