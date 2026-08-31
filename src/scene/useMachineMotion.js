@@ -15,6 +15,11 @@
 // stays in each machine's own registered frame callback — see
 // ElevatorSymbol/ElevatorBuckets (symbols.jsx) for the one built so far.
 // Scene.jsx itself stays declarative scene structure either way.
+// Only the phase *integration* freezes on pause — every registered callback
+// is still invoked each rAF frame regardless of `running`, at whatever phase
+// it's currently frozen at, so a paused plant control that mutates the sim
+// directly (CLEAR PLANT, RESTART, a level jump) still reaches the DOM
+// immediately instead of waiting for the sim to next actually tick.
 import { useEffect, useRef, useState } from "react";
 
 function reducedMotionQuery() {
@@ -50,14 +55,24 @@ export function useMachineMotion(running, speed) {
       if (!lastTsRef.current) lastTsRef.current = ts;
       const dtReal = Math.min(0.1, (ts - lastTsRef.current) / 1000);
       lastTsRef.current = ts;
+      // Phase only advances while running (motion freezes on pause, as
+      // documented above), but every registered callback still gets invoked
+      // every frame regardless — a paused plant control (CLEAR PLANT,
+      // RESTART, EMPTY BIN, a level jump) mutates the sim's live state and
+      // publishes immediately, but this loop's own callback is the only
+      // thing that ever writes the imperative SVG attributes those symbols
+      // read from (ElevatorBuckets, symbols.jsx). Skipping the callback
+      // whenever `running` was false used to leave last frame's grain/bucket
+      // fill drawn on screen until the sim next actually ticked — a paused
+      // clear looked like it silently failed until Run was pressed.
       if (runningRef.current && !reducedMotionRef.current) {
         const dtSim = dtReal * speedRef.current;
         for (const [id, rate] of ratesRef.current) {
           const next = (phasesRef.current.get(id) ?? 0) + rate * dtSim;
           phasesRef.current.set(id, next);
-          framesRef.current.get(id)?.(next);
         }
       }
+      for (const [id, fn] of framesRef.current) fn(phasesRef.current.get(id) ?? 0);
       rafRef.current = requestAnimationFrame(frame);
     }
     rafRef.current = requestAnimationFrame(frame);

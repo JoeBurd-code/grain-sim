@@ -1181,6 +1181,19 @@ function snapshotTerminalSink(state) {
   if (state.bagSizeM3) snap.bagCount = Math.floor(state.total / state.bagSizeM3 + EPS);
   return snap;
 }
+// Plant control (issue #55 follow-up — CLEAR PLANT): the discard-scalpings
+// bin was missing from CLEAR PLANT entirely, since terminalSink had no
+// `clear` at all. Reuses emptyTerminalSink's own "never really supplied"
+// bookkeeping (engine.js) rather than clearAccumulator's discard-and-report
+// shape: a terminalSink's `total` is the same field as its cumulative
+// delivered total (conserveTerminalSink above), so retroactively erasing it
+// out of `initialStored` keeps conservation true with no separate discarded
+// contribution needed, exactly like emptyTerminalSink already establishes.
+function clearTerminalSink(state) {
+  state.initialStored -= state.total;
+  state.total = 0;
+  return 0;
+}
 
 export const BEHAVIORS = {
   source: {
@@ -1234,7 +1247,7 @@ export const BEHAVIORS = {
   },
   terminalSink: {
     init: initTerminalSink, capacityAvailable: capacityAvailableTerminalSink, apply: applyTerminalSink,
-    conserve: conserveTerminalSink, snapshot: snapshotTerminalSink,
+    conserve: conserveTerminalSink, snapshot: snapshotTerminalSink, clear: clearTerminalSink,
   },
 };
 
