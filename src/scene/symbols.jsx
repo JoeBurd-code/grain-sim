@@ -7,6 +7,7 @@ import { C, FONT_DISP, FONT_MONO, ratioColor } from "./theme";
 import { labelPlacement } from "./labelLayout";
 import { elevatorChain, chainSceneSpeed, computeElevatorBuckets, carryBucketLoads, bucketGeneration, BUCKET_SPACING, BUCKET_EMPTY_THRESHOLD } from "./elevatorMotion";
 import { nextTreaterAnchor, treaterLit, vibratoryFlowing } from "./litState";
+import { drumSpinDegPerSec, drumGateFraction } from "./drumFeederMotion";
 
 // Halo width for the knockout stroke painted behind a label's glyphs. A
 // connection path that has to run past a label reads as passing *behind* it
@@ -355,16 +356,70 @@ export function ConveyorSymbol({ machine: m, dynamic }) {
   );
 }
 
-// Drum feeder: housing with a rotary drum.
-export function DrumFeederSymbol({ machine: m }) {
+// Drum feeder: housing with a rotary drum. Two idioms, deliberately split
+// (issue #67): spin (drumSpinDegPerSec, drumFeederMotion.js) says the drum
+// is actually delivering, scaled by its live commanded rate; the outlet
+// gate slot's two shutter leaves (drumGateFraction, same module) show the
+// real gate actuator's live opening. Spin alone can't explain *why* the
+// rate is what it is, and the gate alone can't say whether anything is
+// moving right now — see drumFeederMotion.js for how each reads the
+// snapshot.
+const DRUM_TICK_ANGLES_DEG = [0, 120, 240];
+const DRUM_GATE_SLOT_W = 28;
+const DRUM_GATE_SLOT_H = 8;
+
+export function DrumFeederSymbol({ machine: m, dynamic, motion }) {
   const { w, h } = m;
   const r = h / 2 - 6;
+  const cx = w / 2, cy = h / 2;
+  const tickGroupRef = useRef(null);
+
+  // Runs every render (no deps), same as ElevatorBuckets above: keeps the
+  // registered rate current on every publish tick without re-registering
+  // the frame callback below.
+  useLayoutEffect(() => {
+    motion.setRate(m.id, drumSpinDegPerSec(dynamic));
+  });
+
+  useLayoutEffect(() => {
+    const id = m.id;
+    function applyFrame(phase) {
+      tickGroupRef.current?.setAttribute("transform", `rotate(${phase % 360},${cx},${cy})`);
+    }
+    motion.frameRef(id)(applyFrame);
+    applyFrame(motion.getPhase(id));
+    return () => motion.frameRef(id)(null);
+  }, [m.id, motion, cx, cy]);
+
+  const gate = drumGateFraction(dynamic);
+  const slotX = cx - DRUM_GATE_SLOT_W / 2, slotY = h - DRUM_GATE_SLOT_H - 2;
+  const leafW = ((1 - gate) / 2) * DRUM_GATE_SLOT_W;
+
   return (
     <g>
       <rect className="body" width={w} height={h} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
-      <circle cx={w / 2} cy={h / 2} r={r} fill={C.panel2} stroke={C.muted} strokeWidth="1" />
-      <line x1={w / 2} y1={h / 2} x2={w / 2 + r * 0.8} y2={h / 2 - r * 0.5} stroke={C.muted} strokeWidth="1.5" />
-      <Instruments machine={m} x={w + 24} y={14} />
+      <circle cx={cx} cy={cy} r={r} fill={C.panel2} stroke={C.muted} strokeWidth="1" />
+      <g ref={tickGroupRef}>
+        {DRUM_TICK_ANGLES_DEG.map((deg) => {
+          const rad = (deg * Math.PI) / 180;
+          return (
+            <line
+              key={deg}
+              x1={cx} y1={cy}
+              x2={(cx + r * 0.8 * Math.cos(rad)).toFixed(1)}
+              y2={(cy + r * 0.8 * Math.sin(rad)).toFixed(1)}
+              stroke={C.muted} strokeWidth="1.5"
+            />
+          );
+        })}
+      </g>
+      {/* outlet gate: two shutter leaves close in from each side as the live
+          gateFraction falls, leaving a gap in the middle proportional to how
+          open the real actuator is right now */}
+      <rect x={slotX} y={slotY} width={DRUM_GATE_SLOT_W} height={DRUM_GATE_SLOT_H} fill={C.bg} stroke={C.muted} strokeWidth="1" />
+      {leafW > 0 && <rect x={slotX} y={slotY} width={leafW.toFixed(1)} height={DRUM_GATE_SLOT_H} fill={C.muted} />}
+      {leafW > 0 && <rect x={(slotX + DRUM_GATE_SLOT_W - leafW).toFixed(1)} y={slotY} width={leafW.toFixed(1)} height={DRUM_GATE_SLOT_H} fill={C.muted} />}
+      <Instruments machine={m} x={w + 24} y={14} dynamic={dynamic} />
     </g>
   );
 }
