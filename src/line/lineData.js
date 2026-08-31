@@ -716,9 +716,27 @@ export const line = {
         kind: "routedTransportDelay",
         defaultPort: "outConcetti",
         distanceM: 7.084 + 9.157 + 14.846,
+        // Issue #69: per-outlet transit distance. No document gives each
+        // outlet's own along-belt distance from the infeed (docs/OPEN_QUESTIONS.md
+        // already flagged the gap, issue #52) — this apportions the confirmed
+        // full-run `distanceM` by each outlet's own anchor x-position (above)
+        // against `outConcetti`'s, since outConcetti sits at the physical tail
+        // of the drawn ceiling run (x:1745, essentially the discharge end) and
+        // is already the machine's real most-used destination (its own
+        // `defaultPort`, issue #56). That keeps outConcetti's own distance
+        // exactly the already-derived 31.087 m (no regression to its own
+        // already-confirmed ≈185 s figure) while outBuffer and outBinSeg, which
+        // sit nearer the infeed along the same drawn run, get proportionally
+        // shorter ones. Marked `derived`, not `confirmed` — the *split* itself
+        // is assumed, only the total is PDF-text exact. See docs/OPEN_QUESTIONS.md.
+        portDistanceM: {
+          outBuffer: (7.084 + 9.157 + 14.846) * (240 / 1745),
+          outBinSeg: (7.084 + 9.157 + 14.846) * (1120 / 1745),
+          outConcetti: 7.084 + 9.157 + 14.846,
+        },
         speedMPerMin: 10.08,
         ceilingM3PerSec: tPerHourToM3PerSec(20.84),
-        provenance: { distanceM: "derived", speedMPerMin: "confirmed", ceilingM3PerSec: "confirmed" },
+        provenance: { distanceM: "derived", portDistanceM: "derived", speedMPerMin: "confirmed", ceilingM3PerSec: "confirmed" },
       },
     },
     {

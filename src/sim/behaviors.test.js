@@ -781,8 +781,8 @@ describe("transportDelay (issue #21)", () => {
 
 describe("routedTransportDelay (issue #47)", () => {
   const B = BEHAVIORS.routedTransportDelay;
-  function initState({ distanceM = 1, speedMPerMin = 60, ceilingM3PerSec = 10, ports = ["a", "b"], defaultPort } = {}) {
-    return B.init({ sim: { distanceM, speedMPerMin, ceilingM3PerSec, defaultPort }, ports: { outputs: ports } });
+  function initState({ distanceM = 1, speedMPerMin = 60, ceilingM3PerSec = 10, ports = ["a", "b"], defaultPort, portDistanceM } = {}) {
+    return B.init({ sim: { distanceM, speedMPerMin, ceilingM3PerSec, defaultPort, portDistanceM }, ports: { outputs: ports } });
   }
 
   it("defaults to its first declared output port", () => {
@@ -905,6 +905,76 @@ describe("routedTransportDelay (issue #47)", () => {
     expect(state.backlog).toBe(0);
     expect(state.selected).toBe("b"); // destination selection, not held material
     expect(state.delivered).toBe(7);
+  });
+
+  // Issue #69: routedTransportDelay never published a densityProfile at all
+  // before this — plain transportDelay's own (issue #31) is lifted across
+  // via the shared band-computation helper rather than a second copy.
+  it("publishes a densityProfile now, banded the same way plain transportDelay's own is", () => {
+    const state = initState({ distanceM: 10, speedMPerMin: 60, ceilingM3PerSec: 1 });
+    B.apply(state, 0.5, 5, 5); // half the run's worth of material, one packet
+    const snap = B.snapshot(state);
+    expect(Array.isArray(snap.densityProfile)).toBe(true);
+    expect(snap.densityProfile.length).toBeGreaterThan(0);
+    expect(snap.densityProfile.some((v) => v > 0)).toBe(true);
+  });
+
+  // Issue #69: each outlet's own along-belt distance from the infeed —
+  // material bound for the nearer outlet arrives sooner than material bound
+  // for the farther one, even though both ride the same physical chain at
+  // the same live speed.
+  it("paces each packet against its own destination's distance, not the machine's shared one", () => {
+    const state = initState({
+      distanceM: 10, speedMPerMin: 60, ceilingM3PerSec: 100, ports: ["near", "far"],
+      portDistanceM: { near: 2, far: 10 },
+    });
+    // 1 m/s chain: "near" (2m) transits in 2s, "far" (10m) in 10s. No
+    // sim-enabled downstream is passed to `apply` (hasDownstream defaults to
+    // `{}`), so completed material lands in `delivered` (the same
+    // no-downstream convention plain transportDelay uses) the instant it
+    // finishes transit — a clean signal to assert on without also
+    // exercising the discharge budget/stall machinery.
+    B.selectPort(state, "near");
+    B.apply(state, 0.01, 1, 1); // tags one packet "near"
+    B.selectPort(state, "far");
+    B.apply(state, 0.01, 1, 1); // tags one packet "far", same moment
+
+    for (let i = 0; i < 100; i++) B.apply(state, 0.01, 0, 0); // ~1s: short of "near"'s own 2s
+    expect(state.delivered).toBeCloseTo(0);
+
+    for (let i = 0; i < 400; i++) B.apply(state, 0.01, 0, 0); // ~5s total: past "near"'s 2s, short of "far"'s 10s
+    expect(state.delivered).toBeCloseTo(1); // "near"'s whole packet arrived, "far"'s did not
+  });
+
+  // Issue #69: a port with no entry in the line data's own `portDistanceM`
+  // falls back to the shared `distanceM` — every routedTransportDelay
+  // machine except the pendulum conveyor, so this keeps their timing
+  // exactly as it was before per-outlet distance existed.
+  it("falls back to the shared distanceM for a port with no per-port entry", () => {
+    const state = initState({ distanceM: 5, speedMPerMin: 60, ceilingM3PerSec: 10, portDistanceM: { a: 2 } });
+    B.selectPort(state, "b"); // no entry for "b"
+    B.apply(state, 0.01, 1, 1);
+    expect(state.queue[0].distanceM).toBe(5);
+  });
+
+  // Issue #69: the render must show grain terminating at whichever outlet
+  // is currently selected, not shining through toward a farther one —
+  // masking bands past the selected outlet's own position is what makes
+  // that hold even though the per-packet distance above is what makes
+  // packets actually arrive at the right time.
+  it("masks the density profile past the selected outlet's own position", () => {
+    const state = initState({
+      distanceM: 10, speedMPerMin: 600, ceilingM3PerSec: 10, ports: ["near", "far"],
+      portDistanceM: { near: 5, far: 10 }, // near sits at the run's own midpoint
+    });
+    B.selectPort(state, "near");
+    for (let i = 0; i < 5; i++) B.apply(state, 0.01, 1, 1); // fill the near half with material
+    const snap = B.snapshot(state);
+    const bandCount = snap.densityProfile.length;
+    const firstHalf = snap.densityProfile.slice(0, bandCount / 2);
+    const secondHalf = snap.densityProfile.slice(bandCount / 2);
+    expect(firstHalf.some((v) => v > 0)).toBe(true);
+    expect(secondHalf.every((v) => v === 0)).toBe(true); // past "near" (the selected outlet): masked
   });
 });
 

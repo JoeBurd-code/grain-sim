@@ -384,19 +384,63 @@ export function DiverterSymbol({ machine: m, dynamic, motion }) {
 }
 
 // Belt / transport conveyor: band with end rollers and segment ticks.
-export function ConveyorSymbol({ machine: m, dynamic }) {
+// Issue #69: the pendulum conveyor (52.604.E00) is the only machine of this
+// type, so it's safe to give it the same live, density-driven grain
+// treatment #65 gave the treating elevator's own bucket chain — the two are
+// physically the same Simatek pendulum-conveyor concept (lineData.js's own
+// comment on it), reusing elevatorMotion.js's chain/bucket helpers
+// unchanged (elevatorChain's own geom-less fallback draws a straight run
+// here instead of the Z-shaped path a real `geom` block draws). No other
+// machine renders through this symbol, so nothing here needs a fallback for
+// a machine that legitimately has neither buckets nor a `selected` port.
+// `dynamic.densityProfile` already arrives pre-masked past whichever outlet
+// is currently selected (behaviors.js's own snapshotRoutedTransportDelay
+// masking), so the buckets themselves need no awareness of the selection —
+// only the discharge-gap indicator below reads `dynamic.selected`, to draw
+// itself at the right outlet's own anchor position.
+export function ConveyorSymbol({ machine: m, dynamic, motion }) {
   const { w, h } = m;
   const r = h / 2;
   const ticks = [];
   for (let x = 26; x < w - 8; x += 26) ticks.push(x);
+  const bandCount = dynamic?.densityProfile?.length ?? 0;
+  const dischargeAnchor = dynamic?.selected ? m.anchors?.[dynamic.selected] : null;
   return (
     <g>
       <rect className="body" x="0" y="0" width={w} height={h} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
       {ticks.map((x) => (
         <line key={x} x1={x} y1="2" x2={x} y2={h - 2} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
       ))}
+      {bandCount > 0 ? (
+        <ElevatorBuckets m={m} dynamic={dynamic} motion={motion} />
+      ) : (
+        computeElevatorBuckets(m, dynamic, 0).map((b, i) => (
+          <rect
+            key={i}
+            x={(b.x - LEGACY_BUCKET_SIZE / 2).toFixed(1)} y={(b.y - LEGACY_BUCKET_SIZE / 2).toFixed(1)}
+            width={LEGACY_BUCKET_SIZE} height={LEGACY_BUCKET_SIZE}
+            fill={b.fillRatio > BUCKET_EMPTY_THRESHOLD ? C.wheat : "none"}
+            opacity={b.fillRatio > BUCKET_EMPTY_THRESHOLD ? LEGACY_BUCKET_OPACITY : 1}
+            stroke={C.line}
+          />
+        ))
+      )}
+      {/* discharge gap at the selected outlet's own anchor position; pulses while actively discharging */}
+      {dischargeAnchor && (
+        <rect
+          x={(dischargeAnchor.x - 16).toFixed(1)} y={h - 9} width="32" height="9"
+          fill={dynamic?.backlogVol > 0 ? C.wheat : C.bg}
+          opacity={dynamic?.backlogVol > 0 ? 0.5 : 1}
+        />
+      )}
       <circle cx="0" cy={r} r={r + 2} fill={C.panel2} stroke={C.muted} strokeWidth="1" />
       <circle cx={w} cy={r} r={r + 2} fill={C.panel2} stroke={C.muted} strokeWidth="1" />
+      {/* live chain speed readout, same treatment ElevatorSymbol's own gives */}
+      {dynamic?.chainSpeedMPerMin != null && (
+        <text x={w / 2} y={h + 14} fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="middle">
+          {dynamic.chainSpeedMPerMin.toFixed(1)} m/min
+        </text>
+      )}
       <Instruments machine={m} x={w + 24} y={14} dynamic={dynamic} />
     </g>
   );

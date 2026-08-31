@@ -492,6 +492,20 @@ function nominalBandVolume(state, bandCount) {
   const nominalTransitSec = state.distanceM / nominalV;
   return (state.ceilingM3PerSec * nominalTransitSec) / bandCount;
 }
+// Issue #69: the shared tail of transportDelay's and routedTransportDelay's
+// own snapshot — normalise the reference band volume, band the queue, then
+// express each band relative to that reference. Lifted out so the two
+// snapshots share one copy rather than drifting again (routedTransportDelay
+// used to skip publishing a densityProfile at all). `queueForBands` lets
+// routedTransportDelay pass in a queue whose `.progress` has already been
+// converted onto the machine's shared whole-run scale (see
+// wholeRunFraction below) — plain transportDelay's own queue already lives
+// on that scale, so it passes `state.queue` through unchanged.
+function densityProfileFromQueue(state, bandCount, queueForBands) {
+  const refBandVol = nominalBandVolume(state, bandCount);
+  const rawBands = packetDensityProfile(queueForBands, bandCount);
+  return refBandVol > 0 ? rawBands.map((vol) => Math.min(1, vol / refBandVol)) : rawBands.map(() => 0);
+}
 function snapshotTransportDelay(state) {
   const inTransitVol = queueVolume(state);
   const hasMaterial = state.queue.length > 0 || state.backlog > 0;
@@ -503,9 +517,7 @@ function snapshotTransportDelay(state) {
     : 0;
   const trailingProgress = state.queue.length > 0 ? Math.min(...state.queue.map((p) => p.progress)) : leadingProgress;
   const v = chainSpeedMPerSec(state);
-  const refBandVol = nominalBandVolume(state, DENSITY_BANDS);
-  const rawBands = packetDensityProfile(state.queue, DENSITY_BANDS);
-  const densityProfile = refBandVol > 0 ? rawBands.map((vol) => Math.min(1, vol / refBandVol)) : rawBands.map(() => 0);
+  const densityProfile = densityProfileFromQueue(state, DENSITY_BANDS, state.queue);
   return {
     inTransitVol, backlogVol: state.backlog,
     leadingProgress, trailingProgress,
@@ -577,6 +589,15 @@ function initRoutedTransportDelay(m) {
   return {
     kind: "routedTransportDelay",
     distanceM: m.sim.distanceM,
+    // Issue #69: each outlet's own along-belt distance from the infeed
+    // (lineData.js's own `portDistanceM`, e.g. the pendulum conveyor's three
+    // pneumatically selected outlets sitting at very different points along
+    // one physical run) — a port missing here falls back to the shared
+    // `distanceM` in portDistanceMFor below, which is every port on every
+    // routedTransportDelay machine except the pendulum conveyor, so this
+    // defaulting to `{}` keeps every other machine's single-distance timing
+    // exactly as it always was.
+    portDistanceM: m.sim.portDistanceM ?? {},
     speedMPerMin: m.sim.speedMPerMin,
     ceilingM3PerSec: m.sim.ceilingM3PerSec,
     speedFraction: 1,
@@ -588,13 +609,29 @@ function initRoutedTransportDelay(m) {
     // that never calls the destination selector (every test predating issue
     // #47) keeps routing to exactly the port it always implicitly used.
     selected: m.sim.defaultPort ?? m.ports.outputs[0],
-    queue: [],       // [{ progress, vol, port }] material past the infeed, still travelling
+    queue: [],       // [{ progress, vol, port, distanceM }] material past the infeed, still
+                      // travelling — `distanceM` is this packet's own destination's transit
+                      // distance (issue #69), stamped once at accept time so a later
+                      // destination switch never rewrites an in-flight packet's pacing
     backlogEntries: [], // [{ vol, port }] FIFO, finished transit, not yet discharged
     backlog: 0,      // total backlog volume across every port — kept in lockstep with
                       // backlogEntries so external readers (tests, the popup) see the
                       // exact same scalar plain transportDelay machines publish
     delivered: 0,
   };
+}
+// Issue #69: `port`'s own transit distance, or the shared whole-run
+// `distanceM` when this machine has no per-port split (see initRoutedTransportDelay).
+function portDistanceMFor(state, port) {
+  return state.portDistanceM[port] ?? state.distanceM;
+}
+// Issue #69: converts a packet's own progress (0..1 of *its* destination's
+// distance, see applyRoutedTransportDelay) back onto the machine's shared
+// 0..1 whole-run scale — the one every packet can be compared and banded on
+// regardless of which outlet it's bound for, and the same scale the render
+// draws its buckets across.
+function wholeRunFraction(state, pkt) {
+  return state.distanceM > 0 ? (pkt.progress * pkt.distanceM) / state.distanceM : 0;
 }
 function totalBacklogVolume(state) {
   return state.backlogEntries.reduce((a, e) => a + e.vol, 0);
@@ -613,16 +650,22 @@ function capacityAvailableRoutedTransportDelay(state, dt) {
 }
 function applyRoutedTransportDelay(state, dt, inflow, cap, downstreamCap = {}, hasDownstream = {}) {
   const accepted = Math.min(inflow, cap);
-  if (accepted > 0) state.queue.push({ progress: 0, vol: accepted, port: state.selected });
+  if (accepted > 0) {
+    state.queue.push({ progress: 0, vol: accepted, port: state.selected, distanceM: portDistanceMFor(state, state.selected) });
+  }
 
   state.throttleFraction = slewToward(state.throttleFraction, state.throttleTarget, state.throttleRampPerSec, dt);
   const v = chainSpeedMPerSec(state);
-  const progressStep = state.distanceM > 0 ? (v * dt) / state.distanceM : 0;
   const still = [];
   for (const pkt of state.queue) {
+    // Issue #69: paced against this packet's own distance, not the shared
+    // whole-run one — the single physical chain moves everyone at the same
+    // v, but a packet bound for a nearer outlet has less ground to cover, so
+    // it reaches progress 1 (and discharges) sooner.
+    const progressStep = pkt.distanceM > 0 ? (v * dt) / pkt.distanceM : 0;
     const progress = pkt.progress + progressStep;
     if (progress >= 1) state.backlogEntries.push({ vol: pkt.vol, port: pkt.port });
-    else still.push({ progress, vol: pkt.vol, port: pkt.port });
+    else still.push({ progress, vol: pkt.vol, port: pkt.port, distanceM: pkt.distanceM });
   }
   state.queue = still;
 
@@ -673,21 +716,41 @@ function clearRoutedTransportDelay(state) {
 function snapshotRoutedTransportDelay(state) {
   const inTransitVol = queueVolume(state);
   const hasMaterial = state.queue.length > 0 || state.backlog > 0;
+  // Issue #69: every packet's own `progress` is normalised against its own
+  // destination's distance (applyRoutedTransportDelay above), so leading/
+  // trailing/the density bands below all need packets converted onto the
+  // shared whole-run scale first — otherwise a packet bound for a nearer
+  // outlet would read as "further along" than one bound for a farther
+  // outlet at the same actual physical position.
+  const normalizedQueue = state.queue.map((p) => ({ progress: wholeRunFraction(state, p), vol: p.vol }));
   const leadingProgress = hasMaterial
-    ? Math.max(state.backlog > 0 ? 1 : 0, 0, ...state.queue.map((p) => p.progress))
+    ? Math.max(state.backlog > 0 ? 1 : 0, 0, ...normalizedQueue.map((p) => p.progress))
     : 0;
-  const trailingProgress = state.queue.length > 0 ? Math.min(...state.queue.map((p) => p.progress)) : leadingProgress;
+  const trailingProgress = normalizedQueue.length > 0 ? Math.min(...normalizedQueue.map((p) => p.progress)) : leadingProgress;
   const v = chainSpeedMPerSec(state);
+  const rawDensityProfile = densityProfileFromQueue(state, DENSITY_BANDS, normalizedQueue);
+  // Issue #69: mask every band past the currently selected outlet's own
+  // position, so the render shows grain terminating there rather than
+  // continuing to "shine through" toward a farther outlet. Per-outlet
+  // distance (above) is what makes a packet actually *arrive* at the right
+  // time; this is the separate step that keeps the chain past that arrival
+  // point reading as empty rather than still showing whatever a
+  // farther-bound packet (queued before a destination switch, still
+  // conserving to its own original outlet) happens to be carrying through it.
+  const selectedFraction = state.distanceM > 0 ? portDistanceMFor(state, state.selected) / state.distanceM : 1;
+  const cutoffBand = Math.min(rawDensityProfile.length, Math.ceil(selectedFraction * rawDensityProfile.length));
+  const densityProfile = rawDensityProfile.map((band, i) => (i < cutoffBand ? band : 0));
   return {
     inTransitVol, backlogVol: state.backlog,
     leadingProgress, trailingProgress,
-    transitTimeSec: v > 0 ? state.distanceM / v : Infinity,
+    transitTimeSec: v > 0 ? portDistanceMFor(state, state.selected) / v : Infinity,
     speedFraction: state.speedFraction,
     speedDialTouched: state.speedDialTouched, // issue #63 — see plain transportDelay's own snapshot comment
     throttleFraction: state.throttleFraction,
     throttleTarget: state.throttleTarget,
     chainSpeedMPerMin: v * 60,
     selected: state.selected,
+    densityProfile,
   };
 }
 // Interlock throttle command (issue #22's own shape, e.g. the metal bins'

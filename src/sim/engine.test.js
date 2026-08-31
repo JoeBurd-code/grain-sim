@@ -2031,11 +2031,17 @@ describe("the packaging conveyor carries product to the outload buffer bin (issu
     setSource(sim, "proBox");
     setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
 
-    for (let i = 0; i < Math.round(170 / DT); i++) stepSim(sim, DT); // short of the ~185s lag
+    // Issue #69: outBuffer, the nearest of the three outlets (anchor x:240
+    // of outConcetti's own x:1745), now carries its own much shorter
+    // per-outlet transit distance (~4.28 m vs the whole-run 31.087 m) —
+    // ≈25.4 s at the confirmed 10.08 m/min chain speed, not the ~185 s every
+    // route shared before this ticket. Live-traced against createSim(line)
+    // unmodified.
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // short of the ~25.4s lag
     expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeCloseTo(0);
     expect(getMachineState(sim, GRAIN_BREAK_ID).flowRateM3PerSec).toBe(0);
 
-    for (let i = 0; i < Math.round(30 / DT); i++) stepSim(sim, DT); // now past it
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // now past it
     expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeGreaterThan(0);
   });
 
@@ -2046,13 +2052,21 @@ describe("the packaging conveyor carries product to the outload buffer bin (issu
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
     setSource(sim, "proBox");
     setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(12));
-    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT); // some material already mid-transit
+    // Issue #69: outBuffer's own transit is now ~25.4s (not the old shared
+    // ~185s), so "some material mid-transit" needs a much shorter head
+    // start — 10s is ~39% of the way through at full speed.
+    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // some material already mid-transit
     setElevatorSpeed(sim, CONVEYOR_ID, 0.5); // halved live, mid-run
 
-    for (let i = 0; i < Math.round(140 / DT); i++) stepSim(sim, DT); // past the original ~185s lag (60+140=200s)
+    // Halving the chain speed doubles the *remaining* leg of the transit: at
+    // full speed that material would have arrived ~15.4s after the halving
+    // point (25.4 - 10); halved, the remainder alone takes ~2x as long,
+    // landing arrival at ~30.9s after halving (live-traced against
+    // createSim(line) unmodified).
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // 20s post-halving, short of ~30.9s
     expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeCloseTo(0); // re-paced, not just unaffected new material
 
-    for (let i = 0; i < Math.round(185 / DT); i++) stepSim(sim, DT); // the rest of the doubled delay
+    for (let i = 0; i < Math.round(25 / DT); i++) stepSim(sim, DT); // 45s post-halving, past it
     expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeGreaterThan(0);
   });
 
@@ -2182,27 +2196,26 @@ describe("destination selector (issue #47)", () => {
     setAccumulatorLevel(sim, AFTER_BIN_ID, 0.3);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15));
-    for (let i = 0; i < Math.round(30 / DT); i++) stepSim(sim, DT); // material now riding the conveyor toward metal bin 1
+    // Issue #69: outBuffer's own transit is now ~25.4s, not the old shared
+    // ~185s — so "material riding toward metal bin 1" has to switch well
+    // inside that window (15s), not the old 30s (which would already be
+    // past outBuffer's own lag and defeat the point of this test).
+    for (let i = 0; i < Math.round(15 / DT); i++) stepSim(sim, DT); // material now riding the conveyor toward metal bin 1
 
     setDestination(sim, "concetti"); // switch while product is still in transit
 
     // Nothing has had time to reach either destination yet (well short of
-    // the ~185s lag either way), so both should still read zero right after
-    // the switch — the real assertion is *which* one eventually receives
-    // the material already on the chain.
+    // outBuffer's own ~25.4s lag), so both should still read zero right
+    // after the switch — the real assertion is *which* one eventually
+    // receives the material already on the chain.
     expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeCloseTo(0);
 
-    for (let i = 0; i < Math.round(250 / DT); i++) stepSim(sim, DT); // past the lag for the pre-switch material
-    // The material fed in the first 30s, tagged "outBuffer" at the moment
+    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT); // past the lag for the pre-switch material
+    // The material fed in the first 15s, tagged "outBuffer" at the moment
     // it was accepted, arrives at metal bin 1 regardless of the later
     // switch — this is routedTransportDelay's own per-packet tagging
     // (behaviors.js), exercised here through the full engine.
     expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeGreaterThan(0);
-    // Nothing fed *after* the switch has had time to reach Concetti yet
-    // either (fed starting at t=30s, ~185s lag -> arrives ~t=215s; this
-    // checkpoint is at t=280s, so some may have arrived — the point proven
-    // above is that metal bin 1 isn't starved by the switch, not that
-    // Concetti is still empty).
     expect(() => assertConserved(sim)).not.toThrow();
   });
 
@@ -2536,11 +2549,19 @@ describe("the Flexicon pre-bin's own high-level trip cascades and latches like t
     for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT);
 
     setDestination(sim, "flexicon");
-    for (let i = 0; i < Math.round(300 / DT); i++) stepSim(sim, DT);
-    // Past the ~185s lag for material fed since the switch: proves the
-    // branch genuinely carried product during this window, not just that
-    // the totals happen to balance regardless of which branch (if any)
-    // actually moved anything.
+    // Issue #69: outBinSeg's own transit (~118.8s) is shorter than the old
+    // shared ~185s, so material fed right after the switch now overtakes
+    // the tail of the 200s of pre-switch Concetti material still draining
+    // off the chain — both compete for the conveyor's single discharge lane
+    // (behaviors.js's own "strictly FIFO across ports" jam rule). Live-traced
+    // against createSim(line) unmodified: that contention opens a real gap
+    // in Flexicon's own delivery (briefly nonzero, then back to 0) before
+    // settling into steady, uninterrupted delivery — 400s clears it with
+    // margin, where the old 300s budget landed inside the gap.
+    for (let i = 0; i < Math.round(400 / DT); i++) stepSim(sim, DT);
+    // Proves the branch genuinely carried product during this window, not
+    // just that the totals happen to balance regardless of which branch (if
+    // any) actually moved anything.
     expect(getMachineState(sim, FLEXICON_PRE_BIN_ID).stored).toBeGreaterThan(0);
 
     setDestination(sim, "metalBin1");

@@ -18,8 +18,22 @@ const PROGRESS_BAND_SLACK = 0.02;
 // The chain's three drawn segments (bottom run, climb, top run) and their
 // total length, from machine geometry alone. Fixed for the life of the
 // symbol, independent of live phase.
+//
+// Issue #69: a machine with no `geom` (the pendulum conveyor's own straight,
+// ceiling-run-only body — the real Z-shaped path is deliberately deferred,
+// see lineData.js's own comment on it) gets a single straight segment
+// instead of the Z-shaped path below, so every other helper in this module
+// (bucket positions, chain speed, generation identity) applies unchanged to
+// a flat belt as well as a real bucket elevator — this machine is
+// physically the same Simatek pendulum-conveyor concept as `treatingElevator`,
+// just drawn without the climb.
 export function elevatorChain(m) {
   const { w, h } = m;
+  if (!m.geom) {
+    const points = [[20, h / 2], [w - 20, h / 2]];
+    const totalLen = Math.hypot(points[1][0] - points[0][0], points[1][1] - points[0][1]);
+    return { points, totalLen };
+  }
   const { colX } = m.geom;
   const points = [
     [20, h - 18],

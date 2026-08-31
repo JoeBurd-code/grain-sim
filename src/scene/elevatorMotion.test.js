@@ -13,6 +13,17 @@ describe("elevatorChain", () => {
     expect(points).toEqual([[20, 246], [218, 246], [218, 18], [400, 18]]);
     expect(totalLen).toBeCloseTo(608, 6);
   });
+
+  // Issue #69: a machine with no `geom` (the pendulum conveyor's own
+  // straight, ceiling-run-only body) gets a single straight segment instead
+  // of the Z-shaped path above, so every helper in this module — bucket
+  // positions, chain speed, generation identity — applies unchanged to a
+  // flat belt too.
+  it("draws a single straight run for a machine with no geom", () => {
+    const { points, totalLen } = elevatorChain({ w: 200, h: 26 });
+    expect(points).toEqual([[20, 13], [180, 13]]);
+    expect(totalLen).toBeCloseTo(160, 6);
+  });
 });
 
 describe("chainSceneSpeed", () => {
