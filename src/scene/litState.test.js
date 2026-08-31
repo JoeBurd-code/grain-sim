@@ -22,10 +22,20 @@ describe("nextTreaterLitState", () => {
     expect(next.lit).toBe(true);
   });
 
-  it("stays dark while not mixing, without disturbing offSince once already off", () => {
+  it("stays dark while not mixing, returning the exact same reference (no-op, not just no-op values)", () => {
+    // Regression test for a real production incident: an earlier version of
+    // this function returned a fresh `{ ...state }` copy even when nothing
+    // changed. TreaterSymbol (symbols.jsx) calls this during render and
+    // commits via setState only when the result is a *different reference*
+    // — a version that always returns a new object on every call makes that
+    // check always true, so every render calls setState, which triggers
+    // another render, forever: "Minified React error #301 (too many
+    // re-renders)", a black screen on production. Reference equality here
+    // is the actual contract, not an implementation detail — `toEqual`
+    // alone would not have caught this.
     const off = { lit: false, offSince: 10, lastNow: 10 };
     const next = nextTreaterLitState(off, false, 12);
-    expect(next).toEqual({ lit: false, offSince: 10, lastNow: 12 });
+    expect(next).toBe(off);
   });
 
   it("turns off the instant mixing ends, recording the current clock as offSince", () => {
@@ -34,11 +44,10 @@ describe("nextTreaterLitState", () => {
     expect(next).toEqual({ lit: false, offSince: 40.05, lastNow: 40.05 });
   });
 
-  it("withholds lighting back up until the minimum dark stretch has elapsed, even if mixing has resumed", () => {
+  it("withholds lighting back up until the minimum dark stretch has elapsed, even if mixing has resumed (also a no-op: same reference)", () => {
     const off = { lit: false, offSince: 10, lastNow: 10 };
     const next = nextTreaterLitState(off, true, 10 + TREATER_MIN_DARK_SEC - 0.5);
-    expect(next.lit).toBe(false);
-    expect(next.offSince).toBe(10); // preserved, not reset by the retry
+    expect(next).toBe(off);
   });
 
   it("lights back up once the minimum dark stretch has elapsed", () => {
@@ -47,10 +56,10 @@ describe("nextTreaterLitState", () => {
     expect(next.lit).toBe(true);
   });
 
-  it("stays lit through a steady mixing dwell without touching offSince", () => {
+  it("stays lit through a steady mixing dwell, returning the exact same reference", () => {
     const lit = { lit: true, offSince: 5, lastNow: 20 };
     const next = nextTreaterLitState(lit, true, 20.05);
-    expect(next).toEqual({ lit: true, offSince: 5, lastNow: 20.05 });
+    expect(next).toBe(lit);
   });
 
   it("self-resets when the clock runs backward (a RESET / fresh sim)", () => {
@@ -66,7 +75,25 @@ describe("nextTreaterLitState", () => {
     const state = { lit: false, offSince: 10, lastNow: 10 };
     const once = nextTreaterLitState(state, true, 20);
     const twice = nextTreaterLitState(once, true, 20);
-    expect(twice).toEqual(once);
+    expect(twice).toBe(once);
+  });
+
+  it("converges within a couple of applications for every scenario, the actual contract TreaterSymbol's render-time setState loop depends on", () => {
+    const scenarios = [
+      { state: INITIAL_TREATER_LIT_STATE, mixing: false, now: 0 },
+      { state: INITIAL_TREATER_LIT_STATE, mixing: true, now: 5 },
+      { state: { lit: false, offSince: 10, lastNow: 10 }, mixing: false, now: 12 },
+      { state: { lit: false, offSince: 10, lastNow: 10 }, mixing: true, now: 10.5 },
+      { state: { lit: false, offSince: 10, lastNow: 10 }, mixing: true, now: 20 },
+      { state: { lit: true, offSince: 5, lastNow: 20 }, mixing: true, now: 20.05 },
+      { state: { lit: true, offSince: -Infinity, lastNow: 40 }, mixing: false, now: 40.05 },
+      { state: { lit: false, offSince: 350, lastNow: 350 }, mixing: true, now: 1 },
+    ];
+    for (const { state, mixing, now } of scenarios) {
+      const once = nextTreaterLitState(state, mixing, now);
+      const twice = nextTreaterLitState(once, mixing, now);
+      expect(twice).toBe(once); // a real render-time-adjustment loop stops calling setState here
+    }
   });
 });
 

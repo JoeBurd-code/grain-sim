@@ -40,15 +40,29 @@ export const INITIAL_TREATER_LIT_STATE = { lit: false, offSince: -Infinity, last
 // without this, a stale `offSince` left over from the previous run's clock
 // could hold the display artificially dark for a long stretch of the new
 // run's own timeline.
+//
+// MUST return `state` itself, unchanged, whenever nothing about the visible
+// result actually changes — never a fresh `{ ...state }` copy. The caller
+// (TreaterSymbol, symbols.jsx) calls this during render and only commits via
+// setState when the result is a *different reference*, React's own blessed
+// "adjust state during rendering" pattern; a version of this that always
+// returned a new object even on a no-op tick made that check always true,
+// which is exactly what shipped a black-screen "Minified React error #301
+// (too many re-renders)" regression to production — every render called
+// setState, which triggered another render, forever. `lastNow` only needs
+// to track the highest `now` seen at the last *real* transition (time is
+// monotonic outside of a reset, so that's sufficient for the check above),
+// not every call.
 export function nextTreaterLitState(state, mixingNow, now) {
   if (now < state.lastNow) state = INITIAL_TREATER_LIT_STATE;
   if (!mixingNow) {
-    return state.lit ? { lit: false, offSince: now, lastNow: now } : { ...state, lastNow: now };
+    return state.lit ? { lit: false, offSince: now, lastNow: now } : state;
   }
-  if (state.lit || now - state.offSince >= TREATER_MIN_DARK_SEC) {
+  if (state.lit) return state;
+  if (now - state.offSince >= TREATER_MIN_DARK_SEC) {
     return { lit: true, offSince: state.offSince, lastNow: now };
   }
-  return { ...state, lastNow: now };
+  return state;
 }
 
 // Threshold below which a published flowRateM3PerSec (issue #28, engine.js's
