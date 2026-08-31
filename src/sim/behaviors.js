@@ -728,18 +728,28 @@ function snapshotRoutedTransportDelay(state) {
     : 0;
   const trailingProgress = normalizedQueue.length > 0 ? Math.min(...normalizedQueue.map((p) => p.progress)) : leadingProgress;
   const v = chainSpeedMPerSec(state);
-  const rawDensityProfile = densityProfileFromQueue(state, DENSITY_BANDS, normalizedQueue);
-  // Issue #69: mask every band past the currently selected outlet's own
-  // position, so the render shows grain terminating there rather than
-  // continuing to "shine through" toward a farther outlet. Per-outlet
-  // distance (above) is what makes a packet actually *arrive* at the right
-  // time; this is the separate step that keeps the chain past that arrival
-  // point reading as empty rather than still showing whatever a
-  // farther-bound packet (queued before a destination switch, still
-  // conserving to its own original outlet) happens to be carrying through it.
-  const selectedFraction = state.distanceM > 0 ? portDistanceMFor(state, state.selected) / state.distanceM : 1;
-  const cutoffBand = Math.min(rawDensityProfile.length, Math.ceil(selectedFraction * rawDensityProfile.length));
-  const densityProfile = rawDensityProfile.map((band, i) => (i < cutoffBand ? band : 0));
+  // Issue #69: no separate masking step past the selected outlet — each
+  // packet's own progress is already normalised against its own
+  // destination's distance (wholeRunFraction above), so a packet bound for
+  // outBuffer can never read past outBuffer's own fraction of the whole run
+  // in the first place, regardless of which outlet is *currently* selected.
+  // An earlier version of this masked every band past the live selection on
+  // top of that, which sounds redundant and was: it actively broke a
+  // destination switch mid-run — the moment the presenter picked a nearer
+  // outlet, still-legitimate material already travelling to the *previous*
+  // (farther) one vanished from the display instantly, and picking a
+  // farther one made bucket-carried grain (elevatorMotion.js's own
+  // carryBucketLoads, which deliberately ignores live density past a
+  // bucket's loading zone) pop into existence mid-belt from stale carried
+  // state the moment the old cutoff stopped hiding it. Both were reported
+  // live and reproduced on video after #69 shipped. Per-packet distance
+  // alone already satisfies "terminates at the selected outlet" in the
+  // steady state (every packet shares that one port) and "everything
+  // already on the chain still travels to the outlet it was accepted for"
+  // during a switch (see the depended-on `routedTransportDelay` per-packet
+  // tagging), which is exactly the acceptance criteria this method was
+  // trying to satisfy separately and instead violated.
+  const densityProfile = densityProfileFromQueue(state, DENSITY_BANDS, normalizedQueue);
   return {
     inTransitVol, backlogVol: state.backlog,
     leadingProgress, trailingProgress,
@@ -751,18 +761,6 @@ function snapshotRoutedTransportDelay(state) {
     chainSpeedMPerMin: v * 60,
     selected: state.selected,
     densityProfile,
-    // Issue #69: the render's own bucket-load carrying (elevatorMotion.js's
-    // carryBucketLoads) deliberately ignores the live density past a
-    // bucket's loading zone — once loaded, a bucket "carries" that fill
-    // unchanged for the rest of its ride, which is exactly what defeats
-    // `densityProfile`'s own masking above if left alone: a bucket loaded
-    // before the selected outlet would keep showing that same fill for the
-    // rest of the run instead of reading empty once it passes the outlet.
-    // Published so the renderer can re-apply the same cutoff at the bucket
-    // level, not just the band level. Plain transportDelay's own snapshot
-    // has no masking concept and never sets this, so callers default it to
-    // "no cutoff" (see ElevatorBuckets, symbols.jsx).
-    selectedSpanFraction: selectedFraction,
   };
 }
 // Interlock throttle command (issue #22's own shape, e.g. the metal bins'

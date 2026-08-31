@@ -957,12 +957,19 @@ describe("routedTransportDelay (issue #47)", () => {
     expect(state.queue[0].distanceM).toBe(5);
   });
 
-  // Issue #69: the render must show grain terminating at whichever outlet
-  // is currently selected, not shining through toward a farther one —
-  // masking bands past the selected outlet's own position is what makes
-  // that hold even though the per-packet distance above is what makes
-  // packets actually arrive at the right time.
-  it("masks the density profile past the selected outlet's own position", () => {
+  // Issue #69: a packet bound for "near" can never read past "near"'s own
+  // fraction of the whole run — its own progress is normalised against its
+  // own destination's distance (portDistanceMFor/wholeRunFraction), so this
+  // holds with no separate masking step. An earlier version added one
+  // anyway (mask every band past whichever outlet is *currently* selected)
+  // and it broke a destination switch mid-run: still-legitimate material
+  // bound for the previous, no-longer-selected outlet vanished from the
+  // published profile instantly instead of continuing to show where it
+  // really is until it actually arrives. Reported live and reproduced on
+  // video after #69 shipped — see this same file's "still-legitimate
+  // material" test below, and behaviors.js's own comment on
+  // snapshotRoutedTransportDelay.
+  it("bounds density to the selected outlet's own span with no separate masking step", () => {
     const state = initState({
       distanceM: 10, speedMPerMin: 600, ceilingM3PerSec: 10, ports: ["near", "far"],
       portDistanceM: { near: 5, far: 10 }, // near sits at the run's own midpoint
@@ -974,21 +981,31 @@ describe("routedTransportDelay (issue #47)", () => {
     const firstHalf = snap.densityProfile.slice(0, bandCount / 2);
     const secondHalf = snap.densityProfile.slice(bandCount / 2);
     expect(firstHalf.some((v) => v > 0)).toBe(true);
-    expect(secondHalf.every((v) => v === 0)).toBe(true); // past "near" (the selected outlet): masked
+    expect(secondHalf.every((v) => v === 0)).toBe(true); // "near" itself never gets this far
   });
 
-  // Issue #69: the density-band mask above isn't enough on its own — the
-  // render's own bucket-load carrying (elevatorMotion.js) ignores live
-  // density past a bucket's loading zone, so a bucket already loaded before
-  // the selected outlet would otherwise keep showing that fill for the rest
-  // of the run. `selectedSpanFraction` is published so the renderer can
-  // re-apply the same cutoff at the bucket level.
-  it("publishes selectedSpanFraction: the selected outlet's own distance as a fraction of the whole run", () => {
-    const state = initState({ distanceM: 10, portDistanceM: { near: 4, far: 10 }, ports: ["near", "far"] });
-    B.selectPort(state, "near");
-    expect(B.snapshot(state).selectedSpanFraction).toBeCloseTo(0.4);
+  // Issue #69 (post-ship fix): material fed *before* a destination switch
+  // keeps travelling to the outlet it was accepted for (routedTransportDelay's
+  // own per-packet tagging, unchanged) — the published density profile has
+  // to keep showing it there too, not hide it the instant a *nearer* outlet
+  // is newly selected, and not have it suddenly "pop in" mid-belt if a
+  // *farther* one is newly selected instead. Both were the actual bug: an
+  // explicit mask keyed on the live `selected` port, rather than each
+  // packet's own, couldn't tell "genuinely not there yet" from "there, but
+  // bound for a different outlet."
+  it("still shows material bound for a previous, no-longer-selected outlet after a switch, at its own real position", () => {
+    const state = initState({
+      distanceM: 10, speedMPerMin: 600, ceilingM3PerSec: 10, ports: ["near", "far"],
+      portDistanceM: { near: 2, far: 10 },
+    });
     B.selectPort(state, "far");
-    expect(B.snapshot(state).selectedSpanFraction).toBeCloseTo(1);
+    B.apply(state, 0.01, 1, 1); // one packet, tagged "far"
+    for (let i = 0; i < 60; i++) B.apply(state, 0.01, 0, 0); // travels to wholeRunFraction 0.6, well past "near"'s own 0.2
+    B.selectPort(state, "near"); // switch to the nearer outlet
+    const snap = B.snapshot(state);
+    const bandCount = snap.densityProfile.length;
+    const pastNear = snap.densityProfile.slice(Math.ceil(0.2 * bandCount)); // "near" is only the first 20% of the run
+    expect(pastNear.some((v) => v > 0)).toBe(true); // the "far"-bound material is still shown, not erased by the switch
   });
 });
 
