@@ -397,22 +397,24 @@ export function ScreenSymbol({ machine: m, dynamic }) {
 }
 
 // Batch treater: vessel with top motor and agitator paddles. Lit + Motion
-// (issue #66): the vessel picks up a wheat tint while `batchCycle` is
-// cycling at all (charging/holding/discharging), and the paddle X — the
-// only part of this glyph that reads as blades rather than the static
-// drive-line silhouette — turns while it is actually mixing (`holding`),
-// so `stopped`/`waiting` (both read as not-cycling) are visibly distinct
-// from a running cycle rather than looking identical to it. Rotation
-// itself is driven off useMachineMotion's shared rAF clock (same pattern as
-// ElevatorSymbol's chain travel, issue #65) so it freezes on pause and
-// scales with the speed multiplier; the vertical shaft line stays static
-// since rotating it about the paddle center would swing it sideways out of
-// the vessel rather than read as spin.
+// (issue #66): the working element — agitator shaft and paddle X, not the
+// vessel housing — picks up a wheat tint while `batchCycle` has a real
+// charge cycling (charging/holding/discharging with fill > 0, see
+// treaterVisualState's own comment on why "charging" alone isn't enough),
+// and the paddle X additionally turns while it is actually mixing
+// (`holding`), so the phase distinction is visible rather than just a
+// lamp. Rotation is driven off useMachineMotion's shared rAF clock (same
+// pattern as ElevatorSymbol's chain travel, issue #65) so it freezes on
+// pause and scales with the speed multiplier; the shaft itself stays put
+// (doesn't rotate) since sweeping it about the paddle's pivot would swing
+// it sideways out of the vessel rather than read as spin — only its color
+// picks up the lit state, same as the paddles.
 export function TreaterSymbol({ machine: m, dynamic, motion }) {
   const { w, h } = m;
   const cx = w / 2;
   const paddleCy = h - 32;
-  const { cycling, mixing } = treaterVisualState(dynamic?.phase);
+  const { cycling, mixing } = treaterVisualState(dynamic?.phase, dynamic?.fill);
+  const agitatorColor = cycling ? C.wheat : C.muted;
   const paddleRef = useRef(null);
 
   useLayoutEffect(() => {
@@ -431,16 +433,12 @@ export function TreaterSymbol({ machine: m, dynamic, motion }) {
 
   return (
     <g>
-      <rect
-        className="body" x="0" y="16" width={w} height={h - 16} rx="14"
-        fill={cycling ? C.wheat : C.panel} fillOpacity={cycling ? 0.22 : 1}
-        stroke={cycling ? C.wheat : C.line} strokeWidth="1.5"
-      />
+      <rect className="body" x="0" y="16" width={w} height={h - 16} rx="14" fill={C.panel} stroke={C.line} strokeWidth="1.5" />
       <rect x={cx - 13} y="0" width="26" height="18" fill={C.panel2} stroke={C.line} />
-      <line x1={cx} y1="18" x2={cx} y2={h - 30} stroke={C.muted} strokeWidth="1.5" />
+      <line x1={cx} y1="18" x2={cx} y2={h - 30} stroke={agitatorColor} strokeWidth="1.5" />
       <g ref={paddleRef}>
-        <line x1={cx - 26} y1={h - 38} x2={cx + 26} y2={h - 26} stroke={C.muted} strokeWidth="1.5" />
-        <line x1={cx - 26} y1={h - 26} x2={cx + 26} y2={h - 38} stroke={C.muted} strokeWidth="1.5" />
+        <line x1={cx - 26} y1={h - 38} x2={cx + 26} y2={h - 26} stroke={agitatorColor} strokeWidth="1.5" />
+        <line x1={cx - 26} y1={h - 26} x2={cx + 26} y2={h - 38} stroke={agitatorColor} strokeWidth="1.5" />
       </g>
       <Instruments machine={m} x={w + 24} y={14} />
     </g>

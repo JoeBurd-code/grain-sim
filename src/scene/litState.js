@@ -4,14 +4,25 @@
 // same reasoning as elevatorMotion.js's pure bucket geometry.
 
 // snapshotBatchCycle's `phase` (src/sim/behaviors.js) collapses to what the
-// batch treater symbol draws: the vessel lit while any real batch is in
-// progress (charging/holding/discharging), the agitator turning only during
-// the mixing dwell ("holding" — the hold-for-a-cycle step, not the fill or
-// the discharge pulse). `stopped` (utilities trip, issue #51) and `waiting`
-// (starved by the pre-bin, derived in snapshotBatchCycle itself) both read
-// as not-cycling, same as an undefined phase before the sim has primed.
-export function treaterVisualState(phase) {
-  const cycling = phase === "charging" || phase === "holding" || phase === "discharging";
+// batch treater symbol draws: the agitator lit while any real batch is in
+// progress, turning only during the mixing dwell ("holding" — the
+// hold-for-a-cycle step, not the fill or the discharge pulse). `stopped`
+// (utilities trip, issue #51) and `waiting` (starved by the pre-bin,
+// derived in snapshotBatchCycle itself) both read as not-cycling, same as
+// an undefined phase before the sim has primed.
+//
+// `phase` alone isn't enough: initBatchCycle boots into "charging" with
+// `held` at 0, and stays there — not "waiting" — for as long as nothing has
+// asked it to block (i.e. before the sim has ever run at all, or while a
+// genuinely empty upstream just hasn't sent anything yet). Treating bare
+// "charging" as cycling lit the vessel at boot with no batch underway. Only
+// count charging as cycling once `fill` shows a real charge actually
+// accumulating; holding/discharging always imply fill > 0 by construction
+// (a phase can't reach either without a full charge first), so the guard is
+// a no-op for them.
+export function treaterVisualState(phase, fill = 0) {
+  const hasCharge = fill > 0;
+  const cycling = hasCharge && (phase === "charging" || phase === "holding" || phase === "discharging");
   const mixing = phase === "holding";
   return { cycling, mixing };
 }

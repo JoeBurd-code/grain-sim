@@ -2,28 +2,32 @@ import { describe, it, expect } from "vitest";
 import { treaterVisualState, vibratoryFlowing } from "./litState";
 
 describe("treaterVisualState", () => {
-  it("reads charging as cycling but not mixing", () => {
-    expect(treaterVisualState("charging")).toEqual({ cycling: true, mixing: false });
+  it("reads boot state (charging, fill 0 — nothing has ever flowed) as neither cycling nor mixing", () => {
+    expect(treaterVisualState("charging", 0)).toEqual({ cycling: false, mixing: false });
+  });
+
+  it("reads charging with a real charge accumulating as cycling but not mixing", () => {
+    expect(treaterVisualState("charging", 0.4)).toEqual({ cycling: true, mixing: false });
   });
 
   it("reads holding as cycling and mixing", () => {
-    expect(treaterVisualState("holding")).toEqual({ cycling: true, mixing: true });
+    expect(treaterVisualState("holding", 1)).toEqual({ cycling: true, mixing: true });
   });
 
   it("reads discharging as cycling but not mixing", () => {
-    expect(treaterVisualState("discharging")).toEqual({ cycling: true, mixing: false });
+    expect(treaterVisualState("discharging", 1)).toEqual({ cycling: true, mixing: false });
   });
 
   it("reads waiting (starved by the pre-bin) as neither cycling nor mixing", () => {
-    expect(treaterVisualState("waiting")).toEqual({ cycling: false, mixing: false });
+    expect(treaterVisualState("waiting", 0)).toEqual({ cycling: false, mixing: false });
   });
 
-  it("reads stopped (utilities trip) as neither cycling nor mixing", () => {
-    expect(treaterVisualState("stopped")).toEqual({ cycling: false, mixing: false });
+  it("reads stopped (utilities trip) as neither cycling nor mixing, even mid-charge", () => {
+    expect(treaterVisualState("stopped", 0.7)).toEqual({ cycling: false, mixing: false });
   });
 
   it("reads an undefined phase (sim not yet primed) as neither cycling nor mixing", () => {
-    expect(treaterVisualState(undefined)).toEqual({ cycling: false, mixing: false });
+    expect(treaterVisualState(undefined, 0)).toEqual({ cycling: false, mixing: false });
   });
 });
 
