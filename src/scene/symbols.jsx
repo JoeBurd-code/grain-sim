@@ -213,6 +213,11 @@ function ElevatorBuckets({ m, dynamic, motion }) {
         {
           bandCount: dyn?.densityProfile?.length ?? 0,
           hasMaterial: dyn?.inTransitVol > 0 || dyn?.backlogVol > 0,
+          // Issue #69: stamped onto each bucket as it loads, not applied to
+          // the chain as a whole — see carryBucketLoads. Undefined for plain
+          // transportDelay's own snapshot (treatingElevator), which
+          // discharges at the head and needs no cutoff.
+          loadingCutoffFrac: dyn?.selectedSpanFraction,
         },
       );
       slotUsed.fill(false);

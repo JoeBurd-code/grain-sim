@@ -170,13 +170,29 @@ const LOADING_ZONE_BANDS = 1;
 // still renders its real material rather than needing a full transit to
 // refill.
 //
-// `held` is the caller's own Map<generation, load>, carried across frames
-// (ElevatorBuckets keeps it in a ref) and pruned here to the buckets
-// currently on the chain. Mutates each bucket's fillRatio in place and
-// returns the same array. A no-op without a live density profile: both
+// `held` is the caller's own Map<generation, { load, cutoff }>, carried
+// across frames (ElevatorBuckets keeps it in a ref) and pruned here to the
+// buckets currently on the chain. Mutates each bucket's fillRatio in place
+// and returns the same array. A no-op without a live density profile: both
 // fallback paths (the binary leadingProgress sweep, the static decoration)
 // keep their position-sampled fill exactly as before.
-export function carryBucketLoads(buckets, phase, held, { bandCount, hasMaterial = true, spacing = BUCKET_SPACING } = {}) {
+//
+// `loadingCutoffFrac` (issue #69) is where the material being fed *right
+// now* leaves the chain — the selected outlet's own fraction of the whole
+// run, from the routed machine's own snapshot. It is stamped onto a bucket
+// while that bucket is loading and never rewritten afterwards, exactly the
+// way routedTransportDelay (behaviors.js) stamps each packet's own port and
+// distance at accept time. That per-bucket stamp is the whole point: a
+// single live "wherever the selector points now" cutoff, applied to every
+// bucket at once, is what broke a mid-run destination switch — picking a
+// nearer outlet erased grain still legitimately riding to the previous,
+// farther one, and picking a farther outlet made already-loaded buckets pop
+// back into view further down the belt. Carrying the cutoff with the load
+// keeps each bucket honest about where *its own* grain is going, so a
+// switch only ever changes what the buckets loading from now on do. Left
+// undefined (plain transportDelay's own snapshot, which has a single
+// discharge at the head) means no cutoff at all.
+export function carryBucketLoads(buckets, phase, held, { bandCount, hasMaterial = true, spacing = BUCKET_SPACING, loadingCutoffFrac } = {}) {
   if (!(bandCount > 0)) return buckets;
   // Nothing left in transit at all (a cleared plant, or a chain that has
   // fully drained): drop every carried load rather than letting buckets
@@ -187,9 +203,21 @@ export function carryBucketLoads(buckets, phase, held, { bandCount, hasMaterial 
   for (const b of buckets) {
     const gen = bucketGeneration(b.pos, phase, spacing);
     live.add(gen);
-    if (b.pathFrac < loadingFrac) held.set(gen, b.fillRatio * (b.pathFrac / loadingFrac));
-    else if (!held.has(gen)) held.set(gen, b.fillRatio);
-    b.fillRatio = held.get(gen);
+    if (b.pathFrac < loadingFrac) {
+      // Still under the inlet: keep topping this bucket up to the boot's own
+      // live density, and (re-)stamp where this grain is bound for, so a
+      // switch made while it is loading applies to it.
+      held.set(gen, { load: b.fillRatio * (b.pathFrac / loadingFrac), cutoff: loadingCutoffFrac });
+    } else if (!held.has(gen)) {
+      // First seen already up the chain (mount, or a resume with material
+      // mid-transit): seed from where it sits. The live cutoff is the only
+      // one available for it — a one-off on mount, not a per-switch path.
+      held.set(gen, { load: b.fillRatio, cutoff: loadingCutoffFrac });
+    }
+    const entry = held.get(gen);
+    // Past its own outlet, a bucket has already tipped its grain out: it
+    // rides the rest of the run empty rather than carrying it to the head.
+    b.fillRatio = entry.cutoff != null && b.pathFrac >= entry.cutoff ? 0 : entry.load;
   }
   for (const gen of held.keys()) if (!live.has(gen)) held.delete(gen);
   return buckets;

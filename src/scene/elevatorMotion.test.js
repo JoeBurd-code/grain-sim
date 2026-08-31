@@ -233,7 +233,7 @@ describe("carryBucketLoads", () => {
   it("drops every carried load when the sim has no material in transit at all", () => {
     const held = new Map();
     carryBucketLoads(computeElevatorBuckets(FIXTURE, withDensity(1), 0), 0, held, { bandCount: BANDS });
-    expect([...held.values()].some((v) => v > 0)).toBe(true);
+    expect([...held.values()].some((v) => v.load > 0)).toBe(true);
     const cleared = carryBucketLoads(
       computeElevatorBuckets(FIXTURE, withDensity(0), 0), 0, held, { bandCount: BANDS, hasMaterial: false },
     );
@@ -267,5 +267,54 @@ describe("carryBucketLoads", () => {
     const carried = carryBucketLoads(computeElevatorBuckets(FIXTURE, dynamic, 0), 0, held, { bandCount: 0 });
     expect(carried).toEqual(raw);
     expect(held.size).toBe(0);
+  });
+
+  // Issue #69: carrying exists to ignore live density past the loading zone,
+  // so a bounded density profile alone can never stop an already-loaded
+  // bucket — it would ride its grain all the way to the head no matter which
+  // outlet that grain was actually bound for. `loadingCutoffFrac` is what
+  // tips it out at its own outlet instead.
+  it("empties a bucket at the cutoff it was loaded under, rather than carrying to the head", () => {
+    const held = new Map();
+    const buckets = carryBucketLoads(
+      computeElevatorBuckets(FIXTURE, withDensity(1), 0), 0, held,
+      { bandCount: BANDS, loadingCutoffFrac: 0.5 },
+    );
+    for (const b of buckets) {
+      if (b.pathFrac < loadingFrac) continue; // still loading at the boot
+      expect(b.fillRatio).toBe(b.pathFrac >= 0.5 ? 0 : 1);
+    }
+  });
+
+  it("carries to the head when no cutoff is given (plain transportDelay, unchanged)", () => {
+    const held = new Map();
+    const buckets = carryBucketLoads(computeElevatorBuckets(FIXTURE, withDensity(1), 0), 0, held, { bandCount: BANDS });
+    for (const b of buckets) if (b.pathFrac >= loadingFrac) expect(b.fillRatio).toBe(1);
+  });
+
+  // Issue #69, the mid-run destination switch both earlier attempts got
+  // wrong: the cutoff belongs to the bucket (stamped as it loaded), not to
+  // the chain. Selecting a *nearer* outlet must not retroactively erase
+  // grain already riding to the farther one it was loaded for.
+  it("keeps a bucket's own cutoff when the selection changes under it", () => {
+    const held = new Map();
+    const { totalLen } = elevatorChain(FIXTURE);
+    // Walk one generation of buckets up the chain loaded under "far" (1).
+    for (let phase = 0; phase < totalLen / 2; phase += 2) {
+      carryBucketLoads(
+        computeElevatorBuckets(FIXTURE, withDensity(1), phase), phase, held,
+        { bandCount: BANDS, loadingCutoffFrac: 1 },
+      );
+    }
+    // Now the presenter picks a much nearer outlet. Everything already on
+    // the chain was loaded for the far one and must still read as loaded.
+    const phase = totalLen / 2;
+    const buckets = carryBucketLoads(
+      computeElevatorBuckets(FIXTURE, withDensity(1), phase), phase, held,
+      { bandCount: BANDS, loadingCutoffFrac: 0.1 },
+    );
+    const pastNewCutoff = buckets.filter((b) => b.pathFrac > 0.1 && b.pathFrac < 0.95);
+    expect(pastNewCutoff.length).toBeGreaterThan(0);
+    expect(pastNewCutoff.every((b) => b.fillRatio > 0)).toBe(true); // not erased by the switch
   });
 });

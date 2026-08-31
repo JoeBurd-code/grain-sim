@@ -1007,6 +1007,19 @@ describe("routedTransportDelay (issue #47)", () => {
     const pastNear = snap.densityProfile.slice(Math.ceil(0.2 * bandCount)); // "near" is only the first 20% of the run
     expect(pastNear.some((v) => v > 0)).toBe(true); // the "far"-bound material is still shown, not erased by the switch
   });
+
+  // Issue #69: the bands alone can't tell the render where material being
+  // fed right now leaves the machine, and the render needs that — it
+  // carries each bucket's load from the boot onward rather than resampling
+  // the live density under it (elevatorMotion.js's carryBucketLoads). This
+  // is what it stamps onto a bucket as that bucket loads.
+  it("publishes selectedSpanFraction: where material accepted right now leaves, over the whole run", () => {
+    const state = initState({ distanceM: 10, portDistanceM: { near: 4, far: 10 }, ports: ["near", "far"] });
+    B.selectPort(state, "near");
+    expect(B.snapshot(state).selectedSpanFraction).toBeCloseTo(0.4);
+    B.selectPort(state, "far");
+    expect(B.snapshot(state).selectedSpanFraction).toBeCloseTo(1);
+  });
 });
 
 describe("batchCycle (issue #24)", () => {

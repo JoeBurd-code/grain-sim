@@ -728,27 +728,15 @@ function snapshotRoutedTransportDelay(state) {
     : 0;
   const trailingProgress = normalizedQueue.length > 0 ? Math.min(...normalizedQueue.map((p) => p.progress)) : leadingProgress;
   const v = chainSpeedMPerSec(state);
-  // Issue #69: no separate masking step past the selected outlet — each
-  // packet's own progress is already normalised against its own
-  // destination's distance (wholeRunFraction above), so a packet bound for
-  // outBuffer can never read past outBuffer's own fraction of the whole run
-  // in the first place, regardless of which outlet is *currently* selected.
-  // An earlier version of this masked every band past the live selection on
-  // top of that, which sounds redundant and was: it actively broke a
-  // destination switch mid-run — the moment the presenter picked a nearer
-  // outlet, still-legitimate material already travelling to the *previous*
-  // (farther) one vanished from the display instantly, and picking a
-  // farther one made bucket-carried grain (elevatorMotion.js's own
-  // carryBucketLoads, which deliberately ignores live density past a
-  // bucket's loading zone) pop into existence mid-belt from stale carried
-  // state the moment the old cutoff stopped hiding it. Both were reported
-  // live and reproduced on video after #69 shipped. Per-packet distance
-  // alone already satisfies "terminates at the selected outlet" in the
-  // steady state (every packet shares that one port) and "everything
-  // already on the chain still travels to the outlet it was accepted for"
-  // during a switch (see the depended-on `routedTransportDelay` per-packet
-  // tagging), which is exactly the acceptance criteria this method was
-  // trying to satisfy separately and instead violated.
+  // Issue #69: the bands themselves are never masked past the selected
+  // outlet. Each packet's own progress is already normalised against its
+  // own destination's distance (wholeRunFraction above), so a packet bound
+  // for outBuffer cannot read past outBuffer's own fraction of the whole
+  // run in the first place — and a packet bound for a *farther* outlet than
+  // the one currently selected genuinely is still out there, mid-run, and
+  // has to keep being reported where it really is. Masking the bands on the
+  // live selection instead (an earlier version of this) erased exactly that
+  // material the instant a presenter picked a nearer outlet.
   const densityProfile = densityProfileFromQueue(state, DENSITY_BANDS, normalizedQueue);
   return {
     inTransitVol, backlogVol: state.backlog,
@@ -761,6 +749,18 @@ function snapshotRoutedTransportDelay(state) {
     chainSpeedMPerMin: v * 60,
     selected: state.selected,
     densityProfile,
+    // Issue #69: where material accepted *right now* leaves this machine,
+    // as a fraction of the whole drawn run. The bands above can't express
+    // this on their own: the render carries a bucket's load unchanged from
+    // the boot onward (elevatorMotion.js's carryBucketLoads, deliberately
+    // ignoring live density past the loading zone, so a part-filled band at
+    // the material front doesn't read as a half-empty bucket), so a bucket
+    // loaded before the selected outlet would ride straight past it to the
+    // head unless it is told where to tip its grain out. Sampled per bucket
+    // *at loading time* and carried with that bucket's load, never applied
+    // to the whole chain at once — see carryBucketLoads' own comment for
+    // why the difference is what makes a mid-run switch behave.
+    selectedSpanFraction: state.distanceM > 0 ? portDistanceMFor(state, state.selected) / state.distanceM : 1,
   };
 }
 // Interlock throttle command (issue #22's own shape, e.g. the metal bins'
