@@ -745,6 +745,10 @@ export const line = {
       // label — the "bin segment" figure from the original drawing reading
       // belongs here, see this machine's tag-correction comment above].
       // Starts empty (issue #55), same as every other bin on the line.
+      // Level-jump slider added directly on request, the same staging
+      // affordance every other accumulator on the line already has — see
+      // metalBin1's own comment below.
+      params: [{ id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" }],
       sim: {
         kind: "accumulator",
         capacityM3: 4.51,
@@ -842,8 +846,13 @@ export const line = {
       // fills — `dischargeStub1` below isn't sim-enabled, so the
       // accumulator's own reverse-pass discharge cap is always 0, and
       // emptying it is the presenter's own bin-empty affordance
-      // (PlantControls.jsx, reusing the same setLevel(0) the level-jump
-      // slider itself calls). Starts empty (issue #55).
+      // (PlantControls.jsx's DESTINATION-section EMPTY BIN while this is the
+      // selected destination, reusing the same setLevel(0) the level-jump
+      // slider itself calls). Also emptied unconditionally by EMPTY DISCARD
+      // BIN (PlantApp.jsx's onEmptyDiscardBin) — added directly on request
+      // rather than a second dedicated button, since neither metal bin ever
+      // drains on its own and a presenter may not have either one currently
+      // selected as the destination. Starts empty (issue #55).
       params: [{ id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" }],
       sim: {
         kind: "accumulator",

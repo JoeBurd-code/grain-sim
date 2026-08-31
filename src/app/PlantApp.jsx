@@ -184,6 +184,20 @@ export default function PlantApp() {
     setParamValues({});
   }, [engine]);
 
+  // Metal bin 1/2 (lineData.js) never discharge on their own — no document
+  // covers truck loadout gate logic, so they only ever fill — and unlike the
+  // discard bin they have no DESTINATION-section EMPTY BIN affordance of
+  // their own unless they're the currently selected destination. Rather than
+  // add a second dedicated button, EMPTY DISCARD BIN's own housekeeping
+  // click also jumps both back to empty (engine.setLevel(id, 0), the same
+  // call PlantControls' own EMPTY BIN uses) — a presenter's one "clear the
+  // downstream clutter" action.
+  const onEmptyDiscardBin = useCallback(() => {
+    engine.emptySink("discardBin");
+    engine.setLevel("metalBin1", 0);
+    engine.setLevel("metalBin2", 0);
+  }, [engine]);
+
   const closePopup = useCallback(() => setSelectedId(null), []);
   // Issue #63 follow-up: a drag that lands exactly back on the live cap is
   // "return to normal", not just another touch — release instead of set (see
@@ -353,7 +367,7 @@ export default function PlantApp() {
           destination={engine.snap.destination}
           onSetDestination={engine.setDestination}
           onEmptyBin={(binId) => engine.setLevel(binId, 0)}
-          onEmptyDiscardBin={() => engine.emptySink("discardBin")}
+          onEmptyDiscardBin={onEmptyDiscardBin}
           controlledStopPhase={engine.snap.controlledStopPhase}
           onControlledStop={engine.controlledStop}
           onResumeLine={engine.resumeLine}
