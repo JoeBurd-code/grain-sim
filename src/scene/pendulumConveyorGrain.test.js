@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createSim, stepSim, DT, setSourceRate, setSource, setDestination, getMachineState } from "../sim/engine";
 import { BEHAVIORS } from "../sim/behaviors";
 import { line } from "../line/lineData";
-import { computeElevatorBuckets, carryBucketLoads, chainSceneSpeed, elevatorChain } from "./elevatorMotion";
+import { computeElevatorBuckets, carryBucketLoads, chainSceneSpeed, elevatorChain, outletPathFraction } from "./elevatorMotion";
 import { tPerHourToM3PerSec } from "../sim/units";
 
 // Issue #69: the pendulum conveyor's grain has to stop at the outlet it is
@@ -20,13 +20,26 @@ import { tPerHourToM3PerSec } from "../sim/units";
 // render helpers. Same pipeline ElevatorBuckets (symbols.jsx) drives every
 // frame. Each test guards that grain was genuinely carried, so a trace that
 // quietly stops producing buckets fails instead of passing vacuously.
+//
+// It then regressed a third time, in issue #70, and this file passed right
+// through it: the expectations below were derived from the same
+// `portDistanceM / distanceM` ratio the render itself was (wrongly) using
+// as a drawn-path fraction, so the trace only ever asserted "grain stops
+// where the sim says", never "grain stops where the outlet is drawn".
+// Giving the machine its real Z-shaped body made those two different
+// places — grain bound for the nearest outlet stopped partway up the climb,
+// 868 px short of the outlet it was drawn to leave by — and every
+// assertion here still held. So the bounds are now taken from the drawn
+// outlet anchors (outletPathFraction), the thing a viewer actually sees,
+// and they are two-sided: a lower bound is what a "stops too early"
+// regression trips, and its absence is exactly what let this one through.
 const M = line.machines.find((m) => m.id === "pendulumConveyor");
 const { totalLen } = elevatorChain(M);
 // One bucket pitch plus one density band, as a fraction of the drawn run:
 // the granularity at which a discharge can visually land.
 const SLACK = 26 / totalLen + 1 / 24;
-const OUT_BUFFER_FRAC = M.sim.portDistanceM.outBuffer / M.sim.distanceM;  // ~0.138
-const OUT_BINSEG_FRAC = M.sim.portDistanceM.outBinSeg / M.sim.distanceM;  // ~0.642
+const OUT_BUFFER_FRAC = outletPathFraction(M, "outBuffer");  // ~0.455 of the drawn Z path
+const OUT_BINSEG_FRAC = outletPathFraction(M, "outBinSeg");  // ~0.777 of the drawn Z path
 
 function runTrace({ legs, onFrame }) {
   const sim = createSim(line);
@@ -46,7 +59,10 @@ function runTrace({ legs, onFrame }) {
         {
           bandCount: dyn.densityProfile.length,
           hasMaterial: dyn.inTransitVol > 0 || dyn.backlogVol > 0,
-          loadingCutoffFrac: dyn.selectedSpanFraction,
+          // Mirrors ElevatorBuckets (symbols.jsx) exactly: the cutoff comes
+          // from the selected outlet's own *drawn* anchor, not the
+          // snapshot's own distance-space `selectedSpanFraction`.
+          loadingCutoffFrac: outletPathFraction(M, dyn.selected),
         },
       );
       frames++;
@@ -79,6 +95,9 @@ describe("pendulum conveyor render trace", () => {
     expect(frames).toBeGreaterThan(1000);
     expect(everLoaded).toBe(true); // the trace has to actually carry grain, or it proves nothing
     expect(worst).toBeLessThan(OUT_BUFFER_FRAC + SLACK);
+    // ...and actually reaches it. Without this lower bound the issue #70
+    // regression (grain dying partway up the climb) passed unnoticed.
+    expect(worst).toBeGreaterThan(OUT_BUFFER_FRAC - SLACK);
   }, 30000); // ~4x the measured solo run: 8000 ticks of the whole line, x68 buckets a frame
 
   it("stops grain at the middle outlet, further along than the nearest but not the full run", () => {
@@ -86,6 +105,7 @@ describe("pendulum conveyor render trace", () => {
     expect(everLoaded).toBe(true);
     expect(worst).toBeGreaterThan(OUT_BUFFER_FRAC);
     expect(worst).toBeLessThan(OUT_BINSEG_FRAC + SLACK);
+    expect(worst).toBeGreaterThan(OUT_BINSEG_FRAC - SLACK);
   }, 30000);
 
   // 400s, not less: on the real line the farthest outlet's own grain does

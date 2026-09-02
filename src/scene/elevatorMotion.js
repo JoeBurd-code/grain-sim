@@ -48,6 +48,49 @@ export function elevatorChain(m) {
   return { points, totalLen };
 }
 
+// Where an outlet port sits along the drawn chain path, as a fraction of
+// its total length — the port's own anchor (machine-local coords, the same
+// point the discharge-gap indicator draws itself at) projected onto the
+// nearest point of the chain polyline.
+//
+// Issue #70 follow-up: this exists because a *drawn* position must be
+// derived from drawn geometry. The render previously used the snapshot's
+// own `selectedSpanFraction` (behaviors.js) for this, which is a fraction
+// of the machine's real transit *distance* — `portDistanceM / distanceM`.
+// The two agreed only by coincidence, and only while this machine was drawn
+// as its ceiling run alone: `portDistanceM` was itself apportioned from
+// those same ceiling-run anchor x-values, so a distance ratio and a pixel
+// ratio happened to be the same number. Drawing the real Z path (floor run
+// + climb, ~37% of the drawn length, carrying no outlets at all) broke that
+// identity, and grain bound for the nearest outlet stopped partway up the
+// climb — nowhere near the outlet it was drawn to leave by. The drawn
+// segments' proportions do not match the real machine's either (drawn
+// 10/27/63% against a real 23/29/48%), so the two fraction spaces are not
+// interchangeable in general and neither can substitute for the other.
+export function outletPathFraction(m, port) {
+  const anchor = m.anchors?.[port];
+  if (!anchor) return undefined;
+  const { points, totalLen } = elevatorChain(m);
+  if (!(totalLen > 0)) return undefined;
+  let covered = 0;
+  let best = { dist: Infinity, frac: 1 };
+  for (let i = 0; i < points.length - 1; i++) {
+    const [x0, y0] = points[i], [x1, y1] = points[i + 1];
+    const dx = x1 - x0, dy = y1 - y0;
+    const len = Math.hypot(dx, dy);
+    if (len > 0) {
+      // Clamped so an anchor drawn slightly past a segment's own end (the
+      // discharge outlet at the very tail of the run) lands on that end
+      // rather than off the path.
+      const t = Math.max(0, Math.min(1, ((anchor.x - x0) * dx + (anchor.y - y0) * dy) / (len * len)));
+      const dist = Math.hypot(anchor.x - (x0 + dx * t), anchor.y - (y0 + dy * t));
+      if (dist < best.dist) best = { dist, frac: (covered + len * t) / totalLen };
+    }
+    covered += len;
+  }
+  return best.frac;
+}
+
 // The Z-shaped duct housing's own SVG path data: a hollow outline (the
 // machine's `body`) and a dashed centerline tracing the same three segments
 // `elevatorChain` above already returns as points, at housing thickness

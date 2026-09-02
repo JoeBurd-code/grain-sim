@@ -5,7 +5,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { C, FONT_DISP, FONT_MONO, ratioColor } from "./theme";
 import { labelPlacement } from "./labelLayout";
-import { elevatorChain, ductBodyPaths, chainSceneSpeed, computeElevatorBuckets, carryBucketLoads, bucketGeneration, BUCKET_SPACING, BUCKET_EMPTY_THRESHOLD } from "./elevatorMotion";
+import { elevatorChain, ductBodyPaths, outletPathFraction, chainSceneSpeed, computeElevatorBuckets, carryBucketLoads, bucketGeneration, BUCKET_SPACING, BUCKET_EMPTY_THRESHOLD } from "./elevatorMotion";
 import { nextTreaterAnchor, treaterLit, vibratoryFlowing } from "./litState";
 import { drumSpinDegPerSec, drumGateFraction } from "./drumFeederMotion";
 import { diverterFlapperPoint, diverterSwingPoint } from "./diverterMotion";
@@ -217,7 +217,16 @@ function ElevatorBuckets({ m, dynamic, motion }) {
           // the chain as a whole — see carryBucketLoads. Undefined for plain
           // transportDelay's own snapshot (treatingElevator), which
           // discharges at the head and needs no cutoff.
-          loadingCutoffFrac: dyn?.selectedSpanFraction,
+          //
+          // Issue #70 follow-up: taken from the selected outlet's own drawn
+          // anchor (outletPathFraction), NOT the snapshot's own
+          // `selectedSpanFraction` — that field is a fraction of real
+          // transit distance, and using it as a fraction of the drawn path
+          // left grain stopping partway up the climb once the drawn path
+          // gained a floor run and climb that carry no outlets. See
+          // outletPathFraction's own comment for why the two spaces are not
+          // interchangeable.
+          loadingCutoffFrac: dyn?.selected ? outletPathFraction(mRef.current, dyn.selected) : undefined,
         },
       );
       slotUsed.fill(false);
