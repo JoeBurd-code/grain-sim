@@ -5,7 +5,7 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { C, FONT_DISP, FONT_MONO, ratioColor } from "./theme";
 import { labelPlacement } from "./labelLayout";
-import { elevatorChain, chainSceneSpeed, computeElevatorBuckets, carryBucketLoads, bucketGeneration, BUCKET_SPACING, BUCKET_EMPTY_THRESHOLD } from "./elevatorMotion";
+import { elevatorChain, ductBodyPaths, chainSceneSpeed, computeElevatorBuckets, carryBucketLoads, bucketGeneration, BUCKET_SPACING, BUCKET_EMPTY_THRESHOLD } from "./elevatorMotion";
 import { nextTreaterAnchor, treaterLit, vibratoryFlowing } from "./litState";
 import { drumSpinDegPerSec, drumGateFraction } from "./drumFeederMotion";
 import { diverterFlapperPoint, diverterSwingPoint } from "./diverterMotion";
@@ -301,22 +301,16 @@ function LegacyBuckets({ m, dynamic }) {
 // transit data at all (not sim-enabled yet, e.g. the packaging elevator) —
 // both of those two fallbacks are untouched from before this issue.
 export function ElevatorSymbol({ machine: m, dynamic, motion }) {
-  const { w, h } = m;
-  const { colX, duct } = m.geom;
+  const { w } = m;
+  const { duct } = m.geom;
   const gapX = w - 60;
   const bandCount = dynamic?.densityProfile?.length ?? 0;
+  const { outline, centerline } = ductBodyPaths(m);
 
   return (
     <g>
-      <path
-        className="body"
-        d={`M0,${h} H${colX + duct} V${duct} H${w} V0 H${colX} V${h - duct} H0 Z`}
-        fill={C.panel} stroke={C.line} strokeWidth="1.5"
-      />
-      <path
-        d={`M20,${h - 18} H${colX + 18} V18 H${w - 20}`}
-        fill="none" stroke={C.line} strokeWidth="1.5" strokeDasharray="3 5"
-      />
+      <path className="body" d={outline} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
+      <path d={centerline} fill="none" stroke={C.line} strokeWidth="1.5" strokeDasharray="3 5" />
       {bandCount > 0 ? (
         <ElevatorBuckets m={m} dynamic={dynamic} motion={motion} />
       ) : (
@@ -402,33 +396,72 @@ export function DiverterSymbol({ machine: m, dynamic, motion }) {
 // treatment #65 gave the treating elevator's own bucket chain — the two are
 // physically the same Simatek pendulum-conveyor concept (lineData.js's own
 // comment on it), reusing elevatorMotion.js's chain/bucket helpers
-// unchanged (elevatorChain's own geom-less fallback draws a straight run
-// here instead of the Z-shaped path a real `geom` block draws). No other
-// machine renders through this symbol, so nothing here needs a fallback for
-// a machine that legitimately has neither buckets nor a `selected` port.
-// `dynamic.densityProfile` already arrives pre-masked past whichever outlet
-// is currently selected (behaviors.js's own snapshotRoutedTransportDelay
-// masking), so the buckets themselves need no awareness of the selection —
-// only the discharge-gap indicator below reads `dynamic.selected`, to draw
-// itself at the right outlet's own anchor position.
+// unchanged. No other machine renders through this symbol, so nothing here
+// needs a fallback for a machine that legitimately has neither buckets nor a
+// `selected` port. `dynamic.densityProfile` already arrives pre-masked past
+// whichever outlet is currently selected (behaviors.js's own
+// snapshotRoutedTransportDelay masking), so the buckets themselves need no
+// awareness of the selection — only the discharge-gap indicator below reads
+// `dynamic.selected`, to draw itself at the right outlet's own anchor
+// position.
+//
+// Issue #70: with a real `geom` block (lineData.js's own pendulumConveyor,
+// the only machine this symbol draws), the body follows the same Z-shaped
+// duct outline ElevatorSymbol draws for treatingElevator — floor run, climb,
+// ceiling run — instead of the flat rect below, which is now only a
+// fallback for a hypothetical geom-less conveyor (elevatorChain's own
+// geom-less path already handles that case for the bucket motion itself).
+// The discharge gap and chain-speed readout move to sit on the ceiling
+// run's own duct (y = duct-4 / duct+14), matching ElevatorSymbol's own
+// discharge-gap placement, since `h` no longer describes the belt's own
+// thickness once the body spans all the way down to floor level.
 export function ConveyorSymbol({ machine: m, dynamic, motion }) {
-  const { w, h } = m;
+  const { w, h, geom } = m;
+  const bandCount = dynamic?.densityProfile?.length ?? 0;
+  const dischargeAnchor = dynamic?.selected ? m.anchors?.[dynamic.selected] : null;
+  const buckets = bandCount > 0 ? (
+    <ElevatorBuckets m={m} dynamic={dynamic} motion={motion} />
+  ) : (
+    <LegacyBuckets m={m} dynamic={dynamic} />
+  );
+
+  if (geom) {
+    const { colX, duct } = geom;
+    const { outline, centerline } = ductBodyPaths(m);
+    return (
+      <g>
+        <path className="body" d={outline} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
+        <path d={centerline} fill="none" stroke={C.line} strokeWidth="1.5" strokeDasharray="3 5" />
+        {buckets}
+        {/* discharge gap in the ceiling duct's floor, at the selected outlet's own anchor position; pulses while actively discharging */}
+        {dischargeAnchor && (
+          <rect
+            x={(dischargeAnchor.x - 16).toFixed(1)} y={duct - 4} width="32" height="9"
+            fill={dynamic?.backlogVol > 0 ? C.wheat : C.bg}
+            opacity={dynamic?.backlogVol > 0 ? 0.5 : 1}
+          />
+        )}
+        {/* live chain speed readout, centred over the ceiling run */}
+        {dynamic?.chainSpeedMPerMin != null && (
+          <text x={(colX + duct + w) / 2} y={duct + 14} fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="middle">
+            {dynamic.chainSpeedMPerMin.toFixed(1)} m/min
+          </text>
+        )}
+        <Instruments machine={m} x={w + 24} y={14} dynamic={dynamic} />
+      </g>
+    );
+  }
+
   const r = h / 2;
   const ticks = [];
   for (let x = 26; x < w - 8; x += 26) ticks.push(x);
-  const bandCount = dynamic?.densityProfile?.length ?? 0;
-  const dischargeAnchor = dynamic?.selected ? m.anchors?.[dynamic.selected] : null;
   return (
     <g>
       <rect className="body" x="0" y="0" width={w} height={h} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
       {ticks.map((x) => (
         <line key={x} x1={x} y1="2" x2={x} y2={h - 2} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
       ))}
-      {bandCount > 0 ? (
-        <ElevatorBuckets m={m} dynamic={dynamic} motion={motion} />
-      ) : (
-        <LegacyBuckets m={m} dynamic={dynamic} />
-      )}
+      {buckets}
       {/* discharge gap at the selected outlet's own anchor position; pulses while actively discharging */}
       {dischargeAnchor && (
         <rect

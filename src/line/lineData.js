@@ -658,23 +658,36 @@ export const line = {
       // Merged 2026-08-12 (issue #44): the former "lift conveyor" and "top
       // transport conveyor" are one machine, 52.604.E00, a Simatek E200
       // pendulum conveyor. Real geometry is a Z path (floor run, vertical
-      // climb, ceiling run); the body here still only draws the ceiling
-      // run, where the topology (three pneumatically selected outlets)
-      // actually lives — the Z-shaped symbol is deliberately left for a
-      // future ticket, per issue #44's own scope (data only, no engine or
-      // presentation-layer work). The floor run and climb are implied by
-      // the infeed connections' via points below.
+      // climb, ceiling run) — issue #70 gives the body that actual Z shape
+      // (reusing the geom-driven path ElevatorSymbol/elevatorChain already
+      // draw for treatingElevator below: `geom.colX` is the climb's local x,
+      // `geom.duct` its housing thickness), rather than the ceiling-run-only
+      // rect this drew before. The bounding box now stretches down to floor
+      // level (where the two drum feeders discharge) and left to meet them,
+      // instead of that being implied only by the infeed connections' via
+      // points (removed below, now that the body itself carries the
+      // geometry). x/y/w/h chosen so the ceiling run's own world position —
+      // and therefore outBuffer/outBinSeg/outConcetti's world coordinates —
+      // is unchanged from before this issue; only the local frame's origin
+      // moved.
       tag: "52.604.E00",
       status: "new",
       zone: "packaging",
-      x: 1440, y: 140, w: 1750, h: 26,
+      x: 1160, y: 140, w: 2030, h: 780,
+      geom: { colX: 280, duct: 36 },
       ports: { inputs: ["in1", "in2"], outputs: ["outBuffer", "outBinSeg", "outConcetti"] },
       anchors: {
-        in1: { x: 10, y: 8 },
-        in2: { x: 10, y: 20 },
-        outBuffer: { x: 240, y: 26 },
-        outBinSeg: { x: 1120, y: 26 },
-        outConcetti: { x: 1745, y: 26 },
+        // Floor-run pickups, at the top surface of the floor duct (h - duct)
+        // — the same surface treatingElevator's own single `in` anchor sits
+        // on (y = h - duct there too). in1 (feeder 1, nearer the climb) and
+        // in2 (feeder 2, farther out) sit at local x matching their own
+        // feeder's discharge x exactly, so the infeed connections below are
+        // now plain straight drops with no via points needed.
+        in1: { x: 170, y: 744 },
+        in2: { x: 40, y: 744 },
+        outBuffer: { x: 520, y: 26 },
+        outBinSeg: { x: 1400, y: 26 },
+        outConcetti: { x: 2025, y: 26 },
       },
       instruments: ["LSH"],
       label: { side: "above", align: "center" },
@@ -726,16 +739,24 @@ export const line = {
         // Issue #69: per-outlet transit distance. No document gives each
         // outlet's own along-belt distance from the infeed (docs/OPEN_QUESTIONS.md
         // already flagged the gap, issue #52) — this apportions the confirmed
-        // full-run `distanceM` by each outlet's own anchor x-position (above)
-        // against `outConcetti`'s, since outConcetti sits at the physical tail
-        // of the drawn ceiling run (x:1745, essentially the discharge end) and
-        // is already the machine's real most-used destination (its own
-        // `defaultPort`, issue #56). That keeps outConcetti's own distance
-        // exactly the already-derived 31.087 m (no regression to its own
-        // already-confirmed ≈185 s figure) while outBuffer and outBinSeg, which
-        // sit nearer the infeed along the same drawn run, get proportionally
-        // shorter ones. Marked `derived`, not `confirmed` — the *split* itself
-        // is assumed, only the total is PDF-text exact. See docs/OPEN_QUESTIONS.md.
+        // full-run `distanceM` by each outlet's own anchor x-position *as it
+        // stood along the drawn ceiling run when this was derived* (240 /
+        // 1120 / 1745, against outConcetti's own 1745, since outConcetti sat
+        // at the physical tail of the drawn ceiling run, essentially the
+        // discharge end) and is already the machine's real most-used
+        // destination (its own `defaultPort`, issue #56). Issue #70 gave the
+        // machine's body its full Z shape and shifted every anchor's own
+        // local x by +280 to make room for the floor run, but these three
+        // literals are left exactly as originally derived — they encode a
+        // fixed physical apportionment, not a live reference to the anchors
+        // object, and the ceiling run's own three outlets keep the same
+        // relative spacing after the shift. That keeps outConcetti's own
+        // distance exactly the already-derived 31.087 m (no regression to
+        // its own already-confirmed ≈185 s figure) while outBuffer and
+        // outBinSeg, which sit nearer the infeed along the same drawn run,
+        // get proportionally shorter ones. Marked `derived`, not
+        // `confirmed` — the *split* itself is assumed, only the total is
+        // PDF-text exact. See docs/OPEN_QUESTIONS.md.
         portDistanceM: {
           outBuffer: PENDULUM_CONVEYOR_RUN_M * (240 / 1745),
           outBinSeg: PENDULUM_CONVEYOR_RUN_M * (1120 / 1745),
@@ -1318,22 +1339,15 @@ export const line = {
     // a left-side `in` anchor (see its own comment) specifically so this run
     // is a plain straight line into its left side, not a drop from above.
     { from: { machine: "scalpingDischargeHopper", port: "out" }, to: { machine: "inletDrumFeeder2", port: "in" }, kind: "product" },
-    // packaging infeed. The two via points on each connection sketch the
-    // pendulum conveyor's own floor run + climb (see its comment above):
-    // down to floor level, across to the climb point, up into the
-    // ceiling run.
+    // packaging infeed.
     { from: { machine: "proBoxStation", port: "out" }, to: { machine: "inletDrumFeeder1", port: "in" }, kind: "product" },
-    // Floor-run height (the first/second via y) follows the two feeders'
-    // own move down (issue #62 follow-up, +88 from the original 800).
-    //
-    // The two runs are deliberately given their own floor height and their
-    // own climb column: routed at a shared y=888 / x=1440 they drew exactly
-    // on top of each other from the floor all the way up the climb, so two
-    // feeds read as one line. Feeder 1 (the nearer one) takes the higher
-    // floor run and the inner column; feeder 2 passes underneath it and
-    // climbs outside, so neither run crosses nor covers the other.
-    { from: { machine: "inletDrumFeeder1", port: "out" }, to: { machine: "pendulumConveyor", port: "in1" }, kind: "product", via: [{ x: 1330, y: 888 }, { x: 1424, y: 888 }, { x: 1424, y: 148 }] },
-    { from: { machine: "inletDrumFeeder2", port: "out" }, to: { machine: "pendulumConveyor", port: "in2" }, kind: "product", via: [{ x: 1200, y: 920 }, { x: 1440, y: 920 }, { x: 1440, y: 160 }] },
+    // Issue #70: the pendulum conveyor's own body now draws the floor
+    // run + climb these used to sketch via via points (see the machine's
+    // own comment above) — each feeder's `out` anchor sits at the same
+    // local x as its own floor-run pickup anchor (in1/in2), so both are now
+    // plain straight drops with no via points needed at all.
+    { from: { machine: "inletDrumFeeder1", port: "out" }, to: { machine: "pendulumConveyor", port: "in1" }, kind: "product" },
+    { from: { machine: "inletDrumFeeder2", port: "out" }, to: { machine: "pendulumConveyor", port: "in2" }, kind: "product" },
     // branch B: outload metal bins. No lift here (issue #44): the phantom
     // packaging bucket elevator is gone, so the buffer bin discharges
     // straight into the diverter by gravity.

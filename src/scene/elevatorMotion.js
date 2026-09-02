@@ -19,14 +19,15 @@ const PROGRESS_BAND_SLACK = 0.02;
 // total length, from machine geometry alone. Fixed for the life of the
 // symbol, independent of live phase.
 //
-// Issue #69: a machine with no `geom` (the pendulum conveyor's own straight,
-// ceiling-run-only body — the real Z-shaped path is deliberately deferred,
-// see lineData.js's own comment on it) gets a single straight segment
-// instead of the Z-shaped path below, so every other helper in this module
-// (bucket positions, chain speed, generation identity) applies unchanged to
-// a flat belt as well as a real bucket elevator — this machine is
-// physically the same Simatek pendulum-conveyor concept as `treatingElevator`,
-// just drawn without the climb.
+// Issue #69: a machine with no `geom` gets a single straight segment instead
+// of the Z-shaped path below, so every other helper in this module (bucket
+// positions, chain speed, generation identity) applies unchanged to a flat
+// belt as well as a real bucket elevator. Issue #70 gave the pendulum
+// conveyor (the only other machine drawn through this module, physically
+// the same Simatek pendulum-conveyor concept as `treatingElevator`) its own
+// `geom` block too, so both machines now take the Z-shaped path below; the
+// geom-less fallback remains for a hypothetical future machine drawn
+// straight.
 export function elevatorChain(m) {
   const { w, h } = m;
   if (!m.geom) {
@@ -45,6 +46,21 @@ export function elevatorChain(m) {
     .slice(1)
     .reduce((a, [x1, y1], i) => a + Math.hypot(x1 - points[i][0], y1 - points[i][1]), 0);
   return { points, totalLen };
+}
+
+// The Z-shaped duct housing's own SVG path data: a hollow outline (the
+// machine's `body`) and a dashed centerline tracing the same three segments
+// `elevatorChain` above already returns as points, at housing thickness
+// `geom.duct`. Shared by ElevatorSymbol and ConveyorSymbol (issue #70) so
+// the two symbols draw one real bucket elevator's duct shape identically
+// rather than each hand-rolling the same path string.
+export function ductBodyPaths(m) {
+  const { w, h, geom } = m;
+  const { colX, duct } = geom;
+  return {
+    outline: `M0,${h} H${colX + duct} V${duct} H${w} V0 H${colX} V${h - duct} H0 Z`,
+    centerline: `M20,${h - 18} H${colX + 18} V18 H${w - 20}`,
+  };
 }
 
 // Scene units the chain travels per second of sim time at the given live
