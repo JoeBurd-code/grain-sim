@@ -40,3 +40,11 @@ docs/*.xlsx
 # Fillable follow-up worksheet for the engineer — a working doc, not a
 # durable record; answers get merged into OPEN_QUESTIONS.md / lineData.js.
 docs/TREATER_LINE2_OPEN_QUESTIONS.html
+
+# Real plant/client documents (client name, vendor, drawing numbers, real
+# engineer names) — local reference only, not for the public repo.
+docs/REAL_LINE_SPECS.md
+docs/PLC_FUNCTIONAL_DESCRIPTION.md
+docs/TREATER_LINE2_WORKSHEET.md
+docs/TREATER_LINE2_WORKSHEET.html
+docs/treater-line2-filled-*.md

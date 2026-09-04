@@ -69,15 +69,19 @@ preview environment, redeploy, and confirm requests return 503.
 
 It protects the **deployed demo**, not the information in it.
 
-The repository is public by choice. Everything the demo displays is also readable directly
-on GitHub: the plant topology in `src/line/lineData.js`, the deciphered drawings in
-`docs/REAL_LINE_SPECS.md`, and the engineer's returned worksheet in his own words. Someone
-stopped by the password can still read the same plant data in the source.
+The repository is public by choice, and the plant *topology* — machine names, connections,
+capacities, set points — lives in `src/line/lineData.js`, which is tracked and readable
+directly on GitHub: someone stopped by the password can still read what the demo displays
+in the source. The underlying real-plant *documents* those numbers were transcribed from
+(client name, vendor, drawing numbers, the engineer's own worksheet) are not: `REAL_LINE_SPECS.md`,
+`PLC_FUNCTIONAL_DESCRIPTION.md`, `TREATER_LINE2_WORKSHEET.md`/`.html`, and the filled
+worksheet are gitignored and kept local-only, cited by filename in code comments but not
+committed.
 
-Making the repository private would close that gap and does not affect Vercel deployment.
-Vercel builds and deploys private GitHub repositories on every plan, including Hobby.
-Repository visibility and deployment capability are unrelated. That is a separate decision,
-noted here rather than taken.
+Making the repository private would close the remaining gap (the plant topology itself) and
+does not affect Vercel deployment. Vercel builds and deploys private GitHub repositories on
+every plan, including Hobby. Repository visibility and deployment capability are unrelated.
+That is a separate decision, noted here rather than taken.
 
 Also out of scope by design: rate limiting, lockout after repeated failures, and audit
 logging. Basic auth sends the password on every request, so this relies on HTTPS, which
