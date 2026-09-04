@@ -48,3 +48,13 @@ docs/PLC_FUNCTIONAL_DESCRIPTION.md
 docs/TREATER_LINE2_WORKSHEET.md
 docs/TREATER_LINE2_WORKSHEET.html
 docs/treater-line2-filled-*.md
+
+# Internal planning/ops/agent-workflow docs — local reference only, not for
+# the public repo. docs/adr/ and CONTEXT.md stay public (no proprietary
+# content, genuinely useful engineering documentation).
+CLAUDE.md
+docs/OPEN_QUESTIONS.md
+docs/DEPLOY_ACCESS.md
+docs/PROJECT_BRIEF.md
+docs/agents/
+mockups/
