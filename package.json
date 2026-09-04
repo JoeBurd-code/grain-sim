@@ -1,5 +1,6 @@
 {
   "name": "grain-sim",
+  "description": "A node-graph visualizer of a grain production line.",
   "private": true,
   "version": "0.0.0",
   "type": "module",

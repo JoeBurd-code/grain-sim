@@ -1,25 +1,27 @@
 # Grain Flow Simulator
 
-A node-graph visualizer of an already-engineered grain production line, built to demo
-to stakeholders how grain flows through the line and how it behaves under fault
-conditions — trips, backpressure, transport lag, controlled stops.
+This app shows a grain production line as a node graph. It simulates the line in
+real time. It shows how grain flows through the line. It also shows how the line
+behaves under fault conditions, such as trips, backpressure, transport lag, and
+controlled stops.
 
-Live demo: [grain-sim.vercel.app](https://grain-sim.vercel.app) (password protected).
+Live demo: [grain-sim.vercel.app](https://grain-sim.vercel.app). The demo needs a
+password.
 
 ## Architecture
 
-- **`src/line/`** — the line as data: every machine, zone, and connection.
-- **`src/sim/`** — the simulation engine: a fixed-timestep loop over a set of
-  registered machine behaviours (accumulators, batch cycles, transport lag,
-  interlocks, trips).
-- **`src/scene/`** — SVG rendering of the graph, pan/zoom, and flow animation,
-  driven off the engine's state.
-- **`src/app/`** — UI chrome: transport controls, plant controls, machine popups,
-  charts, event log.
+- **`src/line/`**: the line as data. It lists every machine, zone, and connection.
+- **`src/sim/`**: the simulation engine. It runs a fixed-timestep loop over a set of
+  machine behaviours. These behaviours include accumulators, batch cycles,
+  transport lag, interlocks, and trips.
+- **`src/scene/`**: SVG rendering of the graph. It handles pan, zoom, and flow
+  animation. It reads its state from the engine.
+- **`src/app/`**: the UI. It includes transport controls, plant controls, machine
+  popups, charts, and the event log.
 
-Design rationale for the bigger calls (hybrid sim model, volume as the primary
-currency, data-described topology, SVG-led rendering, the stop mechanisms) is in
-[`docs/adr/`](docs/adr/).
+The `docs/adr/` folder explains the main design decisions. These include the
+hybrid sim model, volume as the primary currency, data-described topology,
+SVG-led rendering, and the stop mechanisms.
 
 ## Commands
 
