@@ -59,3 +59,10 @@ docs/DEPLOY_ACCESS.md
 docs/PROJECT_BRIEF.md
 docs/agents/
 mockups/
+
+# Personal codebase-navigation page, used to demo the sim to non-technical
+# stakeholders - local reference only, not for the public repo.
+docs/codebase-nav.md
+
+# Personal meeting notes - working scratch, not a durable record.
+docs/meeting.md
