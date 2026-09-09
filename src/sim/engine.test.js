@@ -906,8 +906,9 @@ describe("treater pre-bin's graded feed schedule (issue #56/#58/#60)", () => {
     expect(preBinInterlock(sim).phase).toBe("throttle"); // throttled...
     expect(getMachineState(sim, ELEVATOR_ID).throttleFraction).toBeGreaterThan(0); // ...never stopped
     const readings = instrumentReadings(preBinInterlock(sim), 0.86);
-    expect(readings.LSH.tripped).toBe(true);
-    expect(readings.LSHH.tripped).toBe(false);
+    expect(readings.LSH.signal).toBe(true);
+    expect(readings.LSH.alarm).toBe(false); // issue #72: signalling, but not this machine's trip — green, not red
+    expect(readings.LSHH.signal).toBe(false);
   });
 
   it("LSHH set point is a live control that takes effect while running", () => {
@@ -1825,17 +1826,22 @@ describe("the treating zone keeps cycling indefinitely under steady supply, neve
   // investigation ran into on treaterPreBin. This proves the fix on the
   // machine the ticket names directly: LSH never trips (reused from the test
   // above), yet LSL still crosses repeatedly and logs every time.
-  it("the after-bin's LSL crosses repeatedly under normal supply, and each crossing is logged, even though the phase never trips (issue #41)", () => {
+  //
+  // Issue #72 reworded the entry without moving it. The low switch now
+  // signals when grain covers it, so the crossing worth logging is the one
+  // where it *breaks* — the bin draining past the probe, which is the same
+  // falling crossing this test has always counted, on the same tick.
+  it("the after-bin's LSL breaks repeatedly under normal supply, and each crossing is logged, even though the phase never trips (issue #41)", () => {
     const sim = createSim(lineWithoutPackaging);
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15)); // same rate as the never-trips test above
     for (let i = 0; i < Math.round(6000 / DT); i++) stepSim(sim, DT);
 
     expect(afterBinInterlock(sim).phase).toBe("released"); // LSH never tripped, same as above
-    const lslCrossings = afterBinInterlock(sim).log.filter((e) => e.message.startsWith("LSL set point reached"));
+    const lslCrossings = afterBinInterlock(sim).log.filter((e) => e.message.startsWith("LSL OFF"));
     expect(lslCrossings.length).toBeGreaterThan(1); // crossed more than once over the run
     for (const entry of lslCrossings) {
       expect(typeof entry.t).toBe("number");
-      expect(entry.message).toMatch(/^LSL set point reached at \d+% \(setpoint \d+%\)$/);
+      expect(entry.message).toMatch(/^LSL OFF at \d+% \(setpoint \d+%\)$/);
     }
   }, 20000);
 });
@@ -2719,8 +2725,9 @@ describe("Concetti pre-bin's graded feed schedule (issue #56/#58/#61)", () => {
     expect(concettiPreBinInterlock(sim).phase).toBe("throttle"); // throttled...
     expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBeGreaterThan(0); // ...never stopped
     const readings = instrumentReadings(concettiPreBinInterlock(sim), 0.86);
-    expect(readings.LSH.tripped).toBe(true);
-    expect(readings.LSHH.tripped).toBe(false);
+    expect(readings.LSH.signal).toBe(true);
+    expect(readings.LSH.alarm).toBe(false); // issue #72: signalling, but not this machine's trip — green, not red
+    expect(readings.LSHH.signal).toBe(false);
   });
 
   it("LSHH set point is a live control that takes effect while running", () => {
@@ -3517,5 +3524,56 @@ describe("clearPlant (issue #55 — CLEAR PLANT)", () => {
 
     expect(getMachineState(sim, BUFFER_BIN_ID).stored).toBe(0);
     expect(() => assertConserved(sim)).not.toThrow();
+  });
+});
+
+
+// Issue #72: the real-line half of the colour-role guard (the per-kind half
+// is in control.test.js). Dot colour tracks consequence, not the code's
+// letters, and this is the table a presenter actually sees. The four
+// machines at the bottom have no LSHH at all, so their LSH *is* the latched
+// trip that stops the line; deriving colour from the letters would leave
+// them with no red indication at the one moment something goes wrong. See
+// docs/adr/0007.
+describe("instrument alarm roles on the real line (issue #72)", () => {
+  const ALARM_BY_SENSOR = {
+    treaterBufferBin: "LSHH",
+    treaterPreBin: "LSHH",
+    concettiPreBin: "LSHH",
+    treaterAfterBin: "LSH",
+    flexiconPreBin: "LSH",
+    metalBin1: "LSH",
+    metalBin2: "LSH",
+  };
+
+  it("marks exactly one alarm code per rule, and it is the machine's own latched trip", () => {
+    const sim = createSim(line);
+    const seen = {};
+    for (const rule of sim.control) {
+      if (!rule.instruments) continue;
+      const alarms = Object.values(rule.instruments).filter((i) => i.alarm).map((i) => i.code);
+      expect(alarms).toHaveLength(1);
+      seen[rule.sensorId] = alarms[0];
+    }
+    expect(seen).toEqual(ALARM_BY_SENSOR);
+  });
+
+  it("leaves LSH non-alarm on the three vessels that carry an LSHH, and alarm on the four that do not", () => {
+    const sim = createSim(line);
+    for (const rule of sim.control) {
+      const expected = ALARM_BY_SENSOR[rule.sensorId];
+      if (!expected || !rule.instruments?.LSH) continue;
+      expect(rule.instruments.LSH.alarm).toBe(expected === "LSH");
+    }
+  });
+
+  it("opens with every switch silent, because the line starts empty (issue #55)", () => {
+    const sim = createSim(line);
+    for (const rule of sim.control) {
+      for (const inst of Object.values(rule.instruments ?? {})) {
+        expect(inst.signal).toBe(false);
+        expect(inst.pulseGen).toBe(0);
+      }
+    }
   });
 });

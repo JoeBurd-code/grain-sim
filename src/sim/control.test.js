@@ -889,43 +889,56 @@ describe("combineEventLogs", () => {
   });
 });
 
-// Issue #30: per-instrument (LT/LSH/LSL) live state — setpoint, tripped,
-// and the pulse-animation edge counter — derived from a rule's own fields
-// and its sensor's current level. Same fabricated-rule-state pattern as the
-// phase-machine tests above: no engine.js, no real line data, no rendering.
+// Issue #30: per-instrument (LT/LSH/LSL) live state — setpoint, signal,
+// alarm role, and the pulse-animation edge counter — derived from a rule's
+// own fields and its sensor's current level. Same fabricated-rule-state
+// pattern as the phase-machine tests above: no engine.js, no real line data,
+// no rendering.
 describe("instrumentReadings", () => {
-  it("is a pure function of rule state and level: LSH trips at-or-above its high set point", () => {
+  it("is a pure function of rule state and level: LSH signals at-or-above its high set point", () => {
     const rule = { kind: "thresholdTrip", highSetpoint: 0.85, lowSetpoint: 0.35 };
-    expect(instrumentReadings(rule, 0.5).LSH).toEqual({ setpoint: 0.85, tripped: false });
-    expect(instrumentReadings(rule, 0.85).LSH).toEqual({ setpoint: 0.85, tripped: true });
-    expect(instrumentReadings(rule, 0.9).LSH).toEqual({ setpoint: 0.85, tripped: true });
+    expect(instrumentReadings(rule, 0.5).LSH).toEqual({ setpoint: 0.85, signal: false, alarm: true });
+    expect(instrumentReadings(rule, 0.85).LSH).toEqual({ setpoint: 0.85, signal: true, alarm: true });
+    expect(instrumentReadings(rule, 0.9).LSH).toEqual({ setpoint: 0.85, signal: true, alarm: true });
   });
 
-  it("LSL trips at-or-below its low set point", () => {
+  // Issue #72: the low switch reads the same direction as the high one. It
+  // is a probe at a fixed height that signals when grain covers it, so a
+  // *stocked* bin asserts LSL and an empty one does not — the reverse of
+  // this file's original reading.
+  it("LSL signals at-or-above its low set point, the same direction as LSH", () => {
     const rule = { kind: "thresholdTrip", highSetpoint: 0.85, lowSetpoint: 0.35 };
-    expect(instrumentReadings(rule, 0.5).LSL).toEqual({ setpoint: 0.35, tripped: false });
-    expect(instrumentReadings(rule, 0.35).LSL).toEqual({ setpoint: 0.35, tripped: true });
-    expect(instrumentReadings(rule, 0.1).LSL).toEqual({ setpoint: 0.35, tripped: true });
+    expect(instrumentReadings(rule, 0.1).LSL).toEqual({ setpoint: 0.35, signal: false, alarm: false });
+    expect(instrumentReadings(rule, 0.35).LSL).toEqual({ setpoint: 0.35, signal: true, alarm: false });
+    expect(instrumentReadings(rule, 0.5).LSL).toEqual({ setpoint: 0.35, signal: true, alarm: false });
   });
 
-  it("ignores phase/fireAt entirely: a rule mid-delay still reads tripped straight off the current level", () => {
+  it("signals LSL and LSH together once the level is above both — no arbitration, the bands come from the raw level (issue #72)", () => {
+    const rule = { kind: "thresholdTrip", highSetpoint: 0.85, lowSetpoint: 0.35 };
+    const readings = instrumentReadings(rule, 0.9);
+    expect(readings.LSL.signal).toBe(true);
+    expect(readings.LSH.signal).toBe(true);
+  });
+
+  it("ignores phase/fireAt entirely: a rule mid-delay still reads its contacts straight off the current level", () => {
     const rule = { kind: "thresholdTrip", highSetpoint: 0.85, lowSetpoint: 0.35, phase: "delayedClose", fireAt: 999 };
-    expect(instrumentReadings(rule, 0.9).LSH.tripped).toBe(true);
+    expect(instrumentReadings(rule, 0.9).LSH.signal).toBe(true);
   });
 
   it("twoStageThrottle's LSH reads the stop set point, not the slow set point — the FD names LSH0 as the stop stage's switch", () => {
     const rule = { kind: "twoStageThrottle", lowSetpoint: 0.35, slowSetpoint: 0.6, stopSetpoint: 0.85 };
-    expect(instrumentReadings(rule, 0.7)).toEqual({
-      LSH: { setpoint: 0.85, tripped: false },
-      LSL: { setpoint: 0.35, tripped: false },
+    expect(instrumentReadings(rule, 0.2)).toEqual({
+      LSH: { setpoint: 0.85, signal: false, alarm: true },
+      LSL: { setpoint: 0.35, signal: false, alarm: false },
     });
-    expect(instrumentReadings(rule, 0.85).LSH.tripped).toBe(true); // stop set point crossed
+    expect(instrumentReadings(rule, 0.85).LSH.signal).toBe(true); // stop set point crossed
   });
 
   it("holdNextBatch reads highSetpoint/lowSetpoint directly, same as thresholdTrip", () => {
     const rule = { kind: "holdNextBatch", highSetpoint: 0.6, lowSetpoint: 0.2 };
-    expect(instrumentReadings(rule, 0.65).LSH.tripped).toBe(true);
-    expect(instrumentReadings(rule, 0.15).LSL.tripped).toBe(true);
+    expect(instrumentReadings(rule, 0.65).LSH.signal).toBe(true);
+    expect(instrumentReadings(rule, 0.15).LSL.signal).toBe(false);
+    expect(instrumentReadings(rule, 0.25).LSL.signal).toBe(true);
   });
 
   it("returns no entries for a rule kind with no declared instrument fields", () => {
@@ -933,12 +946,50 @@ describe("instrumentReadings", () => {
   });
 });
 
+// Issue #72: pins the colour role for every code on every rule kind. This
+// is the fragile half of the change, because the obvious "tidy-up" is to
+// derive the colour from the code's letters — which would quietly turn the
+// four machines whose LSH *is* the latched trip (treaterAfterBin,
+// flexiconPreBin, metalBin1, metalBin2) green at the exact moment they stop
+// the line. The real-line half of this guard is in engine.test.js. See
+// docs/adr/0007.
+describe("instrumentReadings alarm role", () => {
+  const ALARM_BY_KIND = [
+    ["thresholdTrip", { kind: "thresholdTrip", highSetpoint: 0.85, lowSetpoint: 0.35 }, "LSH"],
+    ["twoStageThrottle", { kind: "twoStageThrottle", lowSetpoint: 0.35, slowSetpoint: 0.6, stopSetpoint: 0.85 }, "LSH"],
+    ["holdNextBatch", { kind: "holdNextBatch", highSetpoint: 0.6, lowSetpoint: 0.2 }, "LSH"],
+    ["thresholdStopTrip", { kind: "thresholdStopTrip", highSetpoint: 0.8, lowSetpoint: 0.3 }, "LSH"],
+    ["gradedFeedSchedule", { kind: "gradedFeedSchedule", lowSetpoint: 0.35, highSetpoint: 0.85, highHighSetpoint: 0.95 }, "LSHH"],
+    ["hysteresisValve", { kind: "hysteresisValve", lowSetpoint: 0.3, highSetpoint: 0.6, highHighSetpoint: 0.9 }, "LSHH"],
+  ];
+
+  it.each(ALARM_BY_KIND)("%s marks exactly one code as the alarm: %#", (_kind, rule, alarmCode) => {
+    const readings = instrumentReadings(rule, 0.5);
+    const alarms = Object.entries(readings).filter(([, r]) => r.alarm).map(([code]) => code);
+    expect(alarms).toEqual([alarmCode]);
+  });
+
+  it("gives LSH opposite roles on the two kinds that both expose it, which is the whole point of keying on the rule kind", () => {
+    const trip = { kind: "thresholdStopTrip", highSetpoint: 0.8, lowSetpoint: 0.3 };
+    const schedule = { kind: "gradedFeedSchedule", lowSetpoint: 0.35, highSetpoint: 0.85, highHighSetpoint: 0.95 };
+    expect(instrumentReadings(trip, 0.5).LSH.alarm).toBe(true);
+    expect(instrumentReadings(schedule, 0.5).LSH.alarm).toBe(false);
+  });
+
+  it("never marks a low switch as an alarm on any kind", () => {
+    for (const [, rule] of ALARM_BY_KIND) {
+      expect(instrumentReadings(rule, 0.5).LSL.alarm).toBe(false);
+    }
+  });
+});
+
 describe("stepControl publishes rule.instruments with a one-time pulse edge", () => {
-  it("primes tripped=false and pulseGen=0 on a rule that starts below both set points", () => {
+  it("primes signal=false and pulseGen=0 on a rule whose level is below its high set point", () => {
     const sim = makeSim(0.5);
     step(sim, 0.05);
-    expect(sim.control[0].instruments.LSH).toEqual({ code: "LSH", setpoint: 0.8, tripped: false, pulseGen: 0 });
-    expect(sim.control[0].instruments.LSL).toEqual({ code: "LSL", setpoint: 0.3, tripped: false, pulseGen: 0 });
+    expect(sim.control[0].instruments.LSH).toEqual({ code: "LSH", setpoint: 0.8, signal: false, alarm: true, pulseGen: 0 });
+    // Issue #72: 0.5 is above the 0.3 low probe, so LSL is covered and signals.
+    expect(sim.control[0].instruments.LSL).toEqual({ code: "LSL", setpoint: 0.3, signal: true, alarm: false, pulseGen: 0 });
   });
 
   it("increments pulseGen exactly once on the tick the level crosses the high set point, independent of the signal delay", () => {
@@ -947,34 +998,50 @@ describe("stepControl publishes rule.instruments with a one-time pulse edge", ()
     expect(sim.control[0].instruments.LSH.pulseGen).toBe(0);
 
     sim.machines.get("bin").stored = 0.8 * 10; // presenter drags the level straight to the trip point
-    step(sim, 0.05); // LSH trips this tick; the actuator's own close is still 3s away
-    expect(sim.control[0].instruments.LSH.tripped).toBe(true);
+    step(sim, 0.05); // LSH makes this tick; the actuator's own close is still 3s away
+    expect(sim.control[0].instruments.LSH.signal).toBe(true);
     expect(sim.control[0].instruments.LSH.pulseGen).toBe(1);
     expect(sim.control[0].phase).toBe("delayedClose"); // the slow actuator path, unaffected
 
-    step(sim, 0.05, 10); // stays tripped — no second pulse while it holds
+    step(sim, 0.05, 10); // stays made — no second pulse while it holds
     expect(sim.control[0].instruments.LSH.pulseGen).toBe(1);
   });
 
-  it("un-trips (and is ready to pulse again) the instant the level recrosses back, with no memory of the delayed actuator phase", () => {
+  it("breaks (and is ready to pulse again) the instant the level recrosses back, with no memory of the delayed actuator phase", () => {
     const sim = makeSim(0.8);
-    step(sim, 0.05); // trips
-    expect(sim.control[0].instruments.LSH.tripped).toBe(true);
+    step(sim, 0.05); // makes
+    expect(sim.control[0].instruments.LSH.signal).toBe(true);
 
     sim.machines.get("bin").stored = 0.5 * 10; // recrosses before the 3s signal delay even elapses
     step(sim, 0.05);
-    expect(sim.control[0].instruments.LSH.tripped).toBe(false);
+    expect(sim.control[0].instruments.LSH.signal).toBe(false);
     expect(sim.control[0].phase).toBe("delayedClose"); // the latched actuator command still fires later
 
-    sim.machines.get("bin").stored = 0.8 * 10; // trips again
+    sim.machines.get("bin").stored = 0.8 * 10; // makes again
     step(sim, 0.05);
-    expect(sim.control[0].instruments.LSH.tripped).toBe(true);
+    expect(sim.control[0].instruments.LSH.signal).toBe(true);
     expect(sim.control[0].instruments.LSH.pulseGen).toBe(2); // second distinct trip, second pulse
+  });
+
+  // Issue #72: the ring is reserved for the code that actually stops the
+  // line. A green schedule switch lights and holds without animating, so a
+  // ring on screen means exactly one thing.
+  it("never pulses a non-alarm code, however many times it makes and breaks", () => {
+    const sim = makeSim(0.1); // below the 0.3 low probe: LSL starts silent
+    step(sim, 0.05);
+    expect(sim.control[0].instruments.LSL.signal).toBe(false);
+
+    for (const fill of [0.5, 0.1, 0.5, 0.1]) {
+      sim.machines.get("bin").stored = fill * 10;
+      step(sim, 0.05);
+    }
+    expect(sim.control[0].instruments.LSL.pulseGen).toBe(0);
+    expect(sim.control[0].instruments.LSH.pulseGen).toBe(0); // never reached 0.8 either
   });
 });
 
 describe("primeInstruments", () => {
-  it("seeds every rule's instrument state from the sensor's initial level before any tick, with no pulse even if it starts already tripped", () => {
+  it("seeds every rule's instrument state from the sensor's initial level before any tick, with no pulse even if it starts already signalling", () => {
     const capacity = 10;
     const bin = { kind: "accumulator", capacity, stored: 0.9 * capacity, initialStored: 0, spill: 0 };
     const machines = new Map([["bin", bin], ["valve", BEHAVIORS.source.init({ sim: { rateM3PerSec: 5 } })]]);
@@ -982,10 +1049,10 @@ describe("primeInstruments", () => {
 
     primeInstruments(control, machines);
 
-    expect(control[0].instruments.LSH).toEqual({ code: "LSH", setpoint: 0.8, tripped: true, pulseGen: 0 });
+    expect(control[0].instruments.LSH).toEqual({ code: "LSH", setpoint: 0.8, signal: true, alarm: true, pulseGen: 0 });
   });
 
-  it("a subsequent real step does not re-pulse a rule primed already-tripped, since nothing changed", () => {
+  it("a subsequent real step does not re-pulse a rule primed already-signalling, since nothing changed", () => {
     const capacity = 10;
     const bin = { kind: "accumulator", capacity, stored: 0.9 * capacity, initialStored: 0, spill: 0 };
     const valve = BEHAVIORS.source.init({ sim: { rateM3PerSec: 5 } });
@@ -996,7 +1063,7 @@ describe("primeInstruments", () => {
     const sim = { t: 0, machines, control };
     step(sim, 0.05);
 
-    expect(sim.control[0].instruments.LSH).toEqual({ code: "LSH", setpoint: 0.8, tripped: true, pulseGen: 0 });
+    expect(sim.control[0].instruments.LSH).toEqual({ code: "LSH", setpoint: 0.8, signal: true, alarm: true, pulseGen: 0 });
   });
 });
 
@@ -1147,11 +1214,13 @@ describe("stepControl / primeFeedSchedules (gradedFeedSchedule) — array-valued
 
 describe("stepControl (gradedFeedSchedule) — non-latching bands", () => {
   it("does nothing while the level stays in the boost band, already matching both actuators' defaults", () => {
-    const sim = makeGradedFeedScheduleSim(0.1); // below lowSetpoint (0.35): the first tick logs the LSL crossing itself, nothing else
+    // Issue #72: below lowSetpoint (0.35) the low probe is uncovered, so
+    // every switch is silent and nothing crosses. Under the old backwards
+    // reading this same start logged an LSL make on its first tick.
+    const sim = makeGradedFeedScheduleSim(0.1);
     stepSchedule(sim, 0.05, 200);
     expect(sim.control[0].phase).toBe("boost");
-    expect(sim.control[0].log).toHaveLength(1);
-    expect(sim.control[0].log[0].message).toMatch(/LSL set point reached/);
+    expect(sim.control[0].log).toHaveLength(0);
     expect(sim.machines.get("elevator").throttleTarget).toBe(1);
     expect(sim.machines.get("feeder").gateThrottleTarget).toBe(1);
   });
@@ -1324,14 +1393,17 @@ describe("resetTrips (gradedFeedSchedule) — issue #58", () => {
 });
 
 describe("instrumentReadings (gradedFeedSchedule)", () => {
-  it("reads three codes — LSL, LSH, LSHH — LSHH tripping at-or-above its own set point, distinct from LSH", () => {
+  it("reads three codes — LSL, LSH, LSHH — LSHH signalling at-or-above its own set point, distinct from LSH", () => {
     const rule = { kind: "gradedFeedSchedule", lowSetpoint: 0.35, highSetpoint: 0.85, highHighSetpoint: 0.95 };
+    // Issue #72: at 0.9 the level covers both the low and the high probe, so
+    // both signal at once. LSHH is the only alarm code here (issue #58 made
+    // it the sole latched trip and demoted LSH to a schedule boundary).
     expect(instrumentReadings(rule, 0.9)).toEqual({
-      LSL: { setpoint: 0.35, tripped: false },
-      LSH: { setpoint: 0.85, tripped: true },
-      LSHH: { setpoint: 0.95, tripped: false },
+      LSL: { setpoint: 0.35, signal: true, alarm: false },
+      LSH: { setpoint: 0.85, signal: true, alarm: false },
+      LSHH: { setpoint: 0.95, signal: false, alarm: true },
     });
-    expect(instrumentReadings(rule, 0.95).LSHH.tripped).toBe(true);
+    expect(instrumentReadings(rule, 0.95).LSHH.signal).toBe(true);
   });
 });
 
@@ -1441,11 +1513,12 @@ describe("initControl (hysteresisValve)", () => {
 
 describe("stepControl (hysteresisValve) — live LSH/LSL hysteresis", () => {
   it("does nothing while the level stays below the high set point", () => {
-    const sim = makeHysteresisSim(0.1); // below lowSetpoint (0.3): the first tick logs the LSL crossing itself, nothing else
+    // Issue #72: below lowSetpoint (0.3) every switch is silent, so nothing
+    // crosses and nothing is logged.
+    const sim = makeHysteresisSim(0.1);
     stepHysteresis(sim, 0.05, 200);
     expect(sim.control[0].phase).toBe("open");
-    expect(sim.control[0].log).toHaveLength(1);
-    expect(sim.control[0].log[0].message).toMatch(/LSL set point reached/);
+    expect(sim.control[0].log).toHaveLength(0);
     expect(sim.machines.get("valve").openness).toBe(1);
   });
 
@@ -1578,14 +1651,14 @@ describe("resetTrips (hysteresisValve)", () => {
 });
 
 describe("instrumentReadings (hysteresisValve)", () => {
-  it("reads three codes — LSL, LSH, LSHH — LSHH tripping at-or-above its own set point, distinct from LSH", () => {
+  it("reads three codes — LSL, LSH, LSHH — LSHH signalling at-or-above its own set point, distinct from LSH", () => {
     const rule = { kind: "hysteresisValve", lowSetpoint: 0.3, highSetpoint: 0.6, highHighSetpoint: 0.9 };
     expect(instrumentReadings(rule, 0.7)).toEqual({
-      LSL: { setpoint: 0.3, tripped: false },
-      LSH: { setpoint: 0.6, tripped: true },
-      LSHH: { setpoint: 0.9, tripped: false },
+      LSL: { setpoint: 0.3, signal: true, alarm: false },
+      LSH: { setpoint: 0.6, signal: true, alarm: false },
+      LSHH: { setpoint: 0.9, signal: false, alarm: true },
     });
-    expect(instrumentReadings(rule, 0.9).LSHH.tripped).toBe(true);
+    expect(instrumentReadings(rule, 0.9).LSHH.signal).toBe(true);
   });
 });
 

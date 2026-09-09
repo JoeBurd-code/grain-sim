@@ -50,10 +50,10 @@ function resolveActuator(rule, sim) {
 }
 
 // Issue #30: which of a rule's live setpoint fields backs each ISA
-// instrument code it exposes. Direction (does the switch trip on a high
-// level or a low one) is read off the code itself below, not off the rule
-// kind, so this table only needs to say which field holds which code's
-// setpoint. twoStageThrottle's `slowSetpoint` has no entry: the FD's own
+// instrument code it exposes. Every code reads the same direction (issue
+// #72 — see instrumentReadings below), so this table only needs to say
+// which field holds which code's set point. twoStageThrottle's
+// `slowSetpoint` has no entry: the FD's own
 // cause-and-effect matrix names LSH0 as the stop stage's switch — the slow
 // stage is an engineer-described addition with no physical instrument tag of
 // its own (issue #22; superseded on the real line by gradedFeedSchedule,
@@ -75,18 +75,57 @@ const INSTRUMENT_FIELDS = {
   hysteresisValve: { LSL: "lowSetpoint", LSH: "highSetpoint", LSHH: "highHighSetpoint" },
 };
 
-// Pure: which of a rule's instruments are tripped right now, given the
+// Issue #72: which one of a rule's codes is its *latched trip* — the switch
+// whose signal actually stops something and needs a SCADA reset. Everything
+// else a rule exposes is live schedule or hysteresis, information rather
+// than alarm, exactly the way the FD classifies the buffer bin's own LSL0
+// ("Information" alarm class, in no interlock and no trip table —
+// docs/PLC_FUNCTIONAL_DESCRIPTION.md §"There is no automatic reopen").
+//
+// This is deliberately keyed on the rule *kind*, not on the code's letters,
+// and that is the whole point: LSH means two different things on this line.
+// On the three vessels that carry an LSHH (issue #58) LSH was demoted to a
+// feed-schedule boundary and LSHH became the sole trip, so LSH there is
+// information. On treaterAfterBin, flexiconPreBin and the two metal bins
+// there is no LSHH at all and LSH *is* the latched trip. Colouring by the
+// letters would leave those four machines with no alarm indication at all
+// at the exact moment they stop the line. See docs/adr/0007.
+const ALARM_CODE = {
+  thresholdTrip: "LSH",
+  twoStageThrottle: "LSH",
+  holdNextBatch: "LSH",
+  thresholdStopTrip: "LSH",
+  gradedFeedSchedule: "LSHH",
+  hysteresisValve: "LSHH",
+};
+
+// Pure: which of a rule's instruments are signalling right now, given the
 // sensor's current level. No memory of past state — a live setpoint or
 // level change (e.g. a presenter's levelJump drag) is reflected the instant
 // it's read, independent of `phase`/`fireAt`, which govern only the
 // downstream actuator's delayed response.
+//
+// Issue #72: `signal` is the switch's contact, not "something is wrong". A
+// level switch is a physical probe at a fixed height. It signals when grain
+// covers it and falls silent when grain leaves it, and that is true whether
+// it is mounted low or high in the vessel — so every code reads the one
+// direction, `level >= setpoint`. This file used to read LSL backwards
+// (`level <= setpoint`), which made a *dry* bin assert its low switch. The
+// consequence of the fix is that a stocked bin now signals LSL and LSH at
+// once, which is correct and needs no arbitration: nothing downstream reads
+// these flags, and the feed bands come from bandForLevel's own ordered
+// comparison of the raw level (see gradedFeedSchedule below).
+//
+// `alarm` says whether this code is the rule's latched trip (ALARM_CODE
+// above). It is carried on the reading rather than recomputed by the render
+// layer because only this layer knows the rule kind. See docs/adr/0007.
 export function instrumentReadings(rule, level) {
   const fields = INSTRUMENT_FIELDS[rule.kind] ?? {};
+  const alarmCode = ALARM_CODE[rule.kind];
   const readings = {};
   for (const [code, field] of Object.entries(fields)) {
     const setpoint = rule[field];
-    const tripped = code.startsWith("LSH") ? level >= setpoint : level <= setpoint;
-    readings[code] = { setpoint, tripped };
+    readings[code] = { setpoint, signal: level >= setpoint, alarm: code === alarmCode };
   }
   return readings;
 }
@@ -95,12 +134,12 @@ export function instrumentReadings(rule, level) {
 // stamping a `pulseGen` counter that increments on every false->true edge —
 // the one-time trip-pulse animation's cue, kept here rather than recomputed
 // by the render layer, since only this layer knows the *previous* tick's
-// tripped state. Tolerates `rule.instruments` not existing yet (a rule's
+// signal state. Tolerates `rule.instruments` not existing yet (a rule's
 // very first call, whether from initial priming or a fabricated test that
-// never primes) by treating every code as previously untripped.
+// never primes) by treating every code as previously silent.
 //
-// Issue #41: that same false->true edge is also the one true moment an
-// LSH/LSL "set point reached" event log entry belongs — logged here,
+// Issue #41: that crossing is also the one true moment an LSH/LSL event log
+// entry belongs — logged here,
 // centrally, once per crossing, independent of `rule.phase`. Before this,
 // each phase machine below logged its own "set point reached" string from
 // inside exactly one phase-gated branch (e.g. thresholdTrip's LSL only from
@@ -118,11 +157,24 @@ function stepRuleInstruments(rule, level, sim) {
   const next = {};
   for (const [code, reading] of Object.entries(instrumentReadings(rule, level))) {
     const prev = prevAll[code];
-    const justTripped = reading.tripped && !prev?.tripped;
-    const pulseGen = justTripped ? (prev?.pulseGen ?? 0) + 1 : (prev?.pulseGen ?? 0);
+    const rose = reading.signal && !prev?.signal;
+    const fell = !reading.signal && prev?.signal === true;
+    // Issue #72: only an alarm code's own make is worth animating. Green
+    // schedule switches light and hold; the expanding ring is reserved for
+    // the one event that stops the line, so a ring on screen means exactly
+    // one thing. (`fell` never pulses: a trip clearing is not a fresh trip.)
+    const pulseGen = rose && reading.alarm ? (prev?.pulseGen ?? 0) + 1 : (prev?.pulseGen ?? 0);
     next[code] = { code, ...reading, pulseGen };
-    if (justTripped) {
-      logEvent(rule, sim.t, `${code} set point reached at ${pct(level)} (setpoint ${pct(reading.setpoint)})`);
+    // Issue #72: each switch logs the one edge that is news, so the log
+    // keeps exactly the volume and timing it had before the polarity fix.
+    // A high switch is news when it makes (the bin has filled to it); a low
+    // switch is news when it breaks (the bin has drained past it). Under the
+    // old backwards reading, LSL's *make* was that same falling crossing, so
+    // this is the same entry on the same tick, reworded from "set point
+    // reached" to the contact state it now describes.
+    const logged = code.startsWith("LSH") ? rose : fell;
+    if (logged) {
+      logEvent(rule, sim.t, `${code} ${reading.signal ? "ON" : "OFF"} at ${pct(level)} (setpoint ${pct(reading.setpoint)})`);
     }
   }
   rule.instruments = next;
@@ -130,7 +182,7 @@ function stepRuleInstruments(rule, level, sim) {
 
 // Seeds every rule's instrument state right after createSim builds `control`,
 // so the very first published snapshot (before the sim has ever ticked)
-// already shows correct setpoint/tripped values instead of nothing — the
+// already shows correct setpoint/signal values instead of nothing — the
 // same reasoning as this file's own phase machines starting in a real,
 // non-empty phase rather than an "uninitialized" one. Unlike stepRuleInstruments,
 // this never stamps a pulse: starting the demo already past a set point is
@@ -351,7 +403,10 @@ function stepHysteresisValve(rule, sim) {
     if (targetBand !== rule.phase) {
       rule.phase = targetBand === "closed" ? "armingClose" : "armingOpen";
       rule.fireAt = sim.t + rule.signalDelaySec;
-      logEvent(rule, sim.t, `${targetBand === "closed" ? "LSH" : "LSL"} set point reached at ${pct(level)} — valve ${targetBand === "closed" ? "close" : "reopen"} armed`);
+      // Issue #72: worded as the contact state that armed this, matching
+      // stepRuleInstruments' own ON/OFF log for the same crossing — the
+      // close arms on LSH making, the reopen on LSL breaking.
+      logEvent(rule, sim.t, `${targetBand === "closed" ? "LSH ON" : "LSL OFF"} at ${pct(level)} — valve ${targetBand === "closed" ? "close" : "reopen"} armed`);
     }
     return;
   }

@@ -45,42 +45,53 @@ export function MachineLabel({ machine: m }) {
 }
 
 // `value` is the digits shown under the code (LT: live measured level; LSH/
-// LSL: their configured trip set point — a real limit switch is labelled by
-// where it trips, not by a live reading). `tripped` fills the dot solid red
-// and never applies to LT (issue #30 acceptance: the LT dot never shows a
-// lit state). `pulseGen` is the rule's own edge counter (control.js's
-// stepRuleInstruments) — keying the pulse ring on it makes the one-time
-// animation replay exactly once per fresh trip, not on every re-render
-// while a trip merely holds.
-export function InstrumentDot({ x, y, code, leaderFrom, value = "–", tripped = false, pulseGen = 0 }) {
+// LSL: their configured set point — a real limit switch is labelled by the
+// height it sits at, not by a live reading). `signal` means the switch
+// senses grain (control.js's instrumentReadings, issue #72) and fills the
+// dot solid; it never applies to LT (issue #30 acceptance: the LT dot never
+// shows a lit state).
+//
+// `alarm` picks which solid: red for the code that is its machine's latched
+// trip, green for every other switch. Colour tracks consequence rather than
+// the code's letters, which is why the same LSH is green on a vessel where
+// it only schedules feed and red on one where it stops the line — see
+// docs/adr/0007 and control.js's own ALARM_CODE table. `pulseGen` is the
+// rule's own edge counter and only ever advances for an alarm code, so the
+// expanding ring stays reserved for a fresh trip: it never fires on a green
+// switch, and it does not replay on re-renders while a trip merely holds.
+export function InstrumentDot({ x, y, code, leaderFrom, value = "–", signal = false, alarm = false, pulseGen = 0 }) {
+  const lit = signal ? (alarm ? C.red : C.green) : null;
   return (
     <g>
       {leaderFrom && <line x1={leaderFrom.x} y1={leaderFrom.y} x2={x - 9} y2={y} stroke={C.muted} strokeWidth="1" />}
-      {tripped && pulseGen > 0 && (
-        <circle key={pulseGen} className="instrument-pulse" cx={x} cy={y} r="9" fill="none" stroke={C.red} strokeWidth="1.5" />
+      {lit && alarm && pulseGen > 0 && (
+        <circle key={pulseGen} className="instrument-pulse" cx={x} cy={y} r="9" fill="none" stroke={lit} strokeWidth="1.5" />
       )}
-      <circle cx={x} cy={y} r="9" fill={tripped ? C.red : C.bg} stroke={tripped ? C.red : C.muted} />
-      <text x={x} y={y - 1} fontFamily={FONT_MONO} fontSize="6.5" fill={tripped ? C.bg : C.muted} textAnchor="middle">{code}</text>
-      <text x={x} y={y + 6} fontFamily={FONT_MONO} fontSize="6" fill={tripped ? C.bg : C.muted} textAnchor="middle">{value}</text>
+      <circle cx={x} cy={y} r="9" fill={lit ?? C.bg} stroke={lit ?? C.muted} />
+      <text x={x} y={y - 1} fontFamily={FONT_MONO} fontSize="6.5" fill={lit ? C.bg : C.muted} textAnchor="middle">{code}</text>
+      <text x={x} y={y + 6} fontFamily={FONT_MONO} fontSize="6" fill={lit ? C.bg : C.muted} textAnchor="middle">{value}</text>
     </g>
   );
 }
 
-// Reads one instrument code's live display value + trip state off a
+// Reads one instrument code's live display value + contact state off a
 // machine's resolved `dynamic` snapshot. LT reads the sensor's own live
 // fill (already published by every level-bearing behaviour's snapshot());
 // LSH/LSL read their rule's per-instrument state (control.js's
 // stepRuleInstruments, published on the sensor's snapshot keyed by code —
 // see useSimEngine.js's publishSnap). A code with no live data yet (the
 // sim hasn't primed, or this machine has no interlock at all) falls back to
-// the muted placeholder rather than fabricating a value.
+// the muted placeholder rather than fabricating a value. Three machines sit
+// permanently in that last case on purpose — scalpingDischargeHopper,
+// pendulumConveyor and outloadBufferBin declare dots the FD puts in no
+// interlock and no trip table, so nothing drives them (docs/OPEN_QUESTIONS.md).
 function readInstrument(code, dynamic) {
   if (code === "LT") {
-    return dynamic?.fill != null ? { value: Math.round(dynamic.fill * 100), tripped: false, pulseGen: 0 } : {};
+    return dynamic?.fill != null ? { value: Math.round(dynamic.fill * 100), signal: false, pulseGen: 0 } : {};
   }
   const inst = dynamic?.instruments?.[code];
   if (!inst) return {};
-  return { value: Math.round(inst.setpoint * 100), tripped: inst.tripped, pulseGen: inst.pulseGen };
+  return { value: Math.round(inst.setpoint * 100), signal: inst.signal, alarm: inst.alarm, pulseGen: inst.pulseGen };
 }
 
 // Stacked ISA dots beside a machine for whatever instruments its data declares.
