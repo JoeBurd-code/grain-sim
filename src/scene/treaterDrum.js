@@ -59,7 +59,7 @@ const FAR_SIDE_EPS = 0.03;
 // line. That does mean the drum aliases at 20x, the usual wagon-wheel
 // effect; the alternative — a real-time rate — would have this one machine
 // keep turning at full tilt while a paused line stood still, which is worse.
-export const TREATER_DRUM_DEG_PER_SEC = 200;
+export const TREATER_DRUM_DEG_PER_SEC = 67;
 
 // Scales the design drawing onto the authored footprint.
 export function treaterGeometry(w = DESIGN.w, h = DESIGN.h) {
@@ -145,13 +145,15 @@ export function drumProngs(g, deg, count = DRUM_PRONG_COUNT) {
 // Spin rate for useMachineMotion. The drum turns whenever the machine is
 // genuinely live. A utilities trip ("stopped") and a machine held off by the
 // after-bin interlock ("waiting") both stand still, and so does a treater
-// that has never completed a batch — at boot, or straight after a RESTART,
-// the whole chain has to prime from empty and a drum spinning on nothing
-// would claim the line was running before any seed reached it. That last
-// gate is the same `firstMixingAt` latch the drawn batch is phased off
-// (litState.js), so the two can never disagree.
-export function treaterDrumDegPerSec(phase, firstMixingAt) {
-  if (firstMixingAt == null) return 0;
+// holding nothing — at boot, or straight after a RESTART, the whole chain
+// primes from empty and a drum spinning on an empty vessel would claim the
+// line was running before any seed reached it. `heldFill` is the real
+// published `fill`; the phase alone cannot tell idle-at-boot from mid-charge
+// (both read "charging"), which is the lesson issue #66 left behind. Gated
+// on exactly the same pair as the drawn batch (litState.js's treaterBatch),
+// so a still drum and an empty drum can never disagree.
+export function treaterDrumDegPerSec(phase, heldFill) {
+  if (!(heldFill > 0)) return 0;
   const live = phase === "charging" || phase === "holding" || phase === "discharging";
   return live ? TREATER_DRUM_DEG_PER_SEC : 0;
 }

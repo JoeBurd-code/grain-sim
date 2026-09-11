@@ -168,22 +168,31 @@ describe("drumProngs", () => {
 });
 
 describe("treaterDrumDegPerSec", () => {
-  it("turns while the machine is genuinely live", () => {
+  it("turns while the machine is genuinely live and holding a charge", () => {
     for (const phase of ["charging", "holding", "discharging"]) {
-      expect(treaterDrumDegPerSec(phase, 100)).toBe(TREATER_DRUM_DEG_PER_SEC);
+      expect(treaterDrumDegPerSec(phase, 1)).toBe(TREATER_DRUM_DEG_PER_SEC);
     }
   });
 
   it("stands still when tripped or held off", () => {
-    expect(treaterDrumDegPerSec("stopped", 100)).toBe(0);
-    expect(treaterDrumDegPerSec("waiting", 100)).toBe(0);
+    expect(treaterDrumDegPerSec("stopped", 1)).toBe(0);
+    expect(treaterDrumDegPerSec("waiting", 1)).toBe(0);
   });
 
-  it("stands still until the line has primed and a real batch has completed", () => {
-    // At boot and right after a RESTART the whole chain fills from empty; a
-    // drum spinning on nothing would claim the line was running.
+  it("stands still on an empty vessel, whatever the phase says", () => {
+    // At boot and right after a RESTART the whole chain fills from empty and
+    // the phase reads "charging" throughout; a drum spinning on nothing would
+    // claim the line was running before any seed reached it.
     for (const phase of ["charging", "holding", "discharging"]) {
-      expect(treaterDrumDegPerSec(phase, null)).toBe(0);
+      expect(treaterDrumDegPerSec(phase, 0)).toBe(0);
+      expect(treaterDrumDegPerSec(phase, undefined)).toBe(0);
     }
+  });
+
+  it("is slow enough to read as a turning drum rather than a blur", () => {
+    // Reduced from 200 deg/s on review - that was about a revolution every
+    // 1.8 s, which read as spinning rather than turning.
+    expect(TREATER_DRUM_DEG_PER_SEC).toBeLessThanOrEqual(70);
+    expect(360 / TREATER_DRUM_DEG_PER_SEC).toBeGreaterThan(4);   // seconds per revolution
   });
 });

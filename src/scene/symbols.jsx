@@ -2,11 +2,11 @@
 // flat fills, hairline strokes, fill level clipped inside the silhouette and
 // coloured by ratioColor, no gradients. Every symbol draws in local coords;
 // the Scene positions it at the machine's world (x, y).
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { C, FONT_DISP, FONT_MONO, mixColor, ratioColor } from "./theme";
 import { labelPlacement } from "./labelLayout";
 import { elevatorChain, ductBodyPaths, outletPathFraction, chainSceneSpeed, computeElevatorBuckets, carryBucketLoads, bucketGeneration, BUCKET_SPACING, BUCKET_EMPTY_THRESHOLD } from "./elevatorMotion";
-import { nextTreaterAnchor, treaterBatch, vibratoryFlowing } from "./litState";
+import { treaterBatch, vibratoryFlowing } from "./litState";
 import { treaterGeometry, drumRibs, drumProngs, drumFillY, treaterDrumDegPerSec, DRUM_RIB_COUNT, DRUM_PRONG_COUNT } from "./treaterDrum";
 import { drumSpinDegPerSec, drumGateFraction } from "./drumFeederMotion";
 import { diverterFlapperPoint, diverterSwingPoint } from "./diverterMotion";
@@ -610,9 +610,10 @@ export function ScreenSymbol({ machine: m, dynamic }) {
 //   1. The batch itself. The drum visibly fills with seed, the charge shifts
 //      from C.wheat toward C.treated as chemical goes onto it, then runs out
 //      of the chute and the drum starts filling again. An off machine is
-//      simply an empty one. The cadence is faked off the sim clock and the
-//      reasons are all in litState.js's treaterBatch; the empty/not-empty
-//      part is read off the real published phase and is not faked.
+//      simply an empty one. The charge is laid out over the engine's OWN
+//      batch clock (`elapsedSec`), so the drum finishes emptying exactly as
+//      the after-bin steps up and starts filling exactly as the pre-bin
+//      steps down — see litState.js's treaterBatch.
 //   2. The drum turning. Ribs and agitator prongs are re-placed every frame
 //      on the drum's own projection (treaterDrum.js), which is what makes a
 //      flat shape read as a rotating cylinder. That goes through
@@ -628,34 +629,26 @@ export function ScreenSymbol({ machine: m, dynamic }) {
 // The structure below is declarative (it only changes when the line data
 // does); the per-frame rib and prong attributes are mutated imperatively
 // through refs, per the locked architecture — same split as ElevatorBuckets.
-export function TreaterSymbol({ machine: m, dynamic, motion, simTime }) {
+export function TreaterSymbol({ machine: m, dynamic, motion }) {
   const { w, h } = m;
   const g = treaterGeometry(w, h);
   const phase = dynamic?.phase;
-  const now = simTime ?? 0;
-  const [anchor, setAnchor] = useState(null);
+  const heldFill = dynamic?.fill;
   const ribsRef = useRef(null);
   const prongsRef = useRef(null);
 
-  // "Adjust state during rendering" (React's own pattern, not an effect):
-  // nextTreaterAnchor is a one-time-per-batch latch, and treaterBatch below
-  // needs this render's own fresh anchor immediately — an effect would only
-  // apply it starting the *next* render, one throttled publish (~100ms)
-  // late on every transition. Safe here (unlike a spread-object version of
-  // this pattern shipped and reverted earlier in this same file's history)
-  // because the anchor is a bare primitive (a number, or null): `!==`
-  // compares by value, so a no-op call can never be mistaken for a change
-  // the way a fresh `{ ...state }` copy was.
-  const nextAnchor = nextTreaterAnchor(phase, anchor, now);
-  if (nextAnchor !== anchor) setAnchor(nextAnchor);
-
-  const batch = treaterBatch(phase, dynamic?.cycleSec, nextAnchor, now);
+  // Everything this symbol needs is published: the engine's own batch clock
+  // phases the drawn charge, so there is no local latch and no
+  // adjust-state-during-render any more. That pattern was here to hold the
+  // sim-time of the first batch ever observed, and it is simply not needed
+  // once the real cycle position is on the snapshot.
+  const batch = treaterBatch(phase, dynamic?.elapsedSec, dynamic?.cycleSec, heldFill);
 
   // Runs every render (no deps), same as DrumFeederSymbol above: keeps the
   // registered rate current on every publish tick without re-registering the
   // frame callback below.
   useLayoutEffect(() => {
-    motion.setRate(m.id, treaterDrumDegPerSec(phase, nextAnchor));
+    motion.setRate(m.id, treaterDrumDegPerSec(phase, heldFill));
   });
 
   useLayoutEffect(() => {

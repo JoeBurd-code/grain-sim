@@ -965,6 +965,14 @@ function snapshotBatchCycle(state) {
     // readBinds use for the source and metered feeder.
     chargeM3: state.chargeM3,
     cycleSec: state.cycleSec,
+    // How far through the current hold this batch is. Published so the scene
+    // can phase the treater's drawn charge against the REAL batch boundary
+    // rather than against a clock of its own: this resets to 0 on the same
+    // tick the pre-bin hands over a charge, and reaches cycleSec on the tick
+    // the after-bin receives one, so anything driven off it stays in step
+    // with both neighbours' own levels. Nothing in the sim reads it back —
+    // it is a display value, like `fill`.
+    elapsedSec: state.elapsedSec,
   };
 }
 // Commands the hold-next-batch gate (issue #25). The control layer is the
