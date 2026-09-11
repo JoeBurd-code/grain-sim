@@ -409,14 +409,18 @@ export const line = {
       tag: "52.601.V00",
       status: "new",
       zone: "treating",
-      // Sits on the straight run the after-bin's outlet already took down
-      // into the scalping screen, rather than displacing either machine:
-      // both anchors stay where they were and the one connection becomes
-      // two short ones through this node.
-      x: 580, y: 647, w: 40, h: 26,
+      // Bolted flush to the underside of the after-bin, where the real one
+      // is: its `in` anchor is the same world point as the bin's own `out`
+      // (550, 640), so the coupling between them has no length and nothing
+      // is drawn for it (see the `coupling` connection below). The single
+      // product arrow in this part of the line leaves the valve, not the
+      // bin — one outlet, one arrow, which is also how the drawing reads.
+      x: 530, y: 640, w: 40, h: 18,
       ports: { inputs: ["in"], outputs: ["out"] },
-      anchors: { in: { x: 20, y: 0 }, out: { x: 20, y: 26 } },
-      label: { side: "right", align: "center" },
+      anchors: { in: { x: 20, y: 0 }, out: { x: 20, y: 18 } },
+      // Left, stacking under the after-bin's own label rather than running
+      // right across the scalping screen below it.
+      label: { side: "left", align: "center" },
       // Issue #73. A real, FD-named device this model never had: the start
       // sequence opens it at step 12 and the cause-and-effect matrix already
       // gives it an interlock of its own ("Scalping screen high
@@ -1387,10 +1391,14 @@ export const line = {
     { from: { machine: "treaterPreBin", port: "out" }, to: { machine: "batchTreater", port: "in" }, kind: "product" },
     { from: { machine: "batchTreater", port: "out" }, to: { machine: "treaterAfterBin", port: "in" }, kind: "product" },
     // Issue #73: the after-bin's outlet now passes through its own valve
-    // (52.601.V00) on the way into the screen, rather than dropping
-    // straight in — two short runs along exactly the line the single one
-    // used to take.
-    { from: { machine: "treaterAfterBin", port: "out" }, to: { machine: "afterBinOutletValve", port: "in" }, kind: "product" },
+    // (52.601.V00) on the way into the screen. `coupling` marks the first
+    // of these two as a physical bolted joint rather than a run of ducting:
+    // the valve hangs off the bin's own outlet with no distance between
+    // them, so the scene draws nothing for it and the product arrow into
+    // the screen stays the single arrow it was before the valve existed.
+    // The graph edge is real either way — the sim, the stop order and the
+    // reachability check all see it exactly like any other connection.
+    { from: { machine: "treaterAfterBin", port: "out" }, to: { machine: "afterBinOutletValve", port: "in" }, kind: "product", coupling: true },
     { from: { machine: "afterBinOutletValve", port: "out" }, to: { machine: "scalpingScreen", port: "in" }, kind: "product" },
     // Now a right-angle chute off the screen's left-hand corner rather than
     // the long shallow diagonal it used to cut across the gap: drop clear of

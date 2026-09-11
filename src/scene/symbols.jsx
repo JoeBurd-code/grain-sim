@@ -588,15 +588,11 @@ export function ValveSymbol({ machine: m, dynamic }) {
   const { w, h } = m;
   const openness = dynamic.openness ?? 1;
   const boreX = 6, boreW = w - 12;
-  const boreY = h / 2 - 5, boreH = 10;
+  const boreH = Math.min(10, h - 8), boreY = (h - boreH) / 2;
   const leafW = ((1 - openness) / 2) * boreW;
   return (
     <g>
       <rect className="body" width={w} height={h} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
-      {/* the two flanges either side of the body, so it reads as a fitting
-          in the run rather than another small bin */}
-      <rect x={0} y={h / 2 - 9} width={3} height={18} fill={C.muted} />
-      <rect x={w - 3} y={h / 2 - 9} width={3} height={18} fill={C.muted} />
       <rect x={boreX} y={boreY} width={boreW} height={boreH} fill={C.bg} stroke={C.muted} strokeWidth="1" />
       {leafW > 0 && <rect x={boreX} y={boreY} width={leafW.toFixed(1)} height={boreH} fill={C.muted} />}
       {leafW > 0 && <rect x={(boreX + boreW - leafW).toFixed(1)} y={boreY} width={leafW.toFixed(1)} height={boreH} fill={C.muted} />}

@@ -117,6 +117,16 @@ export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelec
 
       {/* connections under the machines */}
       {line.connections.map((c, i) => {
+        // Issue #73: a `coupling` is a physical bolted joint between two
+        // machines that touch — the after-bin and the valve hanging off its
+        // outlet — not a run of ducting. Its endpoints are the same world
+        // point, so there is no path to draw and no direction for an arrow
+        // head to take; drawing one would put a second arrow head on top of
+        // the first. The graph edge itself is untouched and fully real: only
+        // this render skips it. `flowPathRef` is keyed by connection index
+        // (useFlowAnimation) so skipping one leaves every other index
+        // exactly where it was.
+        if (c.coupling) return null;
         const dim = c.tbc || c.inactive;
         const s = STREAM_STYLE[c.kind];
         const d = connectionPath(line, c);
