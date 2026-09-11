@@ -308,13 +308,26 @@ export const line = {
       tag: "52.508.T00",
       status: "new",
       zone: "treating",
-      x: 570, y: 420, w: 130, h: 110,
+      // Footprint follows the symbol rather than the other way round: the
+      // drum-on-a-plinth silhouette (treaterDrum.js) is 132 wide against the
+      // old 130, and `x` moves 10 left so the drum's own centreline still
+      // sits under the pre-bin's outlet. Height is unchanged, so nothing
+      // below this machine shifts except the after-bin, which moves to meet
+      // the discharge chute (see its own comment).
+      x: 560, y: 420, w: 132, h: 110,
+      // `chemIn` and `wasteOut` stay declared. Both are real — liquid
+      // chemical from the Dosing Stations (52-15) and waste water to an IBC,
+      // REAL_LINE_SPECS.md §5 — and both are out of demo scope, so neither
+      // has ever had a connection routed to it and neither draws anything.
+      // Keeping the ports keeps the plant truth in the data; their anchors
+      // are updated to real points on the new silhouette so a future
+      // connection lands somewhere sensible rather than in mid-air.
       ports: { inputs: ["in", "chemIn"], outputs: ["out", "wasteOut"] },
       anchors: {
-        in: { x: 65, y: 0 },
-        chemIn: { x: 130, y: 40 },
-        out: { x: 30, y: 110 },
-        wasteOut: { x: 100, y: 110 },
+        in: { x: 75, y: 0 },        // the lip of the open top - there is no inlet fitting
+        chemIn: { x: 132, y: 30 },  // right face, at drum height
+        out: { x: 0, y: 98 },       // mouth of the discharge chute, left face of the plinth
+        wasteOut: { x: 100, y: 110 }, // underside of the plinth
       },
       label: { side: "right", align: "center" },
       // Confirmed 2026-06-30: 160 kg per charge, held as a single unsplit
@@ -353,7 +366,12 @@ export const line = {
       tag: "52.601.H00",
       status: "new",
       zone: "treating",
-      x: 540, y: 560, w: 80, h: 80,
+      // Moved 30 left (was x: 540) to meet the treater's discharge chute,
+      // which now leaves the LEFT face of the treater's plinth at world
+      // x=560 instead of dropping out of its underside. Without the move the
+      // run from a left-facing chute doubled back to the right, which reads
+      // as the seed going the wrong way out of the machine.
+      x: 510, y: 560, w: 80, h: 80,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 80 } },
       fill: 0,

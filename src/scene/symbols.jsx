@@ -3,10 +3,11 @@
 // coloured by ratioColor, no gradients. Every symbol draws in local coords;
 // the Scene positions it at the machine's world (x, y).
 import { useLayoutEffect, useRef, useState } from "react";
-import { C, FONT_DISP, FONT_MONO, ratioColor } from "./theme";
+import { C, FONT_DISP, FONT_MONO, mixColor, ratioColor } from "./theme";
 import { labelPlacement } from "./labelLayout";
 import { elevatorChain, ductBodyPaths, outletPathFraction, chainSceneSpeed, computeElevatorBuckets, carryBucketLoads, bucketGeneration, BUCKET_SPACING, BUCKET_EMPTY_THRESHOLD } from "./elevatorMotion";
-import { nextTreaterAnchor, treaterLit, vibratoryFlowing } from "./litState";
+import { nextTreaterAnchor, treaterBatch, vibratoryFlowing } from "./litState";
+import { treaterGeometry, drumRibs, drumProngs, drumFillY, treaterDrumDegPerSec, DRUM_RIB_COUNT, DRUM_PRONG_COUNT } from "./treaterDrum";
 import { drumSpinDegPerSec, drumGateFraction } from "./drumFeederMotion";
 import { diverterFlapperPoint, diverterSwingPoint } from "./diverterMotion";
 
@@ -598,33 +599,46 @@ export function ScreenSymbol({ machine: m, dynamic }) {
   );
 }
 
-// Batch treater: vessel with top motor and agitator paddles. Lit only
-// (issue #66, revised twice after review — no rotation, and no longer a
-// real debounce): the working element — agitator shaft and paddle X, not
-// the vessel housing — picks up a wheat tint on a faked periodic pulse
-// (treaterLit, litState.js), not by tracking `batchCycle`'s real phase
-// transitions directly. Why: useSimEngine.js only publishes a snapshot
-// every 100ms of real time, but a well-stocked pre-bin's charge draw is
-// atomic — the real "charging" tick between batches lasts a single 0.05s
-// sim step and essentially never lands on a publish, so `dynamic.phase` in
-// the running app never actually reads anything but "holding" once the
-// first batch completes. There is no real transition left to observe, so
-// this fakes one instead — signed off by the user after seeing the
-// (correct, but visibly useless) real-transition version always read as
-// on. `simTime` (Scene.jsx, ultimately `snap.t`) is what phases the fake
-// pulse: sim time rather than useMachineMotion's rAF clock, so this
-// freezes on pause and scales with the speed multiplier for free, and
-// (being a plain state indicator, not motion) keeps updating under
-// prefers-reduced-motion rather than incorrectly freezing under it.
-export function TreaterSymbol({ machine: m, dynamic, simTime }) {
+// Batch treater: a vertical drum that turns like a top-loading washing
+// machine, standing on a rectangular plinth, fed through its own open top and
+// discharging out of a chute on the left face of that plinth. Replaces the
+// rounded box with an agitator cross that stood here from issue #66.
+//
+// Two things carry "is it running", and NEITHER of them is a tint — the
+// machine is never recoloured to mean on:
+//
+//   1. The batch itself. The drum visibly fills with seed, the charge shifts
+//      from C.wheat toward C.treated as chemical goes onto it, then runs out
+//      of the chute and the drum starts filling again. An off machine is
+//      simply an empty one. The cadence is faked off the sim clock and the
+//      reasons are all in litState.js's treaterBatch; the empty/not-empty
+//      part is read off the real published phase and is not faked.
+//   2. The drum turning. Ribs and agitator prongs are re-placed every frame
+//      on the drum's own projection (treaterDrum.js), which is what makes a
+//      flat shape read as a rotating cylinder. That goes through
+//      useMachineMotion like the elevator chain and the drum feeder, so it
+//      freezes on pause and under prefers-reduced-motion — correct for
+//      motion, where freezing the batch level would not be.
+//
+// Both marks are drawn in C.steel in every state. That one colour is lighter
+// than the panel behind an empty drum and much darker than the seed filling a
+// full one, so it stays visible right through the cycle; a near-black or
+// near-wheat groove disappears at one end of it or the other.
+//
+// The structure below is declarative (it only changes when the line data
+// does); the per-frame rib and prong attributes are mutated imperatively
+// through refs, per the locked architecture — same split as ElevatorBuckets.
+export function TreaterSymbol({ machine: m, dynamic, motion, simTime }) {
   const { w, h } = m;
-  const cx = w / 2;
+  const g = treaterGeometry(w, h);
   const phase = dynamic?.phase;
   const now = simTime ?? 0;
   const [anchor, setAnchor] = useState(null);
+  const ribsRef = useRef(null);
+  const prongsRef = useRef(null);
 
   // "Adjust state during rendering" (React's own pattern, not an effect):
-  // nextTreaterAnchor is a one-time-per-batch latch, and treaterLit below
+  // nextTreaterAnchor is a one-time-per-batch latch, and treaterBatch below
   // needs this render's own fresh anchor immediately — an effect would only
   // apply it starting the *next* render, one throttled publish (~100ms)
   // late on every transition. Safe here (unlike a spread-object version of
@@ -635,16 +649,124 @@ export function TreaterSymbol({ machine: m, dynamic, simTime }) {
   const nextAnchor = nextTreaterAnchor(phase, anchor, now);
   if (nextAnchor !== anchor) setAnchor(nextAnchor);
 
-  const agitatorColor = treaterLit(phase, dynamic?.cycleSec, nextAnchor, now) ? C.wheat : C.muted;
+  const batch = treaterBatch(phase, dynamic?.cycleSec, nextAnchor, now);
+
+  // Runs every render (no deps), same as DrumFeederSymbol above: keeps the
+  // registered rate current on every publish tick without re-registering the
+  // frame callback below.
+  useLayoutEffect(() => {
+    motion.setRate(m.id, treaterDrumDegPerSec(phase, nextAnchor));
+  });
+
+  useLayoutEffect(() => {
+    const id = m.id;
+    function applyFrame(spin) {
+      const ribNodes = ribsRef.current?.childNodes;
+      if (ribNodes) {
+        drumRibs(g, spin).forEach((rib, i) => {
+          const el = ribNodes[i];
+          if (!el) return;
+          // A rib round the back is hidden rather than removed, so the node
+          // list stays index-stable from frame to frame.
+          if (!rib) { el.setAttribute("opacity", "0"); return; }
+          el.setAttribute("x1", rib.x.toFixed(2));
+          el.setAttribute("x2", rib.x.toFixed(2));
+          el.setAttribute("y1", rib.y1.toFixed(2));
+          el.setAttribute("y2", rib.y2.toFixed(2));
+          el.setAttribute("stroke-width", rib.width.toFixed(2));
+          el.setAttribute("opacity", rib.opacity.toFixed(2));
+        });
+      }
+      const prongNodes = prongsRef.current?.childNodes;
+      if (prongNodes) {
+        drumProngs(g, spin).forEach((prong, i) => {
+          const el = prongNodes[i];
+          if (!el) return;
+          el.setAttribute("d", prong.d);
+          el.setAttribute("opacity", prong.opacity.toFixed(2));
+        });
+      }
+    }
+    motion.frameRef(id)(applyFrame);
+    applyFrame(motion.getPhase(id));
+    return () => motion.frameRef(id)(null);
+  });
+
+  const clipId = `treater-shell-${m.id}`;
+  const surfaceY = drumFillY(g, batch.fill);
+  const bed = mixColor(C.wheat, C.treated, batch.treat);
+  const hasCharge = batch.fill > 0.01;
 
   return (
     <g>
-      <rect className="body" x="0" y="16" width={w} height={h - 16} rx="14" fill={C.panel} stroke={C.line} strokeWidth="1.5" />
-      <rect x={cx - 13} y="0" width="26" height="18" fill={C.panel2} stroke={C.line} />
-      <line x1={cx} y1="18" x2={cx} y2={h - 30} stroke={agitatorColor} strokeWidth="1.5" />
-      <line x1={cx - 26} y1={h - 38} x2={cx + 26} y2={h - 26} stroke={agitatorColor} strokeWidth="1.5" />
-      <line x1={cx - 26} y1={h - 26} x2={cx + 26} y2={h - 38} stroke={agitatorColor} strokeWidth="1.5" />
-      <Instruments machine={m} x={w + 24} y={14} />
+      <defs>
+        <clipPath id={clipId}><path d={g.shell} /></clipPath>
+      </defs>
+
+      {/* Plinth FIRST, so the drum's lower cap reads right across it and the
+          cylinder sits ON the base rather than emerging from it. The chute
+          roots inside the plinth's own left face for the same reason. The
+          base itself never carries seed — only the chute does, and only
+          while a batch is actually running out. */}
+      <path
+        d={g.chute}
+        fill={batch.discharging ? C.treated : C.panel2}
+        stroke={C.line}
+        strokeWidth="1.5"
+      />
+      <line x1="0" y1={g.chuteMouth.top} x2="0" y2={g.chuteMouth.bottom} stroke={C.line} strokeWidth="2.5" />
+      {g.feet.map((f) => (
+        <rect key={f.x} x={f.x} y={f.y} width={f.w} height={f.h} fill={C.panel2} stroke={C.line} />
+      ))}
+      <rect
+        className="body"
+        x={g.base.x} y={g.base.y} width={g.base.w} height={g.base.h} rx={g.base.r}
+        fill={C.panel} stroke={C.line} strokeWidth="1.5"
+      />
+      <line
+        x1={g.base.x + 5} y1={g.base.y + 6} x2={g.base.x + g.base.w - 5} y2={g.base.y + 6}
+        stroke={C.line} opacity="0.9"
+      />
+      <rect x={g.driveBox.x} y={g.driveBox.y} width={g.driveBox.w} height={g.driveBox.h} fill={C.panel2} stroke={C.line} />
+
+      {/* the drum, then its open top */}
+      <path d={g.shell} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
+      <ellipse cx={g.drum.cx} cy={g.drum.top} rx={g.drum.rx} ry={g.drum.ry} fill={C.bg} stroke={C.line} />
+
+      {/* the charge: level clipped inside the shell, plus its own surface.
+          A cylinder's cross section is the same at every depth, so the
+          surface ellipse keeps the drum's radius however full it is. */}
+      {hasCharge && (
+        <>
+          <g clipPath={`url(#${clipId})`}>
+            <rect
+              x={g.drum.cx - g.drum.rx} y={surfaceY}
+              width={g.drum.rx * 2} height={Math.max(0, g.fillOverrun - surfaceY)}
+              fill={bed} opacity="0.94"
+            />
+          </g>
+          <ellipse
+            cx={g.drum.cx} cy={surfaceY}
+            rx={g.drum.rx - 1} ry={g.drum.ry - 0.6}
+            fill={mixColor(C.wheat, C.treated, batch.treat * 0.7)}
+          />
+        </>
+      )}
+
+      {/* the rotating marks, re-placed every frame by treaterDrum.js */}
+      <g ref={ribsRef} clipPath={`url(#${clipId})`}>
+        {Array.from({ length: DRUM_RIB_COUNT }, (_, i) => (
+          <line key={i} stroke={C.steel} opacity="0" />
+        ))}
+      </g>
+      <g ref={prongsRef}>
+        {Array.from({ length: DRUM_PRONG_COUNT }, (_, i) => (
+          <path key={i} fill={C.steel} opacity="0" />
+        ))}
+      </g>
+      <circle cx={g.drum.cx} cy={g.drum.top} r="2.2" fill={C.steel} />
+
+      <Instruments machine={m} x={w + 24} y={14} dynamic={dynamic} />
     </g>
   );
 }
