@@ -418,13 +418,13 @@ export const line = {
       // right border before it cleared the machine at all.
       anchors: { in: { x: 30, y: 0 }, out: { x: 100, y: 70 }, waste: { x: 20, y: 70 } },
       label: { side: "left", align: "center" },
-      params: [{ id: "wasteFrac", label: "scalpings split", min: 0, max: 20, value: 3, unit: "%", bind: "wasteFraction" }],
+      params: [{ id: "wasteFrac", label: "scalpings split", min: 0, max: 20, value: 1, unit: "%", bind: "wasteFraction" }],
       // First splitter on the line (issue #26): a fixed fraction of infeed
       // diverts to waste, the rest to product, with negligible holdup
       // ("well oversized" [CONFIRMED 2026-06-30, REAL_LINE_SPECS.md §5]).
       // The 16mm-aperture oversize fraction itself is not a plant figure
       // anyone quoted — the engineer confirmed the aperture and that waste
-      // is "tiny," not a percentage — so 3% is a demo-only assumed value,
+      // is "tiny," not a percentage — so 1% is a demo-only assumed value,
       // live-adjustable, per docs/OPEN_QUESTIONS.md. ceilingM3PerSec is the
       // screen's own confirmed 64.4 t/h rating: never the limiter at the
       // line's real rate, but a genuine ceiling rather than an unmodelled
@@ -432,7 +432,7 @@ export const line = {
       // instead of passing through unconstrained.
       sim: {
         kind: "splitter",
-        wasteFraction: 0.03,
+        wasteFraction: 0.01,
         ceilingM3PerSec: tPerHourToM3PerSec(64.4),
         provenance: { wasteFraction: "assumed", ceilingM3PerSec: "confirmed" },
       },

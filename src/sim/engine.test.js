@@ -1373,7 +1373,7 @@ describe("scalping screen splits product from oversize, completing the treating 
     expect(screen.outTotal).toBeGreaterThan(0);
     expect(screen.wasteTotal).toBeGreaterThan(0);
     const wasteShare = screen.wasteTotal / (screen.outTotal + screen.wasteTotal);
-    expect(wasteShare).toBeCloseTo(0.03, 4); // the line default (3%)
+    expect(wasteShare).toBeCloseTo(0.01, 4); // the line default (1%)
   });
 
   it("the oversize fraction is a live control", () => {
