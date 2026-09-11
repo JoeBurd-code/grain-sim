@@ -504,10 +504,22 @@ export function emptyTerminalSink(sim, id) {
   state.total = 0;
 }
 
-function findInterlock(sim, sensorMachineId) {
-  const rule = getInterlockState(sim, sensorMachineId);
-  if (!rule) throw new Error(`machine "${sensorMachineId}" has no interlock`);
-  return rule;
+// Issue #73: every rule watching this sensor, not just the first. The
+// Concetti pre-bin now carries two (its graded feed schedule and its staged
+// pause sequence) and they read the *same* physical level switches, so one
+// dial must move both or the bin's LSH would mean 85% to one rule and
+// something else to the other. Each setter below writes only the rules that
+// already carry that field, so a rule without a low set point is skipped
+// rather than gaining one it has no code to read.
+function findInterlocks(sim, sensorMachineId) {
+  const rules = sim.control.filter((r) => r.sensorId === sensorMachineId);
+  if (rules.length === 0) throw new Error(`machine "${sensorMachineId}" has no interlock`);
+  return rules;
+}
+function setInterlockField(sim, sensorMachineId, field, value) {
+  for (const rule of findInterlocks(sim, sensorMachineId)) {
+    if (rule[field] !== undefined) rule[field] = value;
+  }
 }
 
 // Live controls (issue #19): the sensor's set points and the interlock's
@@ -515,15 +527,15 @@ function findInterlock(sim, sensorMachineId) {
 // there's no need to touch the actuator directly, since a set point only
 // changes when stepControl next compares the sensor's level against it.
 export function setInterlockHighSetpoint(sim, sensorMachineId, fraction) {
-  findInterlock(sim, sensorMachineId).highSetpoint = fraction;
+  setInterlockField(sim, sensorMachineId, "highSetpoint", fraction);
 }
 
 export function setInterlockLowSetpoint(sim, sensorMachineId, fraction) {
-  findInterlock(sim, sensorMachineId).lowSetpoint = fraction;
+  setInterlockField(sim, sensorMachineId, "lowSetpoint", fraction);
 }
 
 export function setInterlockSignalDelay(sim, sensorMachineId, seconds) {
-  findInterlock(sim, sensorMachineId).signalDelaySec = seconds;
+  setInterlockField(sim, sensorMachineId, "signalDelaySec", seconds);
 }
 
 // Live control (issue #60, gradedFeedSchedule's own third instrument): the
@@ -531,7 +543,7 @@ export function setInterlockSignalDelay(sim, sensorMachineId, seconds) {
 // `setInterlockLowSetpoint` above, which gradedFeedSchedule reuses unchanged
 // for LSH/LSL (see control.js's own INSTRUMENT_FIELDS table).
 export function setInterlockHighHighSetpoint(sim, sensorMachineId, fraction) {
-  findInterlock(sim, sensorMachineId).highHighSetpoint = fraction;
+  setInterlockField(sim, sensorMachineId, "highHighSetpoint", fraction);
 }
 
 // Live control (issue #60): the presenter's own Gate Position % dial —

@@ -86,6 +86,90 @@ function applyPassThrough(state, dt, inflow, cap) {
   return out;
 }
 
+// Gate valve (issue #73): a pass-through that meters. `source` already
+// models an open/close actuator with real travel time, but it *generates*
+// material and has no inlet, so it cannot sit mid-line; `passThrough` sits
+// mid-line but forwards its downstream's capacity untouched and so can
+// neither close nor limit. This kind is the missing pair of the two: zero
+// holdup like passThrough, `openness` slewing toward `opennessTarget` like
+// source, and a rated throughput that scales with that openness.
+//
+// The rating is what makes it more than an on/off gate. Until this existed,
+// nothing bounded how fast the treater after-bin could dump into the
+// scalping screen, so a whole 160 kg batch (0.222 m3) landed in the 0.2 m3
+// scalping discharge hopper in about nine seconds and spiked it to 79% of
+// capacity on every single cycle — a hopper that is itself only 90% of one
+// batch. Metering the after-bin's outlet is what keeps that hopper holding
+// roughly one batch's worth in transit rather than catching it as a slug.
+//
+// `openness` is slewed at the END of apply, not the start, so the volume
+// moved this tick is bounded by exactly the openness the reverse pass
+// already committed to in capacityAvailable below. Slewing first would let
+// apply's own bound fall below an inflow upstream had already been granted,
+// and the difference would vanish rather than back up (this kind holds no
+// volume to back it up into). A command issued this tick therefore takes
+// effect next tick, the same immediacy convention control.js documents.
+function initGateValve(m) {
+  return {
+    kind: "gateValve",
+    ceilingM3PerSec: m.sim.ceilingM3PerSec,
+    openness: 1,
+    opennessTarget: 1,
+    opennessRampPerSec: Infinity,
+    volume: 0,
+    // Cumulative throughput, for `conserve` below only.
+    passed: 0,
+  };
+}
+function capacityAvailableGateValve(state, dt, downstreamCap) {
+  return Math.min(downstreamCap, state.ceilingM3PerSec * state.openness * dt);
+}
+function applyGateValve(state, dt, inflow, cap) {
+  const out = Math.min(inflow, cap);
+  state.volume = 0;
+  state.passed += out;
+  state.openness = slewToward(state.openness, state.opennessTarget, state.opennessRampPerSec, dt);
+  return out;
+}
+// The same "nothing sim-enabled downstream yet" convention meteredFeeder,
+// transportDelay and splitter already follow (see conserveMeteredFeeder's
+// own comment): this kind holds no inventory, so with a real downstream its
+// throughput is already accounted for in that machine's own stored/
+// inTransit and must not be counted twice — but with nothing downstream,
+// nothing else accounts for it at all and it has to be reported here or it
+// vanishes. `capacityAvailable` deliberately does not gate on this: an
+// unconnected valve still meters, it just has nowhere to meter into.
+function conserveGateValve(state, hasDownstream) {
+  return hasDownstream ? {} : { delivered: state.passed };
+}
+// `openness` drives the drawn gate position (scene/symbols.jsx); the two
+// rate fields let the popup show the valve's own commanded ceiling beside
+// the flow actually passing it, the same pair `snapshotSource` publishes.
+function snapshotGateValve(state) {
+  return {
+    openness: state.openness,
+    ceilingM3PerSec: state.ceilingM3PerSec,
+    ratedM3PerSec: state.ceilingM3PerSec * state.openness,
+  };
+}
+// Same binary open/close contract as `commandSource`, so a control rule can
+// drive either without knowing which it holds.
+function commandGateValve(state, direction, rampTimeSec) {
+  state.opennessTarget = direction === "close" ? 0 : 1;
+  state.opennessRampPerSec = rampTimeSec > 0 ? 1 / rampTimeSec : Infinity;
+}
+function isSettledGateValve(state) {
+  return state.openness === state.opennessTarget;
+}
+// The real valve carries ZS1/ZS2 position switches (REAL_LINE_SPECS.md §7
+// records them on every pneumatic valve on this line), so "confirmed open"
+// is a signal the plant genuinely has, unlike the elevator's own inferred
+// run-proof (see isConfirmedRunningTransportDelay). Settled, and off its
+// seat: mid-travel is neither open nor shut.
+function isConfirmedRunningGateValve(state) {
+  return isSettledGateValve(state) && state.openness > 0;
+}
+
 function initAccumulator(m) {
   const capacity = m.sim.capacityM3;
   const stored = (m.sim.initialLevelFraction ?? 0) * capacity;
@@ -843,6 +927,17 @@ function initBatchCycle(m) {
     // doesn't. Defaults open so a batch-cycle machine no interlock ever
     // commands keeps issue #24's behaviour exactly.
     blocked: false,
+    // Issue #73: which rules are currently asking for that hold. `blocked`
+    // is the derived answer ("is anybody holding it"), kept as a plain
+    // boolean because every reader wants exactly that and nothing else.
+    // Two interlocks can now hold this same treater at once — the after-bin's
+    // own holdNextBatch and the Concetti pre-bin's staged pause sequence —
+    // and their conditions clear independently. With a bare boolean the
+    // first one to release would un-hold the machine out from under the
+    // other, which is precisely the case the real line produces: the
+    // Concetti bin clears LSH while the after-bin, cut off behind a closed
+    // 52.601.V00, is still full.
+    holders: new Set(),
     // Utilities trip (issue #51): unlike `blocked`, which only withholds a
     // *fresh* charge, `stopped` freezes the machine exactly where it is —
     // mid-charging, mid-holding or mid-discharging — the same "product left
@@ -977,9 +1072,15 @@ function snapshotBatchCycle(state) {
 }
 // Commands the hold-next-batch gate (issue #25). The control layer is the
 // only caller; a batch-cycle machine no interlock ever commands never has
-// this invoked and keeps its default `blocked: false`.
-function commandBatchCycle(state, blocked) {
-  state.blocked = blocked;
+// this invoked and keeps its default `blocked: false`. `holderId` names who
+// is asking (issue #73): each caller releases only its own hold, and the
+// machine stays held while any other holder remains. The default key keeps
+// every fabricated test rule that commands without one behaving exactly as
+// a single-holder boolean always did.
+function commandBatchCycle(state, blocked, holderId = "default") {
+  if (blocked) state.holders.add(holderId);
+  else state.holders.delete(holderId);
+  state.blocked = state.holders.size > 0;
 }
 // Utilities trip (issue #51): the immediate, total stop `blocked` above was
 // never meant to provide (see `stopped`'s own comment on initBatchCycle).
@@ -1210,6 +1311,12 @@ export const BEHAVIORS = {
   },
   passThrough: {
     init: initPassThrough, capacityAvailable: forwardDownstreamCapacity, apply: applyPassThrough,
+  },
+  gateValve: {
+    init: initGateValve, capacityAvailable: capacityAvailableGateValve, apply: applyGateValve,
+    conserve: conserveGateValve, snapshot: snapshotGateValve,
+    command: commandGateValve, isSettled: isSettledGateValve,
+    confirmedRunning: isConfirmedRunningGateValve,
   },
   accumulator: {
     init: initAccumulator, capacityAvailable: capacityAvailableAccumulator, apply: applyAccumulator,

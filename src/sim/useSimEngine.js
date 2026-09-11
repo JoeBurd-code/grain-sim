@@ -40,8 +40,15 @@ function publishSnap(sim) {
   // tripped, pulseGen — LT/LSH/LSL dots on the scene) are published on its
   // sensor machine's snapshot, since that's the machine whose popup and
   // scene symbol both read them.
+  // Issue #73: a bin can carry more than one rule (the Concetti pre-bin now
+  // has both its graded feed schedule and its staged pause sequence), so
+  // these merge rather than overwrite — the last rule in the list used to
+  // silently clobber every earlier one's dots and log on the same sensor.
+  // Events are re-sorted because two rules' logs interleave in time.
   for (const rule of sim.control) {
-    machines.set(rule.sensorId, { ...machines.get(rule.sensorId), events: rule.log, instruments: rule.instruments });
+    const prev = machines.get(rule.sensorId);
+    const events = prev?.events ? [...prev.events, ...rule.log].sort((a, b) => a.t - b.t) : rule.log;
+    machines.set(rule.sensorId, { ...prev, events, instruments: { ...prev?.instruments, ...rule.instruments } });
   }
   // Issue #29: the same rule logs, flattened line-wide and tagged with
   // their source machine, for the combined event panel and (later) the

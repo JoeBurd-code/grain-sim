@@ -23,6 +23,7 @@ const ELEVATOR_ID = "treatingElevator";
 const PRE_BIN_ID = "treaterPreBin";
 const TREATER_ID = "batchTreater";
 const AFTER_BIN_ID = "treaterAfterBin";
+const AFTER_BIN_VALVE_ID = "afterBinOutletValve"; // issue #73: 52.601.V00, the valve above the scalping screen
 const SCREEN_ID = "scalpingScreen";
 const DISCARD_BIN_ID = "discardBin";
 
@@ -1205,9 +1206,16 @@ function afterBinInterlock(sim) {
 // lineWithoutBatchTreater/lineWithoutPackaging above (see that variant's own
 // comment): these after-bin tests use setFeederRate/feedElevator as their
 // generic supply lever, which the real schedule would otherwise govern.
+// Issue #73: the after-bin's own outlet valve (52.601.V00) now sits between
+// it and the screen, so stripping the screen alone no longer leaves the
+// after-bin with nowhere to discharge — the valve would pass its material
+// straight out to the un-engined frontier instead. Both come out together
+// to keep this fixture's stated isolation meaning what it says.
 const lineWithoutScalpingScreen = {
   ...lineWithoutFeedSchedule,
-  machines: lineWithoutFeedSchedule.machines.map((m) => (m.id === "scalpingScreen" ? { ...m, sim: undefined } : m)),
+  machines: lineWithoutFeedSchedule.machines.map((m) =>
+    m.id === "scalpingScreen" || m.id === "afterBinOutletValve" ? { ...m, sim: undefined } : m
+  ),
 };
 
 describe("treater after-bin holds the next batch (issue #25)", () => {
@@ -2594,8 +2602,15 @@ const lineWithConcettiSchedule = {
   feedRateDerivations: line.feedRateDerivations.filter((d) => d.id !== "treatingFeedRateDerivation"),
 };
 
+// Issue #73: the Concetti pre-bin now carries two rules. getInterlockState
+// returns the first declared (the feed schedule), so the staged pause
+// sequence needs its own lookup rather than sharing that helper.
 function concettiPreBinInterlock(sim) {
   return getInterlockState(sim, CONCETTI_PRE_BIN_ID);
+}
+
+function concettiPauseSequence(sim) {
+  return sim.control.find((r) => r.kind === "stagedPauseRestart");
 }
 
 // Issue #61: bands per issue #56/#58, reproduced from the pre-bin's own
@@ -2679,43 +2694,31 @@ describe("Concetti pre-bin's graded feed schedule (issue #56/#58/#61)", () => {
     expect(getMachineState(sim, TREATING_FEEDER_ID).gateThrottleFraction).toBeCloseTo(0.4011);
   });
 
-  it("trips once the level reaches LSHH, stopping the conveyor — each feeder's own gate is left where the schedule last set it", () => {
+  // Issue #73: this schedule no longer owns a high-high stage at all. LSHH
+  // on this bin commands the staged pause sequence instead (its own describe
+  // block below), so what these tests now pin is the *handover*: the
+  // schedule stays in its band machine and never reaches "tripped".
+  it("never trips on LSHH itself — the schedule stays in its own band machine and leaves the high-high response to the pause sequence", () => {
     const sim = createSim(lineWithConcettiScheduleWithoutScale);
     setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97); // above LSHH (0.95)
-    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // past the 5s trip delay + 6s ramp
-    expect(concettiPreBinInterlock(sim).phase).toBe("tripped");
-    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
-    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).gateThrottleFraction).toBeCloseTo(0.6432); // still boost's own value — never touched by the trip
-    expect(getMachineState(sim, TREATING_FEEDER_ID).gateThrottleFraction).toBeCloseTo(0.6432);
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
+    expect(concettiPreBinInterlock(sim).phase).toBe("throttle"); // its own top band, not "tripped"
+    expect(concettiPreBinInterlock(sim).trip).toBe(null);
+    // Each feeder's own gate is still exactly where the schedule's throttle
+    // band left it — the pause sequence never touches the feeders directly.
+    expect(getMachineState(sim, PRO_BOX_FEEDER_ID).gateThrottleFraction).toBeCloseTo(0.4011);
+    expect(getMachineState(sim, TREATING_FEEDER_ID).gateThrottleFraction).toBeCloseTo(0.4011);
   });
 
-  it("stays tripped once the level falls back below LSHH on its own — no automatic reopen", () => {
+  it("carries no LSHH instrument of its own any more: the bin's one high-high dot belongs to the pause sequence", () => {
     const sim = createSim(lineWithConcettiScheduleWithoutScale);
-    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
-    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
-    expect(concettiPreBinInterlock(sim).phase).toBe("tripped");
-
-    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.5); // presenter drags the level back down
-    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT);
-    expect(concettiPreBinInterlock(sim).phase).toBe("tripped");
-    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
-  });
-
-  it("resetTrips clears the LSHH trip once the level has actually cleared it, and resumes the band the live level is actually in — not a fixed state", () => {
-    const sim = createSim(lineWithConcettiScheduleWithoutScale);
-    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
-    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
-    expect(concettiPreBinInterlock(sim).phase).toBe("tripped");
-
-    resetTrips(sim); // still above LSHH: re-latches
-    expect(concettiPreBinInterlock(sim).phase).toBe("tripped");
-    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
-
-    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.5); // presenter drags the level down into the normal band
-    resetTrips(sim);
-    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // past the recovery ramp
-    expect(concettiPreBinInterlock(sim).phase).toBe("normal");
-    expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBeCloseTo(0.829);
+    const readings = instrumentReadings(concettiPreBinInterlock(sim), 0.97);
+    expect(readings.LSHH).toBeUndefined();
+    expect(readings.LSH).toBeDefined();
+    expect(readings.LSL).toBeDefined();
+    // ...and the sequence rule on the same bin does carry it, so exactly one
+    // LSHH exists across the pair rather than none or two.
+    expect(instrumentReadings(concettiPauseSequence(sim), 0.97).LSHH.signal).toBe(true);
   });
 
   it("LSH is display-only: crossing it alone commands no stop, only the schedule's own normal->throttle band transition", () => {
@@ -2727,20 +2730,14 @@ describe("Concetti pre-bin's graded feed schedule (issue #56/#58/#61)", () => {
     const readings = instrumentReadings(concettiPreBinInterlock(sim), 0.86);
     expect(readings.LSH.signal).toBe(true);
     expect(readings.LSH.alarm).toBe(false); // issue #72: signalling, but not this machine's trip — green, not red
-    expect(readings.LSHH.signal).toBe(false);
+    // Issue #73: the high-high switch lives on the sequence rule now, and at
+    // 86% it is silent there for the same reason it used to be here.
+    expect(instrumentReadings(concettiPauseSequence(sim), 0.86).LSHH.signal).toBe(false);
   });
 
-  it("LSHH set point is a live control that takes effect while running", () => {
+  it("the pre-bin's event log records each band transition as a distinct entry", () => {
     const sim = createSim(lineWithConcettiScheduleWithoutScale);
-    setInterlockHighHighSetpoint(sim, CONCETTI_PRE_BIN_ID, 0.5); // lower the trip well into what was the normal band
-    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.6);
-    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
-    expect(concettiPreBinInterlock(sim).phase).toBe("tripped");
-  });
-
-  it("the pre-bin's event log records each band transition and the trip as distinct entries", () => {
-    const sim = createSim(lineWithConcettiScheduleWithoutScale);
-    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.9);
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
 
     const log = concettiPreBinInterlock(sim).log;
@@ -2750,8 +2747,7 @@ describe("Concetti pre-bin's graded feed schedule (issue #56/#58/#61)", () => {
       expect(typeof entry.message).toBe("string");
     }
     expect(new Set(messages).size).toBe(messages.length); // no two entries say the same thing
-    expect(messages.some((m) => m.includes("high-high"))).toBe(true);
-    expect(messages.some((m) => m.includes("stop"))).toBe(true);
+    expect(messages.some((m) => m.includes("throttle"))).toBe(true);
   });
 });
 
@@ -2860,11 +2856,16 @@ describe("the Concetti bagging branch completes (issue #49)", () => {
   }, 10000);
 
   it("the pre-bin fills, and backpressures upstream when full rather than spilling", () => {
-    // Issue #61: the pre-bin's own high-level response is now
-    // concettiFeedSchedule's latched LSHH trip (95%), not the old
-    // thresholdStopTrip's LSH (85%) — see lineWithConcettiSchedule's own
-    // comment for why this test needs that schedule active rather than
+    // Issue #61: the pre-bin's own high-level response is LSHH (95%), not
+    // the old thresholdStopTrip's LSH (85%) — see lineWithConcettiSchedule's
+    // own comment for why this test needs that schedule active rather than
     // lineWithoutFeedSchedule.
+    // Issue #73: that high-high response is now the staged pause sequence
+    // rather than the schedule's own latched trip. With the scale frozen
+    // the bin can never clear LSHH, so this run also carries the sequence
+    // all the way through its 30 s escalation to a whole-line trip — which
+    // is the correct outcome for a bagger that has genuinely stopped, and
+    // still leaves the conveyor stopped and the bin un-spilled.
     const sim = createSim(lineWithConcettiSchedule);
     setDestination(sim, "concetti");
     setSource(sim, "proBox");
@@ -2888,7 +2889,8 @@ describe("the Concetti bagging branch completes (issue #49)", () => {
     const preBin = getMachineState(sim, CONCETTI_PRE_BIN_ID);
     expect(preBin.spill).toBeCloseTo(0); // backpressure/trip, not spill
     expect(preBin.stored).toBeLessThan(preBin.capacity); // trips before hard capacity, doesn't need to reach it
-    expect(concettiPreBinInterlock(sim).phase).toBe("tripped");
+    expect(concettiPauseSequence(sim).phase).toBe("paused");
+    expect(getUtilitiesTripPhase(sim)).toBe("tripped"); // LSHH never cleared: escalated
     expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
     expect(() => assertConserved(sim)).not.toThrow();
   }, 15000);
@@ -2999,8 +3001,12 @@ describe("arming: a full Concetti pre-bin does not trip anything while routed el
     expect(concettiPreBinInterlock(sim).phase).toBe("boost"); // still disarmed, never evaluated
 
     setDestination(sim, "concetti"); // now selected
-    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // past the 5s trip delay + 6s ramp
-    expect(concettiPreBinInterlock(sim).phase).toBe("tripped");
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // past the 5s signal delay + 6s ramp
+    // Issue #73: the high-high response is the staged pause sequence now,
+    // which arms on the same `armedWhen` condition and stops the same
+    // conveyor — the arming behaviour this test is named for is unchanged,
+    // only which rule does the stopping.
+    expect(concettiPauseSequence(sim).phase).toBe("paused");
     expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
   });
 });
@@ -3055,35 +3061,47 @@ describe("the Concetti pre-bin's own high-level trip cascades the full length of
     expect(getMachineState(sim, PRO_BOX_FEEDER_ID).runPermit).toBe(false);
     expect(getMachineState(sim, TREATING_FEEDER_ID).runPermit).toBe(false);
 
-    for (let i = 0; i < Math.round(6000 / DT); i++) stepSim(sim, DT); // let it propagate all the way back
-    expect(afterBinInterlock(sim).phase).toBe("held"); // the batch treater eventually stops accepting charges, at the far end of the line
+    // Issue #73: the treater no longer has to wait for the after-bin to back
+    // up behind a starved screen — the same signal that stopped the conveyor
+    // holds it directly, at the same 5s, and closes the valve above the
+    // screen with it. The cascade this block is named for still spans the
+    // whole line, it just reaches the far end immediately rather than over
+    // thousands of seconds of gradual backup.
+    expect(getMachineState(sim, TREATER_ID).blocked).toBe(true);
+    expect(getMachineState(sim, AFTER_BIN_VALVE_ID).opennessTarget).toBe(0);
+
     // The AC's own "scalping screen starved" link, asserted directly rather
     // than only inferred from the after-bin backing up behind it:
     // inletDrumFeeder2 (TREATING_FEEDER_ID) is the screen's only real
     // discharge (its own comment further down this file), so once that
     // feeder's runPermit drops the screen has nowhere left to send
     // material and genuinely stops flowing, not just conceptually.
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
     expect(BEHAVIORS.splitter.snapshot(getMachineState(sim, SCREEN_ID)).flowing).toBe(false);
 
+    // ...and with the bin pinned full, LSHH never clears, so the sequence
+    // runs out its 30s patience and trips the whole line (issue #73's own
+    // escalation — the operator's problem now, not the interlock's).
+    for (let i = 0; i < Math.round(30 / DT); i++) stepSim(sim, DT);
+    expect(getUtilitiesTripPhase(sim)).toBe("tripped");
+
     // Events are logged against each rule's own *sensor*, not its actuator
-    // (control.js's own combined-events construction) — concettiPreBinHighTrip's
-    // sensor is the pre-bin itself, conveyorRunningInterlockFeeder1/2's
-    // shared sensor is the conveyor, and afterBinHoldTreater's is the
-    // after-bin, so these three ids are exactly where this cascade's own
-    // three stages surface in the feed.
+    // (control.js's own combined-events construction) — the pause sequence's
+    // sensor is the pre-bin itself and conveyorRunningInterlockFeeder1/2's
+    // shared sensor is the conveyor, so those two ids are where this
+    // cascade's own stages surface in the feed.
     const events = getCombinedEvents(sim);
     const firstEventT = (machineId) => events.find((e) => e.machineId === machineId)?.t;
     const preBinT = firstEventT(CONCETTI_PRE_BIN_ID);
     const conveyorT = firstEventT(CONVEYOR_ID);
-    const afterBinT = firstEventT(AFTER_BIN_ID);
     expect(preBinT).toBeDefined();
     expect(conveyorT).toBeDefined();
-    expect(afterBinT).toBeDefined();
-    expect(conveyorT).toBeGreaterThan(preBinT); // the conveyor-tagged (feeder-stop) events land after the pre-bin's own trip
-    expect(afterBinT).toBeGreaterThan(conveyorT); // and the treater's own response lands much later still, at the far end of the line
+    expect(conveyorT).toBeGreaterThan(preBinT); // the conveyor-tagged (feeder-stop) events land after the pre-bin's own signal
     // Both packaging drum feeders' own stop is logged (autoStopOnNotRunning,
     // same shared conveyor sensor) — two distinct events, not one.
     expect(events.filter((e) => e.machineId === CONVEYOR_ID).length).toBeGreaterThanOrEqual(2);
+    // The escalation's own line-wide entry, tagged to the bin that caused it.
+    expect(events.some((e) => e.machineId === CONCETTI_PRE_BIN_ID && e.message.includes("entire line tripped"))).toBe(true);
 
     expect(() => assertConserved(sim)).not.toThrow();
   }, 20000);
@@ -3105,24 +3123,28 @@ describe("the Concetti pre-bin's own high-level trip cascades the full length of
     setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1);
     stepSim(sim, DT); // the frozen scale draws its one guaranteed charge now
     setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 1); // top back up to genuinely full
-    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // past the 5s trip delay + 6s ramp
+    // Issue #73: past the 5s signal delay AND the 30s escalation, so the
+    // sequence has given up waiting and tripped the whole line. That is the
+    // only state on this bin that still needs an operator — an ordinary
+    // pause clears itself.
+    for (let i = 0; i < Math.round(40 / DT); i++) stepSim(sim, DT);
     expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
+    expect(getUtilitiesTripPhase(sim)).toBe("tripped");
 
     resetTrips(sim);
-    expect(concettiPreBinInterlock(sim).phase).toBe("tripped"); // still full, re-latches
+    expect(getUtilitiesTripPhase(sim)).toBe("tripped"); // still full, re-latches
+    expect(concettiPauseSequence(sim).phase).toBe("paused");
     expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(0);
 
     // The presenter's own bin-empty affordance (PlantControls.jsx): the
-    // same setAccumulatorLevel the level-jump slider already uses. Recovery
-    // resumes whichever band the live (now empty) level actually falls in —
-    // boost, per bandForLevel — not a fixed "fully open" target the way the
-    // old thresholdStopTrip's own recovery worked (issue #58's own resetGradedFeedSchedule
-    // comment): boost's own speedFraction (0.9401, lineData.js) is this
-    // schedule's real commissioned boost target, not 1.
+    // same setAccumulatorLevel the level-jump slider already uses. Once the
+    // bin has genuinely cleared LSHH the reset takes, and the sequence
+    // begins its ordered restart from the top rather than snapping the
+    // conveyor straight back on.
     setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0);
     resetTrips(sim);
-    expect(concettiPreBinInterlock(sim).phase).toBe("recovering");
-    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBeCloseTo(0.9401);
+    expect(getUtilitiesTripPhase(sim)).toBe("running");
+    expect(concettiPauseSequence(sim).phase).toBe("restartingConveyor");
   });
 
   it("conserves volume across a switch onto and off the Concetti branch mid-run", () => {
@@ -3528,6 +3550,279 @@ describe("clearPlant (issue #55 — CLEAR PLANT)", () => {
 });
 
 
+// Issue #73: the Concetti pre-bin's staged pause and restart, described by
+// the plant engineer rather than the FD. On LSHH the treater finishes its
+// batch and holds, the valve above the scalping screen (52.601.V00) closes
+// and the packaging conveyor stops; when LSHH clears the conveyor restarts
+// after 30s and the valve opens 10s after that; the treater comes back
+// separately on LSH; and if LSHH will not clear within 30s the whole line
+// trips and an operator must restart it.
+//
+// Runs against `line` itself with the bagging scale frozen — the same
+// isolation lineWithConcettiScheduleWithoutScale uses, for the same reason:
+// these tests drive the bin's level directly and need it to stay where they
+// put it. The scale is stripped rather than slowed so nothing draws the bin
+// down mid-assertion.
+describe("Concetti pre-bin's staged pause and restart (issue #73)", () => {
+  const SIGNAL_DELAY = 5, ESCALATION = 30, CONVEYOR_START = 30, VALVE_OPEN = 10;
+  const valve = (sim) => getMachineState(sim, AFTER_BIN_VALVE_ID);
+  const run = (sim, seconds) => {
+    for (let i = 0; i < Math.round(seconds / DT); i++) stepSim(sim, DT);
+  };
+
+  it("is wired to the three machines the engineer named, and starts running", () => {
+    const sim = createSim(line);
+    const rule = concettiPauseSequence(sim);
+    expect(rule.sensorId).toBe(CONCETTI_PRE_BIN_ID);
+    expect(rule.treaterId).toBe(TREATER_ID);
+    expect(rule.valveId).toBe(AFTER_BIN_VALVE_ID);
+    expect(rule.conveyorId).toBe(CONVEYOR_ID);
+    expect(rule.phase).toBe("running");
+    expect(valve(sim).openness).toBe(1); // open on a line that starts empty
+  });
+
+  it("commands all three at once on LSHH, after the FD's own 5s signal delay and not before", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
+
+    run(sim, SIGNAL_DELAY - 1);
+    expect(concettiPauseSequence(sim).phase).toBe("armingPause");
+    expect(valve(sim).opennessTarget).toBe(1); // nothing commanded yet
+    expect(getMachineState(sim, TREATER_ID).blocked).toBe(false);
+
+    run(sim, 2); // past the delay
+    expect(concettiPauseSequence(sim).phase).toBe("paused");
+    expect(valve(sim).opennessTarget).toBe(0);
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(0);
+    expect(getMachineState(sim, TREATER_ID).blocked).toBe(true);
+  });
+
+  it("cancels silently if the level falls back before the signal delay elapses — nothing is ever commanded", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
+    run(sim, 1);
+    expect(concettiPauseSequence(sim).phase).toBe("armingPause");
+
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.5);
+    run(sim, 1);
+    expect(concettiPauseSequence(sim).phase).toBe("running");
+    expect(valve(sim).opennessTarget).toBe(1);
+    expect(getMachineState(sim, TREATER_ID).blocked).toBe(false);
+  });
+
+  it("restarts in the engineer's order: conveyor 30s after LSHH clears, valve 10s after that — never the other way round", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
+    run(sim, SIGNAL_DELAY + 1);
+    expect(concettiPauseSequence(sim).phase).toBe("paused");
+
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.9); // clears LSHH (0.95), still above LSH (0.85)
+    run(sim, 1);
+    expect(concettiPauseSequence(sim).phase).toBe("restartingConveyor");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(0); // still stopped, still counting
+
+    run(sim, CONVEYOR_START - 2); // just short of the dwell
+    expect(concettiPauseSequence(sim).phase).toBe("restartingConveyor");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(0);
+    expect(valve(sim).opennessTarget).toBe(0);
+
+    run(sim, 2); // conveyor starts
+    expect(concettiPauseSequence(sim).phase).toBe("restartingValve");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(1);
+    expect(valve(sim).opennessTarget).toBe(0); // the drain path runs first, alone
+
+    run(sim, VALVE_OPEN - 2);
+    expect(valve(sim).opennessTarget).toBe(0); // still shut, 8s in
+
+    run(sim, 2); // valve opens
+    expect(concettiPauseSequence(sim).phase).toBe("running");
+    expect(valve(sim).opennessTarget).toBe(1);
+  });
+
+  it("abandons a restart and pauses again if LSHH comes back part-way through it", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
+    run(sim, SIGNAL_DELAY + 1);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.9);
+    run(sim, CONVEYOR_START + 1); // conveyor back on, valve still shut
+    expect(concettiPauseSequence(sim).phase).toBe("restartingValve");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(1);
+
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97); // fills again
+    run(sim, 1);
+    expect(concettiPauseSequence(sim).phase).toBe("paused");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(0); // straight back down
+    expect(valve(sim).opennessTarget).toBe(0);
+  });
+
+  it("releases the treater on LSH, not LSHH, and independently of how far the restart has got", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
+    run(sim, SIGNAL_DELAY + 1);
+    expect(getMachineState(sim, TREATER_ID).blocked).toBe(true);
+
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.9); // below LSHH, still above LSH
+    run(sim, 1);
+    expect(getMachineState(sim, TREATER_ID).blocked).toBe(true); // LSHH alone is not enough
+
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.8); // now below LSH (0.85)
+    run(sim, 1);
+    expect(getMachineState(sim, TREATER_ID).blocked).toBe(false);
+    // ...and this happened while the conveyor restart was still counting
+    // down, exactly the ordering docs/OPEN_QUESTIONS.md records.
+    expect(concettiPauseSequence(sim).phase).toBe("restartingConveyor");
+  });
+
+  it("does not release a treater the after-bin is separately holding — each interlock releases only its own hold", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
+    setAccumulatorLevel(sim, AFTER_BIN_ID, 0.9); // over the after-bin's own 60% high set point too
+    run(sim, SIGNAL_DELAY + 2); // both interlocks now holding the same treater
+    expect(afterBinInterlock(sim).phase).toBe("held");
+    expect(getMachineState(sim, TREATER_ID).blocked).toBe(true);
+
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.5); // the Concetti side clears entirely
+    run(sim, 2);
+    expect(getMachineState(sim, TREATER_ID).blocked).toBe(true); // still held by the after-bin
+    expect(getMachineState(sim, TREATER_ID).holders.has("afterBinHoldTreater")).toBe(true);
+  });
+
+  it("escalates to a whole-line trip if LSHH will not clear within 30s, and only an operator reset recovers it", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
+
+    run(sim, ESCALATION - 2);
+    expect(getUtilitiesTripPhase(sim)).toBe("running"); // not yet
+
+    run(sim, 3);
+    expect(getUtilitiesTripPhase(sim)).toBe("tripped");
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(0);
+    expect(valve(sim).opennessTarget).toBe(0);
+
+    // Never recovers on its own, however long it runs — unlike the ordinary
+    // pause, which does.
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0);
+    run(sim, 200);
+    expect(getUtilitiesTripPhase(sim)).toBe("tripped");
+
+    resetTrips(sim);
+    expect(getUtilitiesTripPhase(sim)).toBe("running");
+    expect(concettiPauseSequence(sim).phase).toBe("restartingConveyor"); // ordered restart, not a snap back on
+  });
+
+  it("refuses the reset while the bin is still above LSHH, and says so in the log", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
+    run(sim, ESCALATION + 2);
+    expect(getUtilitiesTripPhase(sim)).toBe("tripped");
+
+    resetTrips(sim);
+    expect(getUtilitiesTripPhase(sim)).toBe("tripped");
+    expect(getCombinedEvents(sim).some((e) => e.message.includes("line remains tripped"))).toBe(true);
+  });
+
+  it("the 30s escalation clock restarts from scratch on a level that dips below LSHH and comes back", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
+    run(sim, ESCALATION - 5);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.9); // dips below LSHH
+    run(sim, 1);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97); // and back up
+    run(sim, ESCALATION - 5); // would already have tripped on the original clock
+    expect(getUtilitiesTripPhase(sim)).toBe("running");
+    run(sim, 7);
+    expect(getUtilitiesTripPhase(sim)).toBe("tripped");
+  });
+
+  it("never pauses the shared conveyor while the line is routed away from Concetti, and releases what it commanded if the destination changes mid-pause", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
+    run(sim, SIGNAL_DELAY + 2);
+    expect(concettiPauseSequence(sim).phase).toBe("paused");
+
+    setDestination(sim, "flexicon"); // presenter reroutes mid-pause
+    run(sim, 1);
+    // Withdrawn outright, not left stranded: the rule that issued those
+    // commands is no longer being stepped, so nothing else could ever undo
+    // them (see disarmStagedPauseRestart).
+    expect(concettiPauseSequence(sim).phase).toBe("running");
+    expect(valve(sim).opennessTarget).toBe(1);
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(1);
+    expect(getMachineState(sim, TREATER_ID).blocked).toBe(false);
+  });
+
+  it("logs the pause, the restart stages and the escalation against the pre-bin, each with its own simulated time", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
+    run(sim, SIGNAL_DELAY + 1);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.5);
+    run(sim, CONVEYOR_START + VALVE_OPEN + 2);
+
+    const messages = concettiPauseSequence(sim).log.map((e) => e.message);
+    expect(messages.some((m) => m.includes("pause armed"))).toBe(true);
+    expect(messages.some((m) => m.includes("valve above the scalping screen closed"))).toBe(true);
+    expect(messages.some((m) => m.includes("conveyor restarts in 30s"))).toBe(true);
+    expect(messages.some((m) => m.includes("conveyor started"))).toBe(true);
+    expect(messages.some((m) => m.includes("valve above the scalping screen opened"))).toBe(true);
+    for (const entry of concettiPauseSequence(sim).log) expect(typeof entry.t).toBe("number");
+  });
+});
+
+// Issue #73: the valve itself (52.601.V00), independent of the sequence that
+// commands it — the missing rate limit between the after-bin and a scalping
+// discharge hopper smaller than one treater batch.
+describe("after-bin outlet valve meters the treater's discharge (issue #73)", () => {
+  it("is a real gateValve on the run between the after-bin and the screen, open at t=0", () => {
+    const sim = createSim(line);
+    const v = getMachineState(sim, AFTER_BIN_VALVE_ID);
+    expect(v.kind).toBe("gateValve");
+    expect(v.openness).toBe(1);
+    // Sits between the after-bin and the screen, not bolted on beside them.
+    const conns = line.connections.filter((c) => c.from.machine === AFTER_BIN_VALVE_ID || c.to.machine === AFTER_BIN_VALVE_ID);
+    expect(conns.map((c) => `${c.from.machine}->${c.to.machine}`)).toEqual([
+      "treaterAfterBin->afterBinOutletValve",
+      "afterBinOutletValve->scalpingScreen",
+    ]);
+  });
+
+  it("holds the scalping discharge hopper to roughly one batch in transit instead of catching a whole batch as a slug", () => {
+    const sim = createSim(line);
+    setSource(sim, "treatingLine");
+    setDestination(sim, "concetti");
+    const hopper = getMachineState(sim, "scalpingDischargeHopper");
+    let peak = 0;
+    for (let i = 0; i < Math.round(900 / DT); i++) {
+      stepSim(sim, DT);
+      peak = Math.max(peak, hopper.stored / hopper.capacity);
+    }
+    // The hopper is 0.2 m3 against a 0.222 m3 batch, so it physically cannot
+    // hold one. Unmetered it spiked to ~79% every 48s cycle; metered at the
+    // valve's own 19.2 t/h it never comes close to that.
+    expect(peak).toBeLessThan(0.5);
+    expect(hopper.spill).toBeCloseTo(0);
+    expect(() => assertConserved(sim)).not.toThrow();
+  }, 15000);
+
+  it("shuts off flow into the screen entirely once commanded closed, and passes it again once reopened", () => {
+    const sim = createSim(line);
+    setSource(sim, "treatingLine");
+    setDestination(sim, "concetti");
+    for (let i = 0; i < Math.round(200 / DT); i++) stepSim(sim, DT);
+
+    BEHAVIORS.gateValve.command(getMachineState(sim, AFTER_BIN_VALVE_ID), "close", 0);
+    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
+    expect(getMachineState(sim, AFTER_BIN_VALVE_ID).openness).toBe(0);
+    expect(getMachineState(sim, AFTER_BIN_VALVE_ID).flowRateM3PerSec).toBe(0);
+    expect(getMachineState(sim, "scalpingDischargeHopper").stored).toBeCloseTo(0, 3); // drained out, nothing replacing it
+    expect(() => assertConserved(sim)).not.toThrow();
+
+    BEHAVIORS.gateValve.command(getMachineState(sim, AFTER_BIN_VALVE_ID), "open", 0);
+    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
+    expect(getMachineState(sim, AFTER_BIN_VALVE_ID).flowRateM3PerSec).toBeGreaterThan(0);
+    expect(() => assertConserved(sim)).not.toThrow();
+  }, 15000);
+});
+
 // Issue #72: the real-line half of the colour-role guard (the per-kind half
 // is in control.test.js). Dot colour tracks consequence, not the code's
 // letters, and this is the table a presenter actually sees. The four
@@ -3546,13 +3841,22 @@ describe("instrument alarm roles on the real line (issue #72)", () => {
     metalBin2: "LSH",
   };
 
-  it("marks exactly one alarm code per rule, and it is the machine's own latched trip", () => {
+  // Issue #73: keyed on the machine, not the rule. A bin can now carry more
+  // than one rule (the Concetti pre-bin has both its feed schedule and its
+  // staged pause sequence), and only one of the pair owns the high-high
+  // switch — so the feed schedule legitimately contributes no alarm code at
+  // all. What a presenter actually sees is one bin's merged set of dots
+  // (useSimEngine.js publishes them merged for exactly this reason), and
+  // that is what must carry exactly one alarm.
+  it("marks exactly one alarm code per machine, and it is that machine's own latched trip", () => {
     const sim = createSim(line);
     const seen = {};
     for (const rule of sim.control) {
       if (!rule.instruments) continue;
       const alarms = Object.values(rule.instruments).filter((i) => i.alarm).map((i) => i.code);
-      expect(alarms).toHaveLength(1);
+      expect(alarms.length).toBeLessThanOrEqual(1); // no rule ever claims two
+      if (alarms.length === 0) continue;
+      expect(seen[rule.sensorId], `${rule.sensorId} has two rules claiming an alarm code`).toBeUndefined();
       seen[rule.sensorId] = alarms[0];
     }
     expect(seen).toEqual(ALARM_BY_SENSOR);

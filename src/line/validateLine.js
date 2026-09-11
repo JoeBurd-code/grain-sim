@@ -72,8 +72,17 @@ export function validateLine(line) {
     // `{ machine }` (issue #61: the Concetti pre-bin's schedule commands
     // both inlet drum feeders uniformly) — flattened here the same way
     // either shape validates.
+    // stagedPauseRestart (issue #73) commands three unlike actuators at
+    // once — the batch treater's hold gate, the after-bin outlet valve and
+    // the packaging conveyor's throttle — so its own `action` is three
+    // named entries rather than a bare `{ machine }`. Same flattening as
+    // gradedFeedSchedule's above: only the list of targets differs, the
+    // per-target checks below are shared.
     const feeders = Array.isArray(rule.action?.feeder) ? rule.action.feeder : [rule.action?.feeder];
-    const targets = rule.kind === "gradedFeedSchedule" ? [rule.action.elevator, ...feeders] : [rule.action];
+    const targets =
+      rule.kind === "gradedFeedSchedule" ? [rule.action.elevator, ...feeders]
+      : rule.kind === "stagedPauseRestart" ? [rule.action.treater, rule.action.valve, rule.action.conveyor]
+      : [rule.action];
     for (const target of targets) {
       const actuator = byId.get(target.machine);
       if (!actuator) {

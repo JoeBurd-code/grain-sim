@@ -572,6 +572,39 @@ export function DrumFeederSymbol({ machine: m, dynamic, motion }) {
   );
 }
 
+// Pneumatic gate valve (issue #73): a short body with a bore through it and
+// two shutter leaves that close in from either side as `openness` falls.
+// Deliberately the *same* idiom the drum feeder's outlet gate above already
+// uses rather than a new one — both machines answer the identical question
+// ("how far open is this actuator right now"), and one vocabulary per
+// question is the rule. The bore is the only moving part: the body never
+// tints and never lights up, so a shut valve reads as shut by its geometry
+// alone, at a glance, with nothing else on the machine changing.
+//
+// `openness` is the valve's live *position*, not its commanded target, so a
+// valve mid-travel draws mid-travel — the whole point of giving it a real
+// ramp time.
+export function ValveSymbol({ machine: m, dynamic }) {
+  const { w, h } = m;
+  const openness = dynamic.openness ?? 1;
+  const boreX = 6, boreW = w - 12;
+  const boreY = h / 2 - 5, boreH = 10;
+  const leafW = ((1 - openness) / 2) * boreW;
+  return (
+    <g>
+      <rect className="body" width={w} height={h} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
+      {/* the two flanges either side of the body, so it reads as a fitting
+          in the run rather than another small bin */}
+      <rect x={0} y={h / 2 - 9} width={3} height={18} fill={C.muted} />
+      <rect x={w - 3} y={h / 2 - 9} width={3} height={18} fill={C.muted} />
+      <rect x={boreX} y={boreY} width={boreW} height={boreH} fill={C.bg} stroke={C.muted} strokeWidth="1" />
+      {leafW > 0 && <rect x={boreX} y={boreY} width={leafW.toFixed(1)} height={boreH} fill={C.muted} />}
+      {leafW > 0 && <rect x={(boreX + boreW - leafW).toFixed(1)} y={boreY} width={leafW.toFixed(1)} height={boreH} fill={C.muted} />}
+      <Instruments machine={m} x={w + 24} y={14} dynamic={dynamic} />
+    </g>
+  );
+}
+
 // Scalping screen: housing with an inclined mesh deck. The mesh and shake
 // line pick up C.wheat while `dynamic.flowing` (issue #26, splitter's own
 // snapshot) is true — a splitter holds no material for a fill bar to show,

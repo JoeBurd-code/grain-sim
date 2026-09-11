@@ -66,6 +66,14 @@ const TRIPPABLE = {
     stop: (state) => BEHAVIORS.source.command(state, "close", TRIP_RAMP_SEC),
     restore: (state, prior) => BEHAVIORS.source.command(state, prior.target === 0 ? "close" : "open", RESUME_VALVE_RAMP_SEC),
   },
+  // Issue #73: same shape as `source` above — capture the position some
+  // other still-latched interlock may already have commanded, slam shut,
+  // and restore to exactly that rather than a blind "open".
+  gateValve: {
+    capture: (state) => ({ target: state.opennessTarget }),
+    stop: (state) => BEHAVIORS.gateValve.command(state, "close", TRIP_RAMP_SEC),
+    restore: (state, prior) => BEHAVIORS.gateValve.command(state, prior.target === 0 ? "close" : "open", RESUME_VALVE_RAMP_SEC),
+  },
   meteredFeeder: {
     capture: (state) => ({ enabled: state.enabled }),
     stop: (state) => BEHAVIORS.meteredFeeder.setEnabled(state, false),
@@ -95,8 +103,8 @@ const TRIPPABLE = {
 // it up, the one place this log's shape differs from controlledStop.js's own.
 const CAUSE_ID = "utilities";
 
-function logEvent(ut, t, message) {
-  ut.log.push({ t, message, machineId: CAUSE_ID });
+function logEvent(ut, t, message, machineId = CAUSE_ID) {
+  ut.log.push({ t, message, machineId });
 }
 
 export function initUtilitiesTrip() {
@@ -105,8 +113,52 @@ export function initUtilitiesTrip() {
     phase: "running", // running -> armed -> tripped ; resetUtilitiesTrip always returns to running
     fireAt: null,
     commanded: new Map(), // id -> { kind, prior } — exactly what stop() touched, for restore()
+    // Issue #73: which subsystem put the line in "tripped". Null means the
+    // utilities toggle itself (this file's original and, until #73, only
+    // cause), and `resetUtilitiesTrip` then gates on `healthy` exactly as
+    // before. A control.js rule escalating to a whole-line trip sets this
+    // instead, carrying the sensor and threshold its own reset gate needs,
+    // so the reset re-reads the live level rather than trusting the press —
+    // the same self-gating shape every latch on this line already has.
+    cause: null, // null | { id, name, sensorId, clearBelow }
     log: [],
   };
+}
+
+// The stop half of a whole-line trip, shared by the utilities toggle below
+// and by any control.js rule escalating to one (issue #73): every
+// actuator-bearing machine captured and slammed shut in the same tick,
+// wherever its material happens to be.
+function stopEveryActuator(sim, ut) {
+  for (const [id, state] of sim.machines) {
+    const tripper = TRIPPABLE[state.kind];
+    if (!tripper) continue;
+    ut.commanded.set(id, { kind: state.kind, prior: tripper.capture(state) });
+    tripper.stop(state);
+  }
+}
+
+// Issue #73: a control.js rule's escalation path into this file's latch.
+// The Concetti pre-bin's own staged pause (control.js `stagedPauseRestart`)
+// gives the line 30 s to clear LSHH on its own; if it hasn't, the fault is
+// no longer "the bagger is between bags", it is "the bagger has stopped",
+// and the FD's own answer to a condition that will not clear is a trip the
+// operator must reset (§5). Routed through here rather than reimplemented
+// there because the thing being asked for is *exactly* the utilities trip's
+// own effect — stop everything, latch, wait for RESET TRIPS — and the line
+// should never have two different ways to be wholly stopped.
+//
+// Idempotent by phase: a rule calling this while the line is already
+// tripped (by either cause) changes nothing, so the escalation needs no
+// "did I already fire" bookkeeping of its own.
+export function tripLineFromInterlock(sim, { causeId, causeName, sensorId, clearBelow, message }) {
+  const ut = sim.utilitiesTrip;
+  if (ut.phase === "tripped") return;
+  stopEveryActuator(sim, ut);
+  ut.cause = { id: causeId, name: causeName, sensorId, clearBelow };
+  ut.phase = "tripped";
+  ut.fireAt = null;
+  logEvent(ut, sim.t, message, causeId);
 }
 
 // The presenter's own toggle (issue #51's "a single toggle that stops
@@ -134,12 +186,11 @@ export function setUtilitiesHealthy(sim, healthy) {
 export function stepUtilitiesTrip(sim) {
   const ut = sim.utilitiesTrip;
   if (ut.phase !== "armed" || sim.t < ut.fireAt) return;
-  for (const [id, state] of sim.machines) {
-    const tripper = TRIPPABLE[state.kind];
-    if (!tripper) continue;
-    ut.commanded.set(id, { kind: state.kind, prior: tripper.capture(state) });
-    tripper.stop(state);
-  }
+  stopEveryActuator(sim, ut);
+  // Issue #73: a utilities failure landing on a line already tripped by an
+  // interlock escalation takes ownership of the latch, since utilities
+  // health is the stricter of the two reset gates.
+  ut.cause = null;
   logEvent(ut, sim.t, "utilities failure — entire line tripped, no warning");
   ut.phase = "tripped";
   ut.fireAt = null;
@@ -156,7 +207,19 @@ export function stepUtilitiesTrip(sim) {
 export function resetUtilitiesTrip(sim) {
   const ut = sim.utilitiesTrip;
   if (ut.phase !== "tripped") return;
-  if (!ut.healthy) {
+  // Issue #73: which live condition this reset re-reads depends on which
+  // subsystem latched it. An interlock escalation clears on its own sensor
+  // falling back below the threshold that escalated; the utilities toggle
+  // clears on health. Either way the press never simply wins — see this
+  // function's own header.
+  if (ut.cause) {
+    const sensor = sim.machines.get(ut.cause.sensorId);
+    const level = sensor?.capacity > 0 ? sensor.stored / sensor.capacity : 0;
+    if (level >= ut.cause.clearBelow) {
+      logEvent(ut, sim.t, `reset commanded — ${ut.cause.name} still above its trip set point at ${(level * 100).toFixed(0)}%, line remains tripped`, ut.cause.id);
+      return;
+    }
+  } else if (!ut.healthy) {
     logEvent(ut, sim.t, "reset commanded — utilities still failed, remains latched");
     return;
   }
@@ -166,5 +229,11 @@ export function resetUtilitiesTrip(sim) {
   }
   ut.commanded = new Map();
   ut.phase = "running";
-  logEvent(ut, sim.t, "reset — utilities restored, line resumed");
+  const cause = ut.cause;
+  ut.cause = null;
+  logEvent(
+    ut, sim.t,
+    cause ? `reset — ${cause.name} cleared, operator restarted the line` : "reset — utilities restored, line resumed",
+    cause ? cause.id : CAUSE_ID,
+  );
 }

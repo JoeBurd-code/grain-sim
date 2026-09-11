@@ -403,6 +403,51 @@ export const line = {
       },
     },
     {
+      id: "afterBinOutletValve",
+      type: "valve",
+      name: "AFTER-BIN OUTLET VALVE",
+      tag: "52.601.V00",
+      status: "new",
+      zone: "treating",
+      // Sits on the straight run the after-bin's outlet already took down
+      // into the scalping screen, rather than displacing either machine:
+      // both anchors stay where they were and the one connection becomes
+      // two short ones through this node.
+      x: 580, y: 647, w: 40, h: 26,
+      ports: { inputs: ["in"], outputs: ["out"] },
+      anchors: { in: { x: 20, y: 0 }, out: { x: 20, y: 26 } },
+      label: { side: "right", align: "center" },
+      // Issue #73. A real, FD-named device this model never had: the start
+      // sequence opens it at step 12 and the cause-and-effect matrix already
+      // gives it an interlock of its own ("Scalping screen high
+      // 52.602.F00.LSH0 -> After-bin outlet valve 52.601.V00 (PI + trip),
+      // 5 s", docs/PLC_FUNCTIONAL_DESCRIPTION.md §5, still unmodelled). It
+      // is added now because the Concetti pre-bin's staged pause sequence
+      // (concettiHighHighPauseSequence below) closes it by name.
+      //
+      // `ceilingM3PerSec` is the change that matters in normal running, not
+      // just during the pause. Nothing used to bound how fast the after-bin
+      // could discharge, so a whole 160 kg batch (0.222 m3) reached the
+      // 0.2 m3 scalping discharge hopper in about nine seconds and spiked it
+      // to 79% of capacity every cycle — on a hopper that is itself only 90%
+      // of one batch. 19.2 t/h is DERIVED from the engineer's own observed
+      // figure for this valve (2026-09-11): a batch clears the after-bin in
+      // roughly 30 s, "about accurate to real life", and 0.222 m3 / 30 s is
+      // 0.00741 m3/s = 19.2 t/h at the project's 0.72 t/m3. That sits
+      // comfortably above the line's own ~12 t/h sustained rate, so it is a
+      // genuine ceiling rather than a new limiter. See docs/OPEN_QUESTIONS.md.
+      //
+      // No `instruments` entry despite the real valve carrying ZS1/ZS2
+      // position switches (REAL_LINE_SPECS.md §7): those are position
+      // confirmations, not level switches, and nothing in the control layer
+      // reads them — the drawn gate already shows the same fact.
+      sim: {
+        kind: "gateValve",
+        ceilingM3PerSec: tPerHourToM3PerSec(19.2),
+        provenance: { ceilingM3PerSec: "derived" },
+      },
+    },
+    {
       id: "scalpingScreen",
       type: "screen",
       name: "TREATMENT SCALPING SCREEN",
@@ -1341,7 +1386,12 @@ export const line = {
     { from: { machine: "treatingElevator", port: "out" }, to: { machine: "treaterPreBin", port: "in" }, kind: "product" },
     { from: { machine: "treaterPreBin", port: "out" }, to: { machine: "batchTreater", port: "in" }, kind: "product" },
     { from: { machine: "batchTreater", port: "out" }, to: { machine: "treaterAfterBin", port: "in" }, kind: "product" },
-    { from: { machine: "treaterAfterBin", port: "out" }, to: { machine: "scalpingScreen", port: "in" }, kind: "product" },
+    // Issue #73: the after-bin's outlet now passes through its own valve
+    // (52.601.V00) on the way into the screen, rather than dropping
+    // straight in — two short runs along exactly the line the single one
+    // used to take.
+    { from: { machine: "treaterAfterBin", port: "out" }, to: { machine: "afterBinOutletValve", port: "in" }, kind: "product" },
+    { from: { machine: "afterBinOutletValve", port: "out" }, to: { machine: "scalpingScreen", port: "in" }, kind: "product" },
     // Now a right-angle chute off the screen's left-hand corner rather than
     // the long shallow diagonal it used to cut across the gap: drop clear of
     // the screen, run left above the discard bin, then down into its top.
@@ -1642,24 +1692,89 @@ export const line = {
       // the conveyor, just the one outlet, `outConcetti` — so the schedule
       // must never throttle/trip the shared conveyor while it's routed to
       // Flexicon or the outload branch instead.
+      //
+      // Issue #73: this rule no longer carries a high-high stage at all.
+      // The three bands below are unchanged, but LSHH now commands
+      // concettiHighHighPauseSequence (stagedPauseRestart, below) instead
+      // of this rule's own latched conveyor trip. The engineer's own
+      // description of what should happen at LSHH is an ordered pause and
+      // self-recovery, not a latch, and two rules on one bin must not both
+      // claim the same switch — so `highHighSetpoint` and `trip` are gone
+      // from here rather than left in place and ignored, and this rule's
+      // own LSHH dot with them (control.js's instrumentReadings skips a
+      // listed code a rule carries no set point for). The bin still shows
+      // one LSHH dot; it belongs to the sequence rule now.
       lowSetpoint: 0.35,
       highSetpoint: 0.85,
-      highHighSetpoint: 0.95,
       boost: { speedFraction: 0.9401, gateFraction: 0.6432, delaySec: 3, rampTimeSec: 4 }, // ~18 TPH
       normal: { speedFraction: 0.829, gateFraction: 0.5672, delaySec: 3, rampTimeSec: 4 }, // ~14 TPH
       throttle: { speedFraction: 0.5862, gateFraction: 0.4011, delaySec: 3, rampTimeSec: 4 }, // ~7 TPH
-      trip: { delaySec: 5, rampTimeSec: 6 },
       action: { elevator: { machine: "pendulumConveyor" }, feeder: [{ machine: "inletDrumFeeder1" }, { machine: "inletDrumFeeder2" }] },
       armedWhen: [{ machine: "pendulumConveyor", port: "outConcetti" }],
       provenance: {
-        lowSetpoint: "confirmed", highSetpoint: "confirmed", highHighSetpoint: "confirmed",
+        lowSetpoint: "confirmed", highSetpoint: "confirmed",
         "boost.speedFraction": "derived", "boost.gateFraction": "derived",
         "boost.delaySec": "assumed", "boost.rampTimeSec": "assumed",
         "normal.speedFraction": "derived", "normal.gateFraction": "derived",
         "normal.delaySec": "assumed", "normal.rampTimeSec": "assumed",
         "throttle.speedFraction": "derived", "throttle.gateFraction": "derived",
         "throttle.delaySec": "assumed", "throttle.rampTimeSec": "assumed",
-        "trip.delaySec": "confirmed", "trip.rampTimeSec": "assumed",
+      },
+    },
+    {
+      id: "concettiHighHighPauseSequence",
+      kind: "stagedPauseRestart",
+      sensor: { machine: "concettiPreBin" },
+      // Issue #73, and entirely the plant engineer's description
+      // (2026-09-11) rather than anything in the FD: on Concetti pre-bin
+      // LSHH the treater finishes its current batch and then holds, the
+      // valve above the scalping screen closes and the packaging conveyor
+      // stops. When LSHH clears, the conveyor restarts after 30 s and the
+      // valve opens 10 s after that; the treater is released separately,
+      // when LSH clears. If LSHH will not clear within 30 s the whole line
+      // trips and an operator must restart it.
+      //
+      // Set points are the bin's own existing 85% / 95% pair, shared with
+      // concettiFeedSchedule above (one physical LSH and one physical
+      // LSHH; engine.js's setInterlockField moves both rules together from
+      // the bin's one dial). None of the four times below has an FD number
+      // behind it — they are the engineer's own figures, given directly,
+      // and marked `confirmed` on that basis the same way every other
+      // engineer-given value on this line is.
+      //
+      // signalDelaySec keeps the FD's own 5 s for this exact sensor (the
+      // cause-and-effect matrix's "Concetti pre-bin high 52.705.H00 ->
+      // bucket elevator 52.604.E00, 5 s"), which the engineer's
+      // description does not contradict: he gave the ordering and the
+      // restart dwells, not the signal latency. See docs/OPEN_QUESTIONS.md.
+      //
+      // valveRampSec/conveyorRampSec are travel and spin-up time on top of
+      // the commanded dwells, carried over from the ramp figures the
+      // superseded trip stage used (6 s), and assumed exactly as those were.
+      highSetpoint: 0.85,
+      highHighSetpoint: 0.95,
+      signalDelaySec: 5,
+      escalationDelaySec: 30,
+      conveyorStartDelaySec: 30,
+      valveOpenDelaySec: 10,
+      valveRampSec: 6,
+      conveyorRampSec: 6,
+      action: {
+        treater: { machine: "batchTreater" },
+        valve: { machine: "afterBinOutletValve" },
+        conveyor: { machine: "pendulumConveyor" },
+      },
+      // Same one condition the feed schedule above uses, for the same
+      // reason: this branch has a single conveyor outlet, so the conveyor's
+      // own selected port alone is "Concetti is the destination". A full
+      // Concetti bin must never pause the shared conveyor while the line is
+      // running to Flexicon or the outload branch.
+      armedWhen: [{ machine: "pendulumConveyor", port: "outConcetti" }],
+      provenance: {
+        highSetpoint: "confirmed", highHighSetpoint: "confirmed",
+        signalDelaySec: "confirmed", escalationDelaySec: "confirmed",
+        conveyorStartDelaySec: "confirmed", valveOpenDelaySec: "confirmed",
+        valveRampSec: "assumed", conveyorRampSec: "assumed",
       },
     },
     {

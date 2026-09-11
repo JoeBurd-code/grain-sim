@@ -13,7 +13,7 @@ import {
   ConveyorSymbol, DrumFeederSymbol, ScreenSymbol, TreaterSymbol,
   SamplerSymbol, GrainBreakSymbol, IbcSymbol, MetalRemoverSymbol,
   ProBoxSymbol, VibratorySymbol, FillingHeadSymbol, RollerScaleSymbol,
-  ScaleSymbol, FillerSymbol, PalletiserSymbol,
+  ScaleSymbol, FillerSymbol, PalletiserSymbol, ValveSymbol,
 } from "./symbols";
 import { useFlowAnimation, FLOW_DASH_PATTERN } from "./useFlowAnimation";
 import { useMachineMotion } from "./useMachineMotion";
@@ -30,6 +30,7 @@ const SYMBOLS = {
   stub: StubSymbol,
   conveyor: ConveyorSymbol,
   drumFeeder: DrumFeederSymbol,
+  valve: ValveSymbol,
   screen: ScreenSymbol,
   treater: TreaterSymbol,
   sampler: SamplerSymbol,

@@ -78,6 +78,19 @@ const STOPPABLE = {
     describeStop: () => `valve commanded closed (ramping over ${VALVE_RAMP_SEC}s) — controlled stop`,
     describeResume: () => `valve commanded open (ramping over ${VALVE_RAMP_SEC}s) — line resumed`,
   },
+  // Issue #73: the same binary open/close contract as `source` above, and
+  // the same "a valve holds no material of its own" drain answer — it
+  // differs only in sitting mid-line rather than at the head of it, which
+  // this walk never looks at. Ramped over the identical VALVE_RAMP_SEC so
+  // the after-bin outlet valve closes at the same pace on a controlled stop
+  // as the source valve does.
+  gateValve: {
+    stop: (state) => BEHAVIORS.gateValve.command(state, "close", VALVE_RAMP_SEC),
+    isDrained: () => true,
+    resume: (state) => BEHAVIORS.gateValve.command(state, "open", VALVE_RAMP_SEC),
+    describeStop: () => `valve commanded closed (ramping over ${VALVE_RAMP_SEC}s) — controlled stop`,
+    describeResume: () => `valve commanded open (ramping over ${VALVE_RAMP_SEC}s) — line resumed`,
+  },
   meteredFeeder: {
     stop: (state) => BEHAVIORS.meteredFeeder.setEnabled(state, false),
     isDrained: () => true, // holds no material of its own
@@ -86,19 +99,37 @@ const STOPPABLE = {
     describeResume: () => `feeder re-enabled — line resumed`,
   },
   batchCycle: {
-    stop: (state) => BEHAVIORS.batchCycle.command(state, true),
+    stop: (state) => BEHAVIORS.batchCycle.command(state, true, "controlledStop"),
     // A charge already accepting material keeps running to completion and
     // discharges normally regardless of `blocked` (capacityAvailableBatchCycle
     // only withholds a *fresh* charge) — so commanding this immediately never
-    // freezes anything. Deliberately does *not* gate on `held` reaching zero
-    // the way accumulator does below: by the time this index is reached,
-    // everything upstream is already fully drained, so a charge sitting at
-    // some fraction of chargeM3 has no more supply coming and can never
-    // finish — waiting for it to reach zero would hang forever on a
-    // perfectly legitimate outcome (a starved partial charge, accounted for
-    // in conservation's own `inTransit`, not lost).
-    isDrained: () => true,
-    resume: (state) => BEHAVIORS.batchCycle.command(state, false),
+    // freezes anything.
+    //
+    // Deliberately does *not* gate on `held` reaching zero the way
+    // accumulator does below: by the time this index is reached, everything
+    // upstream is already fully drained, so a charge sitting at some
+    // fraction of chargeM3 has no more supply coming and can never finish —
+    // waiting for it to reach zero would hang forever on a perfectly
+    // legitimate outcome (a starved partial charge, accounted for in
+    // conservation's own `inTransit`, not lost). `charging` is exactly that
+    // state, and the two phases either side of it are exactly the opposite:
+    // `holding` and `discharging` both mean a *complete* charge is on its
+    // way out, and it will land downstream whether this walk waits for it or
+    // not.
+    //
+    // This used to return true unconditionally, which was harmless only
+    // because nothing between the treater and the scalping screen could
+    // ever close. Issue #73 put a real valve there (52.601.V00), and the
+    // walk would pass the treater mid-hold, drain and pass the after-bin,
+    // shut the valve, and only then have the treater discharge a full 160 kg
+    // charge into a bin with nowhere to send it — stranded material on a
+    // shutdown whose entire purpose is to clear the line.
+    //
+    // `stopped` (the utilities trip's own freeze, behaviors.js) short-
+    // circuits it: a tripped machine's phase never advances again, so
+    // waiting on it would hang.
+    isDrained: (state) => state.stopped || state.phase === "charging",
+    resume: (state) => BEHAVIORS.batchCycle.command(state, false, "controlledStop"),
     describeStop: () => `won't start a fresh charge — controlled stop`,
     describeResume: () => `released to start its next charge — line resumed`,
   },
