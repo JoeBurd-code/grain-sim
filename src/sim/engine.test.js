@@ -6,6 +6,7 @@ import {
   setBatchSize, setBatchCycleSec, setSplitterWasteFraction, setSource, getSource,
   setDestination, getDestination,
   controlledStop, resumeLine, getControlledStopPhase,
+  hasAnyTripLatched,
   setUtilitiesHealthy, getUtilitiesTripPhase,
   clearPlant, emptyTerminalSink,
 } from "./engine";
@@ -3765,6 +3766,25 @@ describe("Concetti pre-bin's staged pause and restart (issue #73)", () => {
     expect(messages.some((m) => m.includes("conveyor started"))).toBe(true);
     expect(messages.some((m) => m.includes("valve above the scalping screen opened"))).toBe(true);
     for (const entry of concettiPauseSequence(sim).log) expect(typeof entry.t).toBe("number");
+  });
+});
+
+describe("RESET TRIPS lights for the escalation, not for a routine pause (issue #73)", () => {
+  const warm = (sim, secs) => { for (let i = 0; i < Math.round(secs / DT); i++) stepSim(sim, DT); };
+
+  it("stays quiet through a routine pause and lights only on the escalation", () => {
+    const sim = createSim(line); setSource(sim, "treatingLine"); setDestination(sim, "concetti");
+    warm(sim, 400);
+    setBatchCycleSec(sim, "concettiScale", 60);
+    setAccumulatorLevel(sim, "concettiPreBin", 1);
+    warm(sim, 1);
+    setAccumulatorLevel(sim, "concettiPreBin", 1);
+    warm(sim, 10); // paused, well short of the 30s escalation
+    expect(sim.control.find((r) => r.kind === "stagedPauseRestart").phase).toBe("paused");
+    expect(hasAnyTripLatched(sim)).toBe(false); // routine pause: button quiet
+    warm(sim, 25); // past the escalation
+    expect(getUtilitiesTripPhase(sim)).toBe("tripped");
+    expect(hasAnyTripLatched(sim)).toBe(true);   // now it pulses
   });
 });
 

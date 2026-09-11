@@ -1457,13 +1457,14 @@ const LATCHED_PHASES = {
   thresholdStopTrip: new Set(["tripped"]),
   gradedFeedSchedule: new Set(["tripped"]),
   hysteresisValve: new Set(["tripped"]),
-  // Issue #73: "paused" is this rule's only phase a presenter could need
-  // RESET TRIPS for, and only when the escalation has actually tripped the
-  // line — an ordinary pause clears itself. Listing it regardless matches
-  // this table's own stated purpose (would the button have anything to do)
-  // more closely than leaving the escalated case invisible would, since the
-  // line is genuinely down in both.
-  stagedPauseRestart: new Set(["paused"]),
+  // Issue #73: stagedPauseRestart has no latched phase, deliberately. Its
+  // ordinary "paused" clears itself the moment LSHH does, so pulsing RESET
+  // TRIPS through a routine pause would tell a presenter to press a button
+  // that is not needed. The one state on this rule that *does* need an
+  // operator is its 30 s escalation, and that is a whole-line trip: it
+  // already shows through `sim.utilitiesTrip.phase` in engine.js's
+  // hasAnyTripLatched, which is the same indicator, reached by the honest
+  // route.
 };
 
 // One dispatch table entry per rule kind (issue #45's own instruction:
