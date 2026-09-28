@@ -43,9 +43,16 @@ export function dialOverriding(state, f) {
     && Math.abs(state[f.dial] - state[f.throttle]) > DIAL_SNAP;
 }
 
-// The fraction the actuator actually runs at.
+// The fraction the actuator actually runs at. During a full stop the
+// throttle ramps down from wherever the interlock last had it, which can sit
+// above a dial the presenter had slowed the machine to; a stop must ramp
+// down from the machine's real speed, never jump it back up to the cap first
+// (seen live 2026-09-28: a chain dialled to 30% leapt to 79% the instant the
+// LSHH trip fired, then ramped to 0).
 export function dialEffective(state, f) {
-  return dialOverriding(state, f) ? state[f.dial] : state[f.throttle];
+  if (dialOverriding(state, f)) return state[f.dial];
+  if (state[f.touched] === true && state[f.target] <= 0) return Math.min(state[f.dial], state[f.throttle]);
+  return state[f.throttle];
 }
 
 // The presenter drags the dial. A drag that lands within DIAL_SNAP of the

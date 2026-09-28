@@ -58,6 +58,15 @@ describe("dial (issue #63): the one override rule", () => {
     expect(dialEffective(s, SPEED_DIAL)).toBe(0.3);
   });
 
+  it("a full stop ramps down from a slowed dial, never jumping up to the cap first", () => {
+    const s = governed(0.79);
+    setDial(s, SPEED_DIAL, 0.3); // presenter slowed the chain below the cap
+    s.throttleTarget = 0; // LSHH trip: throttle starts ramping down from 0.79
+    expect(dialEffective(s, SPEED_DIAL)).toBe(0.3); // not 0.79
+    s.throttleFraction = 0.1; // ramp has passed below the dial
+    expect(dialEffective(s, SPEED_DIAL)).toBe(0.1);
+  });
+
   it("clamps a drag to 0..1", () => {
     const s = governed(0.5);
     setDial(s, SPEED_DIAL, 1.7);
