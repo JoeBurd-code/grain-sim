@@ -10,79 +10,25 @@ import { m3ToTonnes } from "../sim/units";
 
 // `live` (issue #34, reshaped by issue #63) is resolved by the parent from
 // the machine's published snapshot via `param.readBind` — see PARAM_READERS
-// in PlantApp.jsx — as `{ actual, cap, overridable }`, or `null` for a param
-// with no `readBind` at all. `cap`/`overridable` are the live throttle
-// band's own cap (in the same units as this slider) and whether that band
-// is a genuine partial throttle (overridable) rather than a full stop
-// (never overridable) — `cap` is `null` for a param with no throttle band of
-// its own (sourceRate/feederRate), in which case no tick is drawn and
-// override never arms.
+// in PlantApp.jsx — as `{ actual, cap, overridable, overriding }`, or `null`
+// for a param with no `readBind` at all. `cap` is where the interlock alone
+// would run this actuator (the slider's tick), in the slider's own units, or
+// `null` for a param with no throttle band of its own (sourceRate/
+// feederRate), in which case no tick is drawn and override never arms.
 //
-// `touched` says whether the operator has ever actually dragged *this*
-// slider (derived from PlantApp's own `paramValues`, cleared on RESTART) —
-// override only ever arms once the dial has genuinely been set, never merely
-// because it happens to be sitting at its untouched default above a live
-// cap (see isThrottleOverridden's own comment, sim/behaviors.js, for why a
-// gradedFeedSchedule band's always-below-100% targets make that gate
-// necessary).
-//
-// Dragging a touched dial away from the cap — the machine's own "balanced"
-// point, wherever the interlock alone would run it — arms a manual override
-// (issue #63, point #2, refined in a follow-up grilling session 2026-08-24):
-// implicit, no separate toggle, and in *either* direction, not only above the
-// cap — the thumb and text switch to the same warning red the RESET TRIPS
-// button uses while tripped, with an "OVERRIDE" tag. A full stop (cap
-// present but not overridable) instead clamps the input's own `max` to the
-// cap, so the dial physically cannot be dragged away from it at all
-// (point #3). Dragging a touched dial back onto the cap doesn't just disarm
-// the display here — PlantApp's own onParamChange (issue #63 follow-up)
-// treats that exact drop as "return to normal" and releases the dial
-// entirely (engine.js's releaseElevatorSpeed/releaseGateFraction) rather
-// than leaving it touched at a value that only coincidentally equals the
-// cap right now, so it keeps tracking the live cap afterward instead of
-// drifting (or spuriously re-arming) the next time the cap itself moves.
-//
-// There is only ever *one* number on display, not two: `displayValue` is
-// the dial itself while armed (an override is defined as "run it at what I
-// dialled, not what the interlock would otherwise produce"), or the live
-// cap (`live.actual`, PlantApp.jsx) while governed — never the raw
-// operator's dial in isolation. Showing the raw dial here (issue #63's
-// first pass) is what made a fresh, untouched machine read "100%" in the
-// text while its own thumb sat at 85% — and made a *touched* dial parked
-// exactly on the tick still visually snap away to some other figure, since
-// the thumb and the text disagreed about which of the two numbers to trust.
-// A separate "actual X" annotation is no longer needed for these two
-// params: text and thumb are now the same source, so there is nothing left
-// for a second figure to add. (sourceRate/feederRate, whose `cap` is always
-// `null`, keep showing their own live `actual` here unconditionally — see
-// PARAM_READERS' own comment on why those two never arm.)
+// Whether the dial is overriding, and the one number to display, are the
+// sim's own answer (sim/dial.js, published on the snapshot), never re-derived
+// here: while overriding the readout and thumb turn the same warning red the
+// RESET TRIPS button uses, with an "OVERRIDE" tag, and `actual` is the dial;
+// while governed `actual` is the live cap. A full stop (`overridable` false)
+// clamps the input's own `max` to the cap, so the dial cannot be dragged away
+// from it at all. A drag that lands back on the cap is "return to normal":
+// the sim's own setDial releases the dial rather than leaving it touched.
 //
 // `value` is a controlled prop, not local state: this popup unmounts
-// entirely on close (PlantApp only renders it while a machine is
-// selected), so any position held in a `useState` here reverts to
-// `param.value` — the lineData default — the moment the popup reopens.
-// The operator's last-dragged position instead lives in PlantApp, above
-// the unmount boundary, so it survives close/reopen — and is still what
-// `armed` compares against, even though it's no longer what's displayed.
-// A native range input's click-to-position and drag both center the visible
-// thumb under the cursor, but our own tick mark (`capPct` below) is drawn at
-// a plain linear percentage of the track's full width — it never accounts
-// for the thumb's own physical width, which the browser insets from both
-// ends of the track when mapping a position to a value. The two disagree by
-// roughly half the thumb's width in pixels, which is why clicking (or
-// dragging) to what visually looks like dead-on the tick still lands `value`
-// a point or two off it: the readout tracks the thumb's true native
-// position, not the naively-drawn tick. Rather than chase the exact
-// thumb-width math (OS/browser-themed, not something this app controls, at
-// `appearance: auto`), both this arming check and PlantApp.jsx's own
-// return-to-normal release in onParamChange snap within a small tolerance
-// of the cap instead of requiring exact equality — the same fix on both
-// ends of the one comparison they share.
-// Exported so PlantApp.jsx's onParamChange snaps a return-to-normal release
-// on the exact same window this file arms/disarms on — the two must agree,
-// or a drag could read as "released" here while the engine below still
-// thinks it's touched at an off-cap fraction, or vice versa.
-export const OVERRIDE_SNAP = 2; // percentage points either side of the cap that still counts as "on it"
+// entirely on close, so the operator's last-dragged position lives in
+// PlantApp, above the unmount boundary. It is only what a param with no live
+// reading displays.
 
 // The tick's own pixel position needs the thumb's diameter to correct for
 // the inset above — which means the thumb can no longer be left at its
@@ -102,18 +48,11 @@ export const THUMB_PX = 14;
 // this via `margin-top: (TRACK_PX - THUMB_PX) / 2`.
 export const TRACK_PX = 6;
 
-function Slider({ param, value, touched, live, onChange }) {
+function Slider({ param, value, live, onChange }) {
   const cap = live?.cap ?? null;
   const overridable = live?.overridable ?? false;
-  // Grilled 2026-08-24: the tick is the machine's own "balanced" point — what
-  // the interlock alone would run it at — so any touched dial that departs
-  // from it, above *or* below, reads as a manual override, not only a value
-  // dragged past the cap. (A full stop clamps `inputMax` to the cap, so the
-  // dial can never actually diverge from it while `!overridable` — nothing
-  // further to gate here for that case.) Snapped within OVERRIDE_SNAP above,
-  // not exact equality — see that constant's own comment.
-  const armed = touched && cap != null && Math.abs(value - cap) > OVERRIDE_SNAP;
-  const displayValue = armed ? value : (live?.actual != null ? Math.round(live.actual) : value);
+  const armed = live?.overriding ?? false;
+  const displayValue = live?.actual != null ? Math.round(live.actual) : value;
 
   const range = param.max - param.min;
   // A full stop physically caps how far the dial can be dragged; otherwise
@@ -284,7 +223,6 @@ export default function MachinePopup({
               key={`${m.id}-${p.id}`}
               param={p}
               value={paramValues?.[m.id]?.[p.id] ?? p.value}
-              touched={paramValues?.[m.id]?.[p.id] !== undefined}
               live={p.readBind ? onParamRead?.(m.id, p) : null}
               onChange={(v) => onParamChange?.(m.id, p, v)}
             />

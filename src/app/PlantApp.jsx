@@ -7,7 +7,7 @@ import { line } from "../line/lineData";
 import { validateLine } from "../line/validateLine";
 import { lineBounds, zoneBounds } from "../line/bounds";
 import Scene from "../scene/Scene";
-import MachinePopup, { OVERRIDE_SNAP, THUMB_PX, TRACK_PX } from "./MachinePopup";
+import MachinePopup, { THUMB_PX, TRACK_PX } from "./MachinePopup";
 import TransportControls from "./TransportControls";
 import PlantControls from "./PlantControls";
 import ChartDock from "./ChartDock";
@@ -53,52 +53,18 @@ const PARAM_BINDERS = {
   wasteFraction: (engine, machineId, value) => engine.setWasteFraction(machineId, value / 100),
 };
 
-// "Return to normal" (issue #63 follow-up): the two params above whose
-// readBind reports a live `cap` (elevatorSpeed, gatePosition) also declare a
-// releaser here. onParamChange calls this instead of the plain binder above
-// the moment a drag lands back on that live cap, so the dial goes back to
-// its exact untouched-default shape (engine.js's releaseElevatorSpeed /
-// releaseGateFraction) rather than staying touched forever at a fraction
-// that only coincidentally matches the cap right now. Without this, a dial
-// dragged back to "normal" kept driving the real chain speed / gate at that
-// frozen fraction, silently diverging the moment the interlock's own cap
-// next moved — and could even re-arm the override with no further drag at
-// all, since the stored dial value no longer tracked the live cap either.
-const PARAM_RELEASERS = {
-  elevatorSpeed: (engine, machineId) => engine.releaseElevatorSpeed(machineId),
-  gatePosition: (engine, machineId) => engine.releaseGateFraction(machineId),
-};
-
 // Live "actual" readouts (issue #34): the same declarative shape as
 // PARAM_BINDERS above, but resolved against a machine's live published
 // snapshot instead of calling into the engine. Only params whose machine can
 // have its real output overridden by an active interlock declare `readBind`;
 // a param with none shows no readout at all. The setpoint slider itself
 // never reads from these — it stays bound only to the operator's own dial.
-// Issue #63: every reader now returns `{ actual, cap, overridable }` rather
-// than a bare number. `cap` (in the same units as the param's own slider) is
-// where a throttle band currently limits this dial, or `null` when this
-// param has no such band at all (sourceRate/feederRate — see their own
-// comment below); `overridable` says whether the governing rule's live
-// target is a genuine partial throttle (> 0) rather than a full stop, which
-// can never be overridden. MachinePopup's own Slider combines this with the
-// operator's dial (already passed to it separately) to derive the tick
-// position and the armed/not-armed state itself — see that component's own
-// comment.
-//
-// `actual`, for the two throttle-band params below, is simply the live cap
-// itself (`throttleFraction`/`gateThrottleFraction`) — *not* issue #34's old
-// `dial x throttle` figure. That old formula only ever agreed with the cap
-// while the dial sat at its untouched default of 1 (true for every real
-// interlocked machine before this ticket, since nothing could touch the
-// dial yet); the moment a presenter's own dial is *touched* and parked
-// anywhere else — including exactly on the cap, "balanced" — dial x throttle
-// diverges from both the cap and the dial itself, which is exactly what let
-// the slider's own thumb visually snap away from wherever it was dragged to.
-// MachinePopup's own Slider is what actually decides which of `actual` (the
-// live cap) or the raw dial to display and drive the thumb with, based on
-// its own broader, touched-aware armed state (see that component's own
-// comment) — this reader only ever needs to report the cap.
+// Issue #63: every reader returns `{ actual, cap, overridable, overriding }`
+// rather than a bare number. For the two dial params (elevatorSpeed,
+// gatePosition) all four come straight off the sim's own published dial
+// reading (sim/dial.js) — the one place the override rule lives — scaled to
+// the slider's percent. `actual` is what the actuator really runs at: the
+// dial while overriding, the live cap while governed.
 const PARAM_READERS = {
   // Source valve (issue #19) and drum feeder (issue #42): each can be
   // overridden by an interlock (valve openness; a direct rate command) out
@@ -115,33 +81,22 @@ const PARAM_READERS = {
   // write, not a live cap) — `cap: null` so issue #63's override mechanism
   // never engages for these two, honestly reflecting that there's nothing
   // here for a dial to be dragged past.
-  sourceRateActual: (dynamic) => (dynamic ? { actual: m3PerSecToTPerHour((dynamic.nominalRate ?? 0) * (dynamic.openness ?? 1)), cap: null, overridable: false } : null),
-  feederRateActual: (dynamic) => (dynamic ? { actual: m3PerSecToTPerHour(dynamic.rate ?? 0), cap: null, overridable: false } : null),
-  // Elevator (issue #22's two-stage throttle, superseded on the real line by
-  // issue #60's gradedFeedSchedule): speedFraction is the operator's own VFD
-  // dial, throttleFraction is the interlock's own multiplier layered on top.
-  elevatorSpeedActual: (dynamic) => {
-    if (!dynamic) return null;
-    const cap = (dynamic.throttleFraction ?? 1) * 100;
-    return {
-      actual: cap,
-      cap,
-      overridable: (dynamic.throttleTarget ?? 1) > 0,
-    };
-  },
-  // Drum feeder gate (issue #60): same shape as elevatorSpeedActual above —
-  // gateFraction is the presenter's own dial, gateThrottleFraction the feed
-  // schedule's own multiplier layered on top.
-  gatePositionActual: (dynamic) => {
-    if (!dynamic) return null;
-    const cap = (dynamic.gateThrottleFraction ?? 1) * 100;
-    return {
-      actual: cap,
-      cap,
-      overridable: (dynamic.gateThrottleTarget ?? 1) > 0,
-    };
-  },
+  sourceRateActual: (dynamic) => (dynamic ? { actual: m3PerSecToTPerHour((dynamic.nominalRate ?? 0) * (dynamic.openness ?? 1)), cap: null, overridable: false, overriding: false } : null),
+  feederRateActual: (dynamic) => (dynamic ? { actual: m3PerSecToTPerHour(dynamic.rate ?? 0), cap: null, overridable: false, overriding: false } : null),
+  // Elevator speed (issue #21 VFD dial) and drum feeder gate (issue #60).
+  elevatorSpeedActual: (dynamic) => dialPercent(dynamic?.speedDial),
+  gatePositionActual: (dynamic) => dialPercent(dynamic?.gateDial),
 };
+
+function dialPercent(reading) {
+  if (!reading) return null;
+  return {
+    actual: reading.effective * 100,
+    cap: reading.cap * 100,
+    overridable: reading.overridable,
+    overriding: reading.overriding,
+  };
+}
 
 const validation = validateLine(line);
 
@@ -199,33 +154,10 @@ export default function PlantApp() {
   }, [engine]);
 
   const closePopup = useCallback(() => setSelectedId(null), []);
-  // Issue #63 follow-up: a drag that lands exactly back on the live cap is
-  // "return to normal", not just another touch — release instead of set (see
-  // PARAM_RELEASERS' own comment above), untouching the dial in paramValues
-  // too so a reopened popup, and every render until the next real drag,
-  // tracks the live cap the same way a never-touched dial does.
+  // A drag that lands back on a dial's live cap is released by the sim itself
+  // (setDial, sim/dial.js), so this only records the position and forwards it.
   const onParamChange = useCallback(
     (machineId, param, value) => {
-      const releaser = PARAM_RELEASERS[param.bind];
-      const live = releaser && param.readBind
-        ? PARAM_READERS[param.readBind]?.(engine.snap.machines.get(machineId))
-        : null;
-      // Snapped within OVERRIDE_SNAP, not exact equality — a native range
-      // input's click/drag centers the thumb under the cursor, but our own
-      // tick mark (MachinePopup.jsx's Slider) is drawn at a plain linear
-      // percentage that doesn't account for the thumb's own physical width,
-      // so a drag that visually lands dead-on the tick still comes back a
-      // point or two off it. See OVERRIDE_SNAP's own comment.
-      if (live?.cap != null && Math.abs(value - live.cap) <= OVERRIDE_SNAP) {
-        setParamValues((prev) => {
-          if (prev[machineId]?.[param.id] === undefined) return prev;
-          const rest = { ...prev[machineId] };
-          delete rest[param.id];
-          return { ...prev, [machineId]: rest };
-        });
-        releaser(engine, machineId);
-        return;
-      }
       setParamValues((prev) => ({
         ...prev,
         [machineId]: { ...prev[machineId], [param.id]: value },

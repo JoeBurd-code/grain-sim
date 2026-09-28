@@ -14,7 +14,8 @@
 // to `thresholdTrip` so every interlock authored before this registry
 // existed (issue #19) needs no `lineData.js` change.
 import { tripLineFromInterlock } from "./utilitiesTrip";
-import { BEHAVIORS, isThrottleOverridden } from "./behaviors";
+import { BEHAVIORS } from "./behaviors";
+import { SPEED_DIAL, GATE_DIAL, dialEffective } from "./dial";
 import { m3PerSecToTPerHour, simatekFeedRateTph, tPerHourToM3PerSec } from "./units";
 
 function readLevel(machines, machineId) {
@@ -1418,24 +1419,18 @@ export function initFeedRateDerivations(line) {
 // logging every tick would flood the presenter-facing event log with
 // nothing new to report, so this is an intentional exception, not simply
 // forgotten.
-// Manual override (issue #63): each multiplicand is evaluated independently
-// against its own dial/throttle pair — overriding the gate must not
-// implicitly override the elevator's own effective speed, and vice versa,
-// even though both feed into this one formula. `isThrottleOverridden` (see
-// behaviors.js) is the same stateless per-frame check the elevator's own
-// capacityAvailableTransportDelay uses for its own dial.
-function effectiveActuatorFraction(dialTouched, dialFraction, throttleFraction, throttleTarget) {
-  return isThrottleOverridden(dialTouched, dialFraction, throttleFraction, throttleTarget)
-    ? dialFraction
-    : dialFraction * throttleFraction;
-}
-
+// Manual override (issue #63): each multiplicand resolves through its own
+// dial independently (dial.js) — overriding the gate must not implicitly
+// override the elevator's own effective speed, and vice versa, even though
+// both feed into this one formula. The same `dialEffective` the elevator's
+// own intake and chain speed use, so the feed rate and the chain always
+// agree about how fast the elevator is running.
 export function stepFeedRateDerivation(sim) {
   for (const link of sim.feedRateDerivations) {
     const elevator = sim.machines.get(link.elevatorId);
     const feeder = sim.machines.get(link.feederId);
-    const effectiveSpeed = effectiveActuatorFraction(elevator.speedDialTouched, elevator.speedFraction, elevator.throttleFraction, elevator.throttleTarget);
-    const effectiveGate = effectiveActuatorFraction(feeder.gateDialTouched, feeder.gateFraction, feeder.gateThrottleFraction, feeder.gateThrottleTarget);
+    const effectiveSpeed = dialEffective(elevator, SPEED_DIAL);
+    const effectiveGate = dialEffective(feeder, GATE_DIAL);
     const tph = simatekFeedRateTph(effectiveSpeed, effectiveGate);
     BEHAVIORS[feeder.kind].command(feeder, tPerHourToM3PerSec(tph));
   }

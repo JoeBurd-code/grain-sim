@@ -3,6 +3,7 @@
 // state back. Internals (the two-phase step, how behaviours are wired) are
 // not part of this seam.
 import { BEHAVIORS, REGISTERED_KINDS, unregisteredKindMessage } from "./behaviors";
+import { SPEED_DIAL, GATE_DIAL, setDial, releaseDial } from "./dial";
 import {
   initControl, stepControl, combineEventLogs, primeInstruments, primeFeedSchedules, resetTrips as resetControlTrips,
   hasLatchedTrip,
@@ -437,38 +438,25 @@ export function setFeederRate(sim, id, rateM3PerSec) {
 // material — a real chain has one speed for everything riding it. Accepts
 // either transport-delay kind (issue #47's own `routedTransportDelay`
 // shares this field verbatim) since both are "a chain with a live speed
-// dial" as far as this setter is concerned.
-export function setElevatorSpeed(sim, id, fraction) {
+// dial" as far as this setter is concerned. A drag that lands back on the
+// interlock's live cap releases the dial instead (issue #63) — see setDial
+// in dial.js.
+function transportDelayState(sim, id) {
   const state = sim.machines.get(id);
   if (!state || (state.kind !== "transportDelay" && state.kind !== "routedTransportDelay")) {
     throw new Error(`machine "${id}" is not a transport-delay machine`);
   }
-  state.speedFraction = Math.max(0, Math.min(1, fraction));
-  // Issue #63: stamped every call, not just the first — see
-  // isThrottleOverridden's own comment (behaviors.js) for why the manual
-  // override it gates needs this rather than a bare `speedFraction` compare.
-  state.speedDialTouched = true;
+  return state;
+}
+export function setElevatorSpeed(sim, id, fraction) {
+  setDial(transportDelayState(sim, id), SPEED_DIAL, fraction);
 }
 
-// Presenter drags the dial back onto the interlock's own live cap ("return
-// to normal"): resets to the exact untouched-default shape
-// (initTransportDelay's own speedFraction/speedDialTouched), not just a
-// `speedFraction` that happens to numerically match the cap at this instant.
-// Without this, the dial stayed permanently touched at whatever fraction it
-// was released at — coincidentally equal to the cap right now, but frozen,
-// so the moment the cap next moved (the interlock re-throttling) the stale
-// dial silently diverged from it again, either quietly derating the real
-// chain speed below what a fresh dial would give or spuriously re-arming
-// the override with no further drag from the presenter. MachinePopup's own
-// Slider (via PlantApp.jsx's onParamChange) calls this instead of
-// setElevatorSpeed the moment a drag lands back on the live cap.
+// Puts the dial back to its exact untouched default, so it tracks the
+// interlock's live cap again. setElevatorSpeed already does this for a drag
+// that lands on the cap; this is the explicit form.
 export function releaseElevatorSpeed(sim, id) {
-  const state = sim.machines.get(id);
-  if (!state || (state.kind !== "transportDelay" && state.kind !== "routedTransportDelay")) {
-    throw new Error(`machine "${id}" is not a transport-delay machine`);
-  }
-  state.speedFraction = 1;
-  state.speedDialTouched = false;
+  releaseDial(transportDelayState(sim, id), SPEED_DIAL);
 }
 
 // Presenter/demo control: jump an accumulator straight to a given fill
@@ -547,29 +535,23 @@ export function setInterlockHighHighSetpoint(sim, sensorMachineId, fraction) {
 }
 
 // Live control (issue #60): the presenter's own Gate Position % dial —
-// mirrors setElevatorSpeed's own `speedFraction` shape, but on a gated
-// feeder's `gateFraction`, the layer the graded feed schedule's own
+// the same Dial module as setElevatorSpeed above, on a gated feeder's
+// `gateFraction`, the layer the graded feed schedule's own
 // gateThrottleFraction never touches (see initMeteredFeeder's own comment,
 // behaviors.js).
-export function setGateFraction(sim, id, fraction) {
+function gatedFeederState(sim, id) {
   const state = sim.machines.get(id);
   if (!state || state.gateFraction === undefined) {
     throw new Error(`machine "${id}" is not a gated feeder`);
   }
-  state.gateFraction = Math.max(0, Math.min(1, fraction));
-  // Issue #63: stamped every call — see setElevatorSpeed's own comment above.
-  state.gateDialTouched = true;
+  return state;
+}
+export function setGateFraction(sim, id, fraction) {
+  setDial(gatedFeederState(sim, id), GATE_DIAL, fraction);
 }
 
-// Same "return to normal" release as releaseElevatorSpeed above, on the
-// gated feeder's own gateFraction/gateDialTouched pair.
 export function releaseGateFraction(sim, id) {
-  const state = sim.machines.get(id);
-  if (!state || state.gateFraction === undefined) {
-    throw new Error(`machine "${id}" is not a gated feeder`);
-  }
-  state.gateFraction = 1;
-  state.gateDialTouched = false;
+  releaseDial(gatedFeederState(sim, id), GATE_DIAL);
 }
 
 // Live controls (issue #24): the batch treater's charge size and cycle time

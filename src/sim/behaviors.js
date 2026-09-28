@@ -16,6 +16,8 @@
 // downstream needs a matching switch/if. This is also the registry
 // validateLine.js checks declared `sim.kind` values against.
 
+import { SPEED_DIAL, GATE_DIAL, dialEffective, dialReading } from "./dial";
+
 // Shared by source and passThrough: neither holds any volume of its own, so
 // what either can accept is exactly what its own downstream can accept.
 function forwardDownstreamCapacity(state, dt, downstreamCap) {
@@ -283,8 +285,7 @@ function initMeteredFeeder(m) {
     ...(m.sim.hasGate ? {
       gateFraction: 1,
       // Issue #63: stamped by setGateFraction (engine.js) the first time the
-      // presenter actually drags this gate's own dial — see
-      // isThrottleOverridden's own comment (behaviors.js) for why.
+      // presenter actually drags this gate's own dial — see dial.js.
       gateDialTouched: false,
       gateThrottleFraction: 1,
       gateThrottleTarget: 1,
@@ -353,6 +354,9 @@ function snapshotMeteredFeeder(state) {
     snap.gateDialTouched = state.gateDialTouched;
     snap.gateThrottleFraction = state.gateThrottleFraction;
     snap.gateThrottleTarget = state.gateThrottleTarget;
+    // The Dial module's own answer (dial.js), so the popup slider and the
+    // drum's gate drawing read what the sim runs instead of re-deriving it.
+    snap.gateDial = dialReading(state, GATE_DIAL);
   }
   return snap;
 }
@@ -375,38 +379,6 @@ function setRunPermitMeteredFeeder(state, permitted) {
 }
 
 const EPS = 1e-9;
-
-// Manual override (issue #63): whether the operator's own dial has been
-// dragged past the interlock's current live cap on this actuator. Gated on
-// `dialTouched` — a per-actuator flag stamped only by the presenter's own
-// live setter (setElevatorSpeed/setGateFraction, engine.js), mirroring
-// meteredFeeder's existing `manualOverride` convention (issue #42) — because
-// a gradedFeedSchedule band's own calibrated speed/gate targets (issue
-// #56-61) are *always* below the dial's untouched default of 1: without this
-// gate, every gradedFeedSchedule-governed actuator would read as overridden
-// the instant its schedule engaged, on a totally fresh run nobody has
-// touched. Once touched, the rest of the check is a stateless comparison
-// recomputed every tick, so it needs no special-case interaction with RESET
-// TRIPS (never touches `dialTouched`, only the rule's own latch) or RESTART
-// (which re-inits every machine, `dialTouched` included). Gated on
-// `throttleTarget > 0` alone (never on the rule kind that set it) since a
-// full stop is never overridable and there's no structural way to tell a
-// full stop apart from a merely-low partial throttle other than the target
-// value itself — see control.js's stepTwoStageThrottle, where the slow
-// stage and the stop stage command the identical field.
-export function isThrottleOverridden(dialTouched, dialFraction, throttleFraction, throttleTarget) {
-  return dialTouched && throttleTarget > 0 && dialFraction > throttleFraction;
-}
-
-// Shared by plain transportDelay's and routedTransportDelay's own
-// capacityAvailable — both carry the identical speedFraction/speedDialTouched/
-// throttleFraction/throttleTarget shape (see each kind's own init), so this
-// one swap applies unchanged to either.
-function overriddenSpeedFraction(state) {
-  return isThrottleOverridden(state.speedDialTouched, state.speedFraction, state.throttleFraction, state.throttleTarget)
-    ? state.speedFraction
-    : state.throttleFraction;
-}
 
 // `hasDownstream` (issue #21) is the engine's answer to "does a sim-enabled
 // machine actually sit downstream of me", separate from the *value* of
@@ -453,9 +425,9 @@ function initTransportDelay(m) {
     ceilingM3PerSec: m.sim.ceilingM3PerSec,
     speedFraction: 1, // manual VFD dial (issue #21) — presenter-set, takes effect instantly
     // Issue #63: stamped by setElevatorSpeed (engine.js) the first time the
-    // presenter actually drags this dial — see isThrottleOverridden's own
-    // comment for why the manual override it gates needs this rather than a
-    // bare `speedFraction` comparison.
+    // presenter actually drags this dial — see dial.js for why the manual
+    // override it gates needs this rather than a bare `speedFraction`
+    // comparison.
     speedDialTouched: false,
     // Interlock-commanded multiplier on top of the manual dial (issue #22):
     // `throttleFraction` slews toward `throttleTarget` at `throttleRampPerSec`
@@ -473,8 +445,11 @@ function initTransportDelay(m) {
     delivered: 0,
   };
 }
+// One VFD speed for the whole chain: the dial and the interlock's throttle
+// resolve through the Dial module (dial.js), the same fraction the intake
+// below uses, so transit pacing and intake can never disagree.
 function chainSpeedMPerSec(state) {
-  return (state.speedMPerMin * state.speedFraction * state.throttleFraction) / 60;
+  return (state.speedMPerMin * dialEffective(state, SPEED_DIAL)) / 60;
 }
 function queueVolume(state) {
   return state.queue.reduce((a, p) => a + p.vol, 0);
@@ -485,18 +460,12 @@ function capacityAvailableTransportDelay(state, dt) {
   // length are still unconfirmed (see docs/OPEN_QUESTIONS.md), so this
   // doesn't attempt to track precise in-chain capacity.
   if (state.backlog > EPS) return 0;
-  // Intake scales with the interlock's throttle (issue #22): a slowed chain
-  // carries fewer buckets past the infeed per second, and a stopped one
-  // (throttleFraction 0) accepts nothing new — this is the "reduces the
-  // infeed" half of the two-stage response, distinct from the manual VFD
-  // dial (`speedFraction`), which only ever affected transit *timing* until
-  // issue #63: dragging the dial past the throttle's own live cap now swaps
-  // it in as the real intake multiplier too, so a presenter can deliberately
-  // push more material past a governing interlock instead of the dial being
-  // cosmetic. Chain transit speed itself (chainSpeedMPerSec) is unaffected
-  // either way — override bypasses the intake ceiling, not the interlock's
-  // own commanded chain speed.
-  return state.ceilingM3PerSec * overriddenSpeedFraction(state) * dt;
+  // Intake scales with the chain's effective speed (issue #22): a slowed
+  // chain carries fewer buckets past the infeed per second, and a stopped
+  // one accepts nothing new — the "reduces the infeed" half of the two-stage
+  // response. A presenter's overriding dial (issue #63) replaces the
+  // interlock's cap here and in chainSpeedMPerSec alike; see dial.js.
+  return state.ceilingM3PerSec * dialEffective(state, SPEED_DIAL) * dt;
 }
 function applyTransportDelay(state, dt, inflow, cap, downstreamCap = 0, hasDownstream = false) {
   const accepted = Math.min(inflow, cap);
@@ -607,12 +576,10 @@ function snapshotTransportDelay(state) {
     leadingProgress, trailingProgress,
     transitTimeSec: v > 0 ? state.distanceM / v : Infinity,
     speedFraction: state.speedFraction,
-    // Issue #63: speedDialTouched/throttleTarget weren't published before —
-    // PARAM_READERS (PlantApp.jsx) needs both to compute the override-armed
-    // state and the "never overridable past a full stop" gate itself.
     speedDialTouched: state.speedDialTouched,
     throttleFraction: state.throttleFraction,
     throttleTarget: state.throttleTarget,
+    speedDial: dialReading(state, SPEED_DIAL), // dial.js — the popup reads this, never re-derives it
     // Actual live chain speed (issue #31), already folding in both the
     // manual VFD dial and any active interlock throttle via chainSpeedMPerSec.
     chainSpeedMPerMin: v * 60,
@@ -727,10 +694,8 @@ function capacityAvailableRoutedTransportDelay(state, dt) {
   // material at the infeed while anything is still jammed at the discharge
   // end, regardless of which outlet the jam is destined for.
   if (state.backlog > EPS) return 0;
-  // Manual override (issue #63): same swap as plain transportDelay's own
-  // capacityAvailableTransportDelay above — see overriddenSpeedFraction's
-  // own comment.
-  return state.ceilingM3PerSec * overriddenSpeedFraction(state) * dt;
+  // Same effective speed as plain transportDelay's own intake above.
+  return state.ceilingM3PerSec * dialEffective(state, SPEED_DIAL) * dt;
 }
 function applyRoutedTransportDelay(state, dt, inflow, cap, downstreamCap = {}, hasDownstream = {}) {
   const accepted = Math.min(inflow, cap);
@@ -830,6 +795,7 @@ function snapshotRoutedTransportDelay(state) {
     speedDialTouched: state.speedDialTouched, // issue #63 — see plain transportDelay's own snapshot comment
     throttleFraction: state.throttleFraction,
     throttleTarget: state.throttleTarget,
+    speedDial: dialReading(state, SPEED_DIAL),
     chainSpeedMPerMin: v * 60,
     selected: state.selected,
     densityProfile,

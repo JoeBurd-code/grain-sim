@@ -7,6 +7,7 @@ import {
   primeFeedSchedules, initFeedRateDerivations, stepFeedRateDerivation,
 } from "./control";
 import { BEHAVIORS } from "./behaviors";
+import { SPEED_DIAL, GATE_DIAL, setDial } from "./dial";
 import { simatekFeedRateTph, tPerHourToM3PerSec } from "./units";
 
 const RULE_CFG = {
@@ -1692,38 +1693,39 @@ describe("initFeedRateDerivations", () => {
 describe("stepFeedRateDerivation", () => {
   it("commands the feeder's rate from the elevator's and feeder's dials, matching the #57 formula exactly", () => {
     const sim = makeFeedRateDerivationSim();
-    sim.machines.get("elevator").speedFraction = 0.85;
-    sim.machines.get("feeder").gateFraction = 0.55;
+    setDial(sim.machines.get("elevator"), SPEED_DIAL, 0.85);
+    setDial(sim.machines.get("feeder"), GATE_DIAL, 0.55);
     stepFeedRateDerivation(sim);
     const expectedTph = simatekFeedRateTph(0.85, 0.55);
-    expect(sim.machines.get("feeder").rate).toBeCloseTo(tPerHourToM3PerSec(expectedTph));
+    expect(sim.machines.get("feeder").rate).toBeCloseTo(tPerHourToM3PerSec(expectedTph), 8);
   });
 
-  it("matches the formula across a range of speed/gate combinations, each dial at or below its own throttle (issue #63: no override armed)", () => {
+  // Untouched dials: each actuator runs at its interlock's own cap alone
+  // (dial.js). The old dial x throttle product only ever agreed with this
+  // because an untouched dial sits at 1.
+  it("matches the formula across a range of governed speed/gate caps, dials untouched (issue #63: no override armed)", () => {
     const sim = makeFeedRateDerivationSim();
     const cases = [
-      { speedFraction: 1, throttleFraction: 1, gateFraction: 1, gateThrottleFraction: 1 },
-      { speedFraction: 0.95, throttleFraction: 1, gateFraction: 0.65, gateThrottleFraction: 1 },
-      { speedFraction: 0.6, throttleFraction: 0.6, gateFraction: 0.4, gateThrottleFraction: 0.4 }, // e.g. gradedFeedSchedule's own throttle band layered on top, dial dragged down to match it exactly
-      { speedFraction: 0.5, throttleFraction: 0.5, gateFraction: 0.8, gateThrottleFraction: 0.25 },
+      { throttleFraction: 1, gateThrottleFraction: 1 },
+      { throttleFraction: 0.95, gateThrottleFraction: 0.65 },
+      { throttleFraction: 0.6, gateThrottleFraction: 0.4 }, // e.g. gradedFeedSchedule's own throttle band
+      { throttleFraction: 0.5, gateThrottleFraction: 0.25 },
     ];
     for (const c of cases) {
       const elevator = sim.machines.get("elevator");
       const feeder = sim.machines.get("feeder");
-      elevator.speedFraction = c.speedFraction;
-      elevator.throttleFraction = c.throttleFraction;
-      feeder.gateFraction = c.gateFraction;
-      feeder.gateThrottleFraction = c.gateThrottleFraction;
+      elevator.throttleFraction = elevator.throttleTarget = c.throttleFraction;
+      feeder.gateThrottleFraction = feeder.gateThrottleTarget = c.gateThrottleFraction;
       stepFeedRateDerivation(sim);
-      const expectedTph = simatekFeedRateTph(c.speedFraction * c.throttleFraction, c.gateFraction * c.gateThrottleFraction);
-      expect(feeder.rate).toBeCloseTo(tPerHourToM3PerSec(expectedTph));
+      const expectedTph = simatekFeedRateTph(c.throttleFraction, c.gateThrottleFraction);
+      expect(feeder.rate).toBeCloseTo(tPerHourToM3PerSec(expectedTph), 8);
     }
   });
 
   // Issue #63: a presenter dragging a dial past the interlock's own live cap
   // bypasses that multiplicand's throttle factor entirely (uses the dial
   // alone), independent of whatever the other actuator's own dial/throttle
-  // pair is doing — see effectiveActuatorFraction's own comment above. Gated
+  // pair is doing — see dial.js. Gated
   // on speedDialTouched/gateDialTouched (stamped only by setElevatorSpeed/
   // setGateFraction, engine.js): gradedFeedSchedule's own calibrated bands
   // are always below the dial's untouched default of 1, so an ungated
@@ -1738,28 +1740,26 @@ describe("stepFeedRateDerivation", () => {
       elevator.speedDialTouched = true;
       elevator.throttleFraction = 0.6;
       elevator.throttleTarget = 0.6; // interlock has capped the elevator at 60%, dial dragged past it
-      feeder.gateFraction = 0.3;
       feeder.gateThrottleFraction = 0.4;
-      feeder.gateThrottleTarget = 0.4; // gate dial stays under its own cap — ungoverned
+      feeder.gateThrottleTarget = 0.4; // gate dial untouched — governed by its own cap
       stepFeedRateDerivation(sim);
-      const expectedTph = simatekFeedRateTph(1, 0.3 * 0.4); // elevator: dial alone; gate: still dial * throttle
-      expect(feeder.rate).toBeCloseTo(tPerHourToM3PerSec(expectedTph));
+      const expectedTph = simatekFeedRateTph(1, 0.4); // elevator: dial alone; gate: its cap
+      expect(feeder.rate).toBeCloseTo(tPerHourToM3PerSec(expectedTph), 8);
     });
 
     it("bypasses the gate's own throttle when its touched dial is dragged past it, leaving an ungoverned elevator unaffected", () => {
       const sim = makeFeedRateDerivationSim();
       const elevator = sim.machines.get("elevator");
       const feeder = sim.machines.get("feeder");
-      elevator.speedFraction = 0.5;
       elevator.throttleFraction = 0.9;
-      elevator.throttleTarget = 0.9; // elevator dial stays under its own cap — ungoverned
+      elevator.throttleTarget = 0.9; // elevator dial untouched — governed by its own cap
       feeder.gateFraction = 1;
       feeder.gateDialTouched = true;
       feeder.gateThrottleFraction = 0.4;
       feeder.gateThrottleTarget = 0.4; // gate dragged past its own 40% cap
       stepFeedRateDerivation(sim);
-      const expectedTph = simatekFeedRateTph(0.5 * 0.9, 1); // elevator: still dial * throttle; gate: dial alone
-      expect(feeder.rate).toBeCloseTo(tPerHourToM3PerSec(expectedTph));
+      const expectedTph = simatekFeedRateTph(0.9, 1); // elevator: its cap; gate: dial alone
+      expect(feeder.rate).toBeCloseTo(tPerHourToM3PerSec(expectedTph), 8);
     });
 
     it("does not arm just because a dial sits above its cap — it must actually have been touched (e.g. a fresh gradedFeedSchedule band)", () => {
@@ -1774,7 +1774,7 @@ describe("stepFeedRateDerivation", () => {
       feeder.gateThrottleTarget = 0.5516;
       stepFeedRateDerivation(sim);
       const expectedTph = simatekFeedRateTph(0.8525, 0.5516); // fully governed — dial's untouched default has no effect
-      expect(feeder.rate).toBeCloseTo(tPerHourToM3PerSec(expectedTph));
+      expect(feeder.rate).toBeCloseTo(tPerHourToM3PerSec(expectedTph), 8);
     });
 
     it("never overrides a full stop (throttleTarget 0), however far above 0 a touched dial sits", () => {
@@ -1800,15 +1800,15 @@ describe("stepFeedRateDerivation", () => {
     stepFeedRateDerivation(sim);
     const initialRate = sim.machines.get("feeder").rate;
 
-    sim.machines.get("elevator").speedFraction = 0.5; // presenter drags the elevator speed dial alone
+    setDial(sim.machines.get("elevator"), SPEED_DIAL, 0.5); // presenter drags the elevator speed dial alone
     stepFeedRateDerivation(sim);
-    expect(sim.machines.get("feeder").rate).toBeCloseTo(tPerHourToM3PerSec(simatekFeedRateTph(0.5, 1)));
+    expect(sim.machines.get("feeder").rate).toBeCloseTo(tPerHourToM3PerSec(simatekFeedRateTph(0.5, 1)), 8);
     expect(sim.machines.get("feeder").rate).not.toBeCloseTo(initialRate, 5);
 
-    sim.machines.get("elevator").speedFraction = 1;
-    sim.machines.get("feeder").gateFraction = 0.3; // then the feeder gate dial alone
+    setDial(sim.machines.get("elevator"), SPEED_DIAL, 1); // back on the cap: released
+    setDial(sim.machines.get("feeder"), GATE_DIAL, 0.3); // then the feeder gate dial alone
     stepFeedRateDerivation(sim);
-    expect(sim.machines.get("feeder").rate).toBeCloseTo(tPerHourToM3PerSec(simatekFeedRateTph(1, 0.3)));
+    expect(sim.machines.get("feeder").rate).toBeCloseTo(tPerHourToM3PerSec(simatekFeedRateTph(1, 0.3)), 8);
   });
 
   it("never touches manualOverride — the same command path autoStartOnRunning already uses, distinct from the presenter's own setFeederRate", () => {

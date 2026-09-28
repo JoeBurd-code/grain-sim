@@ -30,31 +30,11 @@ export function drumSpinDegPerSec(dynamic) {
   return normalized * DRUM_MAX_DEG_PER_SEC;
 }
 
-// Percentage points either side of the cap that still counts as "on it" —
-// must stay numerically in sync with MachinePopup.jsx's own OVERRIDE_SNAP
-// (2), expressed here as a 0..1 gateFraction delta instead of a 0..100
-// param-slider delta. Not imported from there: scene/ has no dependency on
-// app/ anywhere else in this codebase (app depends on scene, not the
-// reverse — see PlantApp.jsx's own imports), and this one shared constant
-// isn't worth inverting that for.
-const GATE_OVERRIDE_SNAP = 0.02;
-
-// Gate aperture = how much. Deliberately mirrors MachinePopup.jsx's own
-// Slider `armed` test verbatim (direction-symmetric, snap-toleranced —
-// "Override slider balanced point", issue #63 follow-up 2026-08-24) rather
-// than control.js's isThrottleOverridden (asymmetric, exact inequality,
-// gated on the throttle target being a genuine partial stop). Those two
-// predicates are deliberately different already — the Slider's is a display
-// convention, isThrottleOverridden is what the sim actually runs on — and
-// issue #67's own caution ("the visual must never disagree with the
-// slider's own actual readout") means this has to match the display
-// convention, not the physics one. Defaults (dial/throttle to 1, touched to
-// false) match initMeteredFeeder's own gated-feeder defaults, so a machine
-// the sim hasn't published a snapshot for yet reads as fully open.
+// Gate aperture = how much the gate is actually open: the sim's own
+// effective gate fraction (sim/dial.js), published on the snapshot as
+// `gateDial`. The popup slider reads the same field, so the drawing and the
+// slider's readout can never disagree (issue #67), and both match what the
+// sim runs on. A machine the sim hasn't published yet reads as fully open.
 export function drumGateFraction(dynamic) {
-  const dial = dynamic?.gateFraction ?? 1;
-  const cap = dynamic?.gateThrottleFraction ?? 1;
-  const touched = dynamic?.gateDialTouched ?? false;
-  const armed = touched && Math.abs(dial - cap) > GATE_OVERRIDE_SNAP;
-  return armed ? dial : cap;
+  return dynamic?.gateDial?.effective ?? 1;
 }

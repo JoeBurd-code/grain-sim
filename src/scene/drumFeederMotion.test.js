@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   drumSpinDegPerSec, drumGateFraction, DRUM_FEEDER_MAX_M3_PER_SEC, DRUM_MAX_DEG_PER_SEC,
 } from "./drumFeederMotion";
+import { GATE_DIAL, setDial, dialReading } from "../sim/dial";
 
 describe("drumSpinDegPerSec", () => {
   it("is stationary at rate 0 (fresh load default)", () => {
@@ -33,26 +34,33 @@ describe("drumSpinDegPerSec", () => {
   });
 });
 
+// Reads the sim's own dial answer rather than re-deriving it, so these build
+// the snapshot through the Dial module exactly as behaviors.js publishes it.
+function gateSnapshot(cap, dialDrag) {
+  const state = { gateFraction: 1, gateDialTouched: false, gateThrottleFraction: cap, gateThrottleTarget: cap };
+  if (dialDrag != null) setDial(state, GATE_DIAL, dialDrag);
+  return { gateDial: dialReading(state, GATE_DIAL) };
+}
+
 describe("drumGateFraction", () => {
   it("reads the interlock's live cap while untouched, however far the dial sits from it", () => {
-    expect(drumGateFraction({ gateFraction: 1, gateDialTouched: false, gateThrottleFraction: 0.65 })).toBe(0.65);
+    expect(drumGateFraction(gateSnapshot(0.65))).toBe(0.65);
   });
 
   it("reads the operator's own dial once armed above the cap", () => {
-    expect(drumGateFraction({ gateFraction: 0.9, gateDialTouched: true, gateThrottleFraction: 0.65 })).toBe(0.9);
+    expect(drumGateFraction(gateSnapshot(0.65, 0.9))).toBe(0.9);
   });
 
-  // The key fix from this ticket's spec review: armed is direction-symmetric
-  // (mirrors MachinePopup.jsx's Slider), not just "dragged past the cap" —
-  // a dial parked below the cap disagrees with the slider's own readout
-  // exactly as much as one parked above it.
+  // Armed is direction-symmetric, not just "dragged past the cap" — a dial
+  // parked below the cap disagrees with the slider's own readout exactly as
+  // much as one parked above it.
   it("reads the operator's own dial once armed below the cap", () => {
-    expect(drumGateFraction({ gateFraction: 0.3, gateDialTouched: true, gateThrottleFraction: 0.65 })).toBe(0.3);
+    expect(drumGateFraction(gateSnapshot(0.65, 0.3))).toBe(0.3);
   });
 
-  it("stays at the cap for a touched dial within snap tolerance of it, above or below", () => {
-    expect(drumGateFraction({ gateFraction: 0.66, gateDialTouched: true, gateThrottleFraction: 0.65 })).toBe(0.65);
-    expect(drumGateFraction({ gateFraction: 0.64, gateDialTouched: true, gateThrottleFraction: 0.65 })).toBe(0.65);
+  it("stays at the cap for a drag within snap tolerance of it, above or below", () => {
+    expect(drumGateFraction(gateSnapshot(0.65, 0.66))).toBe(0.65);
+    expect(drumGateFraction(gateSnapshot(0.65, 0.64))).toBe(0.65);
   });
 
   it("defaults to fully open when the sim hasn't published a snapshot yet", () => {

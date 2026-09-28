@@ -6,8 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createSim, stepSim, resetSim, resetTrips as resetTripsSim, clearPlant as clearPlantSim, setSourceRate, setFeederRate, setAccumulatorLevel, emptyTerminalSink, DT,
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockHighHighSetpoint, setInterlockSignalDelay, setElevatorSpeed,
-  releaseElevatorSpeed,
-  setGateFraction, releaseGateFraction,
+  setGateFraction,
   setBatchSize, setBatchCycleSec, setSplitterWasteFraction, getCombinedEvents,
   setSource as setSourceSim, getSource,
   setDestination as setDestinationSim, getDestination,
@@ -209,17 +208,6 @@ export function useSimEngine(line) {
     publish();
   }, [sim, publish]);
 
-  // "Return to normal" (issue #63 follow-up): PlantApp.jsx's own
-  // onParamChange calls this instead of setElevatorSpeedFraction the moment
-  // a drag lands back on the interlock's live cap, so the dial goes back to
-  // the exact untouched-default shape rather than freezing at a fraction
-  // that only coincidentally matches the cap right now — see
-  // releaseElevatorSpeed's own comment (engine.js).
-  const releaseElevatorSpeedFraction = useCallback((machineId) => {
-    releaseElevatorSpeed(sim, machineId);
-    publish();
-  }, [sim, publish]);
-
   // Jumps take effect immediately even while paused, so publish right away
   // rather than waiting for the next throttled tick (which may never come
   // if the sim isn't running).
@@ -262,13 +250,6 @@ export function useSimEngine(line) {
   // setElevatorSpeedFraction above.
   const setGateFractionValue = useCallback((machineId, fraction) => {
     setGateFraction(sim, machineId, fraction);
-    publish();
-  }, [sim, publish]);
-
-  // "Return to normal" counterpart to releaseElevatorSpeedFraction above, on
-  // the gated feeder's own dial.
-  const releaseGateFractionValue = useCallback((machineId) => {
-    releaseGateFraction(sim, machineId);
     publish();
   }, [sim, publish]);
 
@@ -334,8 +315,7 @@ export function useSimEngine(line) {
   return {
     snap, running, start, pause, stepOnce, restart, resetTrips, clearPlant, speed, setSpeed, setRate, setFeedRate, setLevel, emptySink,
     setInterlockHigh, setInterlockLow, setInterlockHighHigh, setInterlockDelay, setElevatorSpeed: setElevatorSpeedFraction,
-    releaseElevatorSpeed: releaseElevatorSpeedFraction,
-    setGateFraction: setGateFractionValue, releaseGateFraction: releaseGateFractionValue,
+    setGateFraction: setGateFractionValue,
     setBatchSize: setBatchSizeM3, setBatchCycleTime, setWasteFraction, setSource, setDestination,
     controlledStop, resumeLine, setUtilitiesHealthy,
     history, togglePlotSeries,

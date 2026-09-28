@@ -946,7 +946,7 @@ describe("drum feeder Gate Position % and elevator Speed % drive the derived fee
     expect(preBinInterlock(sim).phase).toBe("normal");
     const rateBefore = getMachineState(sim, FEEDER_ID).rate;
 
-    setGateFraction(sim, FEEDER_ID, 0.5); // presenter halves the gate dial
+    setGateFraction(sim, FEEDER_ID, 0.3); // presenter drags the gate well below the normal band's ~51% cap
     stepSim(sim, DT);
     expect(getMachineState(sim, FEEDER_ID).rate).toBeLessThan(rateBefore);
   });

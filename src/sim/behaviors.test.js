@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { BEHAVIORS, REGISTERED_KINDS, packetDensityProfile } from "./behaviors";
+import { SPEED_DIAL, setDial } from "./dial";
 
 describe("source", () => {
   it("emits at its full nominal rate when fully open (openness defaults to 1)", () => {
@@ -265,6 +266,7 @@ describe("meteredFeeder (issue #20)", () => {
       expect(BEHAVIORS.meteredFeeder.snapshot(state)).toEqual({
         rate: 10, enabled: true, runPermit: true, gateFraction: 0.55, gateDialTouched: false,
         gateThrottleFraction: 0.5, gateThrottleTarget: 0.5,
+        gateDial: { dial: 0.55, touched: false, cap: 0.5, overridable: true, overriding: false, effective: 0.5 },
       });
     });
 
@@ -540,7 +542,7 @@ describe("transportDelay (issue #21)", () => {
     const fast = initState(); // 10s transit at full speed
     BEHAVIORS.transportDelay.apply(fast, 1, 1, 1); // feed 1 m3 at t=0, full speed
     let outAtHalfSpeed = 0;
-    fast.speedFraction = 0.5; // halve the chain speed for everything already riding it
+    setDial(fast, SPEED_DIAL, 0.5); // halve the chain speed for everything already riding it
     for (let i = 0; i < 20; i++) { // 20s at half speed = 10m already covered at full + more
       outAtHalfSpeed += BEHAVIORS.transportDelay.apply(fast, 1, 0, 1);
     }
@@ -548,7 +550,7 @@ describe("transportDelay (issue #21)", () => {
 
     const stalled = initState();
     BEHAVIORS.transportDelay.apply(stalled, 1, 1, 1);
-    stalled.speedFraction = 0; // chain stopped
+    setDial(stalled, SPEED_DIAL, 0); // chain stopped
     let outWhileStalled = 0;
     for (let i = 0; i < 50; i++) outWhileStalled += BEHAVIORS.transportDelay.apply(stalled, 1, 0, 1);
     expect(outWhileStalled).toBe(0); // nothing moves on a stopped chain
@@ -732,7 +734,7 @@ describe("transportDelay (issue #21)", () => {
     // the two profiles' average band density is compared directly.
     function runToSteadyState({ speedFraction = 1, feedPerTick, ticks }) {
       const state = initState({ ceilingM3PerSec: 2 });
-      state.speedFraction = speedFraction;
+      state.speedMPerMin *= speedFraction; // a faster chain, not a dial past 100%
       for (let i = 0; i < ticks; i++) BEHAVIORS.transportDelay.apply(state, 0.05, feedPerTick, feedPerTick);
       return BEHAVIORS.transportDelay.snapshot(state).densityProfile;
     }
@@ -751,16 +753,24 @@ describe("transportDelay (issue #21)", () => {
       expect(avg(heavy)).toBeGreaterThan(avg(light));
     });
 
-    it("snapshot's chainSpeedMPerMin folds in both the manual VFD dial and the interlock throttle", () => {
+    // One VFD speed (dial.js): the interlock's cap while governed, the
+    // presenter's own dial while it overrides, never the product of the two.
+    it("snapshot's chainSpeedMPerMin runs at the dial's effective fraction", () => {
       const state = BEHAVIORS.transportDelay.init({ sim: { distanceM: 10, speedMPerMin: 60, ceilingM3PerSec: 1 } });
       expect(BEHAVIORS.transportDelay.snapshot(state).chainSpeedMPerMin).toBeCloseTo(60);
 
-      state.speedFraction = 0.5; // manual dial halved
+      setDial(state, SPEED_DIAL, 0.5); // manual dial halved, no interlock
       expect(BEHAVIORS.transportDelay.snapshot(state).chainSpeedMPerMin).toBeCloseTo(30);
 
-      BEHAVIORS.transportDelay.command(state, 0.5, 0); // interlock throttle halves it again, instantly
+      BEHAVIORS.transportDelay.command(state, 0.5, 0); // interlock caps it at the same 50%, instantly
       BEHAVIORS.transportDelay.apply(state, 0.05, 0, 1);
-      expect(BEHAVIORS.transportDelay.snapshot(state).chainSpeedMPerMin).toBeCloseTo(15);
+      expect(BEHAVIORS.transportDelay.snapshot(state).chainSpeedMPerMin).toBeCloseTo(30); // on the cap: governed, not 15
+
+      setDial(state, SPEED_DIAL, 0.8); // dragged above the cap: override
+      expect(BEHAVIORS.transportDelay.snapshot(state).chainSpeedMPerMin).toBeCloseTo(48);
+
+      setDial(state, SPEED_DIAL, 0.2); // dragged below the cap: also an override
+      expect(BEHAVIORS.transportDelay.snapshot(state).chainSpeedMPerMin).toBeCloseTo(12);
     });
   });
 
