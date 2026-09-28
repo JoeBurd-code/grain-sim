@@ -14,89 +14,10 @@ import ChartDock from "./ChartDock";
 import EventLogPanel from "./EventLogPanel";
 import { useViewport } from "../scene/useViewport";
 import { useSimEngine } from "../sim/useSimEngine";
-import { tPerHourToM3PerSec, m3PerSecToTPerHour, BULK_DENSITY_T_PER_M3 } from "../sim/units";
+import { readLiveControl } from "../sim/liveControls";
 import { isSeriesPlotted } from "../sim/plotHistory";
 import { plotColorFor } from "./plotColors";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
-
-// Params that opt into live sim control declare `bind`; anything without
-// one is a display-only value with no runtime effect.
-const PARAM_BINDERS = {
-  sourceRate: (engine, machineId, value) => engine.setRate(machineId, tPerHourToM3PerSec(value)),
-  feederRate: (engine, machineId, value) => engine.setFeedRate(machineId, tPerHourToM3PerSec(value)),
-  // Jumps the live accumulator to this fill % now, for staging a scenario
-  // mid-presentation (e.g. drag to 95% to demo a near-overflow, or below the
-  // low set point to stage the interlock's reopen) rather than waiting for
-  // the source to fill or drain it there.
-  levelJump: (engine, machineId, value) => engine.setLevel(machineId, value / 100),
-  interlockHighSetpoint: (engine, machineId, value) => engine.setInterlockHigh(machineId, value / 100),
-  interlockLowSetpoint: (engine, machineId, value) => engine.setInterlockLow(machineId, value / 100),
-  // Pre-bin graded feed schedule (issue #56/#58/#60): LSHH, the schedule's
-  // own latched trip set point, alongside LSH/LSL above, which
-  // gradedFeedSchedule reuses unchanged.
-  interlockHighHighSetpoint: (engine, machineId, value) => engine.setInterlockHighHigh(machineId, value / 100),
-  interlockSignalDelay: (engine, machineId, value) => engine.setInterlockDelay(machineId, value),
-  // Elevator VFD (issue #21): re-paces the transport delay live, including
-  // material already in transit, not just newly fed material.
-  elevatorSpeed: (engine, machineId, value) => engine.setElevatorSpeed(machineId, value / 100),
-  // Drum feeder gate position (issue #56/#57/#60): the presenter's own dial,
-  // never touched by the feed schedule (see setGateFraction's own comment,
-  // engine.js) — mirrors elevatorSpeed above, on the feeder's gate rather
-  // than the elevator's chain.
-  gatePosition: (engine, machineId, value) => engine.setGateFraction(machineId, value / 100),
-  // Batch treater (issue #24): the slider is in kg, the engineer's own unit;
-  // converted to m3 at this edge, same pattern as sourceRate/feederRate's
-  // t/h -> m3/s conversion. Cycle time is already in seconds.
-  batchSize: (engine, machineId, value) => engine.setBatchSize(machineId, (value / 1000) / BULK_DENSITY_T_PER_M3),
-  batchCycleTime: (engine, machineId, value) => engine.setBatchCycleTime(machineId, value),
-  // Scalping screen (issue #26): the slider is a percentage, the engine wants a fraction.
-  wasteFraction: (engine, machineId, value) => engine.setWasteFraction(machineId, value / 100),
-};
-
-// Live "actual" readouts (issue #34): the same declarative shape as
-// PARAM_BINDERS above, but resolved against a machine's live published
-// snapshot instead of calling into the engine. Only params whose machine can
-// have its real output overridden by an active interlock declare `readBind`;
-// a param with none shows no readout at all. The setpoint slider itself
-// never reads from these — it stays bound only to the operator's own dial.
-// Issue #63: every reader returns `{ actual, cap, overridable, overriding }`
-// rather than a bare number. For the two dial params (elevatorSpeed,
-// gatePosition) all four come straight off the sim's own published dial
-// reading (sim/dial.js) — the one place the override rule lives — scaled to
-// the slider's percent. `actual` is what the actuator really runs at: the
-// dial while overriding, the live cap while governed.
-const PARAM_READERS = {
-  // Source valve (issue #19) and drum feeder (issue #42): each can be
-  // overridden by an interlock (valve openness; a direct rate command) out
-  // from under the presenter's own dial. Deliberately not flowRateM3PerSec
-  // (issue #28) here — that also dips under downstream backpressure (a full
-  // bin, a stalled belt) with no interlock involved at all, which would make
-  // the readout noisy during perfectly ordinary operation (see issue #34's
-  // "doesn't look like noise during normal operation" criterion). These
-  // instead read the machine's own commanded rate, snapshotSource /
-  // snapshotMeteredFeeder (src/sim/behaviors.js), which only moves when the
-  // dial or an interlock actually changes it. Neither has a genuine partial-
-  // throttle band of its own (the source valve is only ever fully open or
-  // fully closed; the feeder's own auto-start command is a one-shot direct
-  // write, not a live cap) — `cap: null` so issue #63's override mechanism
-  // never engages for these two, honestly reflecting that there's nothing
-  // here for a dial to be dragged past.
-  sourceRateActual: (dynamic) => (dynamic ? { actual: m3PerSecToTPerHour((dynamic.nominalRate ?? 0) * (dynamic.openness ?? 1)), cap: null, overridable: false, overriding: false } : null),
-  feederRateActual: (dynamic) => (dynamic ? { actual: m3PerSecToTPerHour(dynamic.rate ?? 0), cap: null, overridable: false, overriding: false } : null),
-  // Elevator speed (issue #21 VFD dial) and drum feeder gate (issue #60).
-  elevatorSpeedActual: (dynamic) => dialPercent(dynamic?.speedDial),
-  gatePositionActual: (dynamic) => dialPercent(dynamic?.gateDial),
-};
-
-function dialPercent(reading) {
-  if (!reading) return null;
-  return {
-    actual: reading.effective * 100,
-    cap: reading.cap * 100,
-    overridable: reading.overridable,
-    overriding: reading.overriding,
-  };
-}
 
 const validation = validateLine(line);
 
@@ -154,7 +75,8 @@ export default function PlantApp() {
   }, [engine]);
 
   const closePopup = useCallback(() => setSelectedId(null), []);
-  // A drag that lands back on a dial's live cap is released by the sim itself
+  // Slider values reach the sim through sim/liveControls.js. A drag that
+  // lands back on a dial's live cap is released by the sim itself
   // (setDial, sim/dial.js), so this only records the position and forwards it.
   const onParamChange = useCallback(
     (machineId, param, value) => {
@@ -162,12 +84,12 @@ export default function PlantApp() {
         ...prev,
         [machineId]: { ...prev[machineId], [param.id]: value },
       }));
-      PARAM_BINDERS[param.bind]?.(engine, machineId, value);
+      if (param.bind) engine.setControl(machineId, param.bind, value);
     },
     [engine]
   );
   const onParamRead = useCallback(
-    (machineId, param) => PARAM_READERS[param.readBind]?.(engine.snap.machines.get(machineId)) ?? null,
+    (machineId, param) => readLiveControl(engine.snap.machines.get(machineId), param.readBind),
     [engine.snap]
   );
 

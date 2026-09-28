@@ -273,4 +273,25 @@ describe("validateLine", () => {
     expect(result.errors.join("\n")).toContain("outGhost");
     expect(result.errors.join("\n")).toContain("diverter");
   });
+
+  it("rejects a param whose bind or readBind names no live control, naming both", () => {
+    const line = makeValidLine();
+    line.machines[1].params = [
+      { id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJmup" },
+      { id: "rate", label: "rate", min: 0, max: 20, value: 0, unit: "t/h", bind: "feederRate", readBind: "feederRateActaul" },
+    ];
+    const result = validateLine(line);
+    expect(result.ok).toBe(false);
+    expect(result.errors.join("\n")).toContain("levelJmup");
+    expect(result.errors.join("\n")).toContain("feederRateActaul");
+  });
+
+  it("accepts params with known binds, and display-only params with none", () => {
+    const line = makeValidLine();
+    line.machines[1].params = [
+      { id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" },
+      { id: "cap", label: "capacity", min: 0, max: 10, value: 1, unit: "m3" },
+    ];
+    expect(validateLine(line).errors).toEqual([]);
+  });
 });

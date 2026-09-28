@@ -3,6 +3,7 @@
 // data edit made in a hurry (e.g. during the engineer meeting) fails loudly.
 import { REGISTERED_KINDS, BEHAVIORS, unregisteredKindMessage } from "../sim/behaviors";
 import { isSimExempt } from "./simExempt";
+import { isLiveControlBind, isLiveReadBind } from "../sim/liveControls";
 
 export function validateLine(line) {
   const errors = [];
@@ -10,6 +11,20 @@ export function validateLine(line) {
   for (const m of line.machines) {
     if (m.sim && !REGISTERED_KINDS.has(m.sim.kind)) {
       errors.push(unregisteredKindMessage(m.id, m.sim.kind));
+    }
+  }
+
+  // A popup slider's `bind`/`readBind` names what it drives and reads back
+  // (sim/liveControls.js). A misspelt one used to do nothing at all when
+  // dragged, with no error anywhere.
+  for (const m of line.machines) {
+    for (const p of m.params ?? []) {
+      if (p.bind != null && !isLiveControlBind(p.bind)) {
+        errors.push(`machine "${m.id}" param "${p.id}" binds unknown live control "${p.bind}"`);
+      }
+      if (p.readBind != null && !isLiveReadBind(p.readBind)) {
+        errors.push(`machine "${m.id}" param "${p.id}" reads unknown live control "${p.readBind}"`);
+      }
     }
   }
 

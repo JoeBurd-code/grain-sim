@@ -9,8 +9,8 @@ import { m3ToTonnes } from "../sim/units";
 
 
 // `live` (issue #34, reshaped by issue #63) is resolved by the parent from
-// the machine's published snapshot via `param.readBind` — see PARAM_READERS
-// in PlantApp.jsx — as `{ actual, cap, overridable, overriding }`, or `null`
+// the machine's published snapshot via `param.readBind` — see
+// sim/liveControls.js — as `{ actual, cap, overridable, overriding }`, or `null`
 // for a param with no `readBind` at all. `cap` is where the interlock alone
 // would run this actuator (the slider's tick), in the slider's own units, or
 // `null` for a param with no throttle band of its own (sourceRate/

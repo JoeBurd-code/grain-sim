@@ -4,10 +4,8 @@
 // per wall-clock second, never the fixed timestep itself.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  createSim, stepSim, resetSim, resetTrips as resetTripsSim, clearPlant as clearPlantSim, setSourceRate, setFeederRate, setAccumulatorLevel, emptyTerminalSink, DT,
-  setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockHighHighSetpoint, setInterlockSignalDelay, setElevatorSpeed,
-  setGateFraction,
-  setBatchSize, setBatchCycleSec, setSplitterWasteFraction, getCombinedEvents,
+  createSim, stepSim, resetSim, resetTrips as resetTripsSim, clearPlant as clearPlantSim, setAccumulatorLevel, emptyTerminalSink, DT,
+  getCombinedEvents,
   setSource as setSourceSim, getSource,
   setDestination as setDestinationSim, getDestination,
   controlledStop as controlledStopSim, resumeLine as resumeLineSim, getControlledStopPhase,
@@ -15,6 +13,7 @@ import {
   hasAnyTripLatched,
 } from "./engine";
 import { BEHAVIORS } from "./behaviors";
+import { setLiveControl } from "./liveControls";
 import { createPlotHistory, setSeriesPlotted, recordSample } from "./plotHistory";
 
 const MAX_STEPS_PER_FRAME = 60;
@@ -190,21 +189,13 @@ export function useSimEngine(line) {
     setHistory((prev) => setSeriesPlotted(prev, machineId, kind, !(prev.get(machineId)?.[kind] != null)));
   }, []);
 
-  const setRate = useCallback((machineId, rateM3PerSec) => {
-    setSourceRate(sim, machineId, rateM3PerSec);
-  }, [sim]);
-
-  const setFeedRate = useCallback((machineId, rateM3PerSec) => {
-    setFeederRate(sim, machineId, rateM3PerSec);
-  }, [sim]);
-
-  // Issue #63: publishes immediately, unlike setRate/setFeedRate above —
-  // MachinePopup's own Slider now tracks this dial's *actual* value (not
-  // just the operator's last drag) for its thumb position and its manual-
-  // override tick/arming state, both of which need to respond to a drag
-  // while paused, not wait for the next throttled tick that may never come.
-  const setElevatorSpeedFraction = useCallback((machineId, fraction) => {
-    setElevatorSpeed(sim, machineId, fraction);
+  // Every machine popup slider (issue #19 onward): `bind` is the param's own
+  // lineData name and `value` is in the slider's own units — see
+  // liveControls.js, the one place both are defined. Publishes immediately,
+  // so a drag while paused shows at once rather than waiting for a
+  // throttled tick that may never come.
+  const setControl = useCallback((machineId, bind, value) => {
+    setLiveControl(sim, machineId, bind, value);
     publish();
   }, [sim, publish]);
 
@@ -221,52 +212,6 @@ export function useSimEngine(line) {
   // shape since this too takes effect while paused.
   const emptySink = useCallback((machineId) => {
     emptyTerminalSink(sim, machineId);
-    publish();
-  }, [sim, publish]);
-
-  const setInterlockHigh = useCallback((machineId, fraction) => {
-    setInterlockHighSetpoint(sim, machineId, fraction);
-    publish();
-  }, [sim, publish]);
-
-  const setInterlockLow = useCallback((machineId, fraction) => {
-    setInterlockLowSetpoint(sim, machineId, fraction);
-    publish();
-  }, [sim, publish]);
-
-  const setInterlockDelay = useCallback((machineId, seconds) => {
-    setInterlockSignalDelay(sim, machineId, seconds);
-    publish();
-  }, [sim, publish]);
-
-  // Live control (issue #60): the pre-bin's LSHH trip set point.
-  const setInterlockHighHigh = useCallback((machineId, fraction) => {
-    setInterlockHighHighSetpoint(sim, machineId, fraction);
-    publish();
-  }, [sim, publish]);
-
-  // Live control (issue #60): the presenter's own Gate Position % dial.
-  // Publishes immediately (issue #63) — same reasoning as
-  // setElevatorSpeedFraction above.
-  const setGateFractionValue = useCallback((machineId, fraction) => {
-    setGateFraction(sim, machineId, fraction);
-    publish();
-  }, [sim, publish]);
-
-  // Live controls (issue #24): the batch treater's charge size and cycle time.
-  const setBatchSizeM3 = useCallback((machineId, m3) => {
-    setBatchSize(sim, machineId, m3);
-    publish();
-  }, [sim, publish]);
-
-  const setBatchCycleTime = useCallback((machineId, seconds) => {
-    setBatchCycleSec(sim, machineId, seconds);
-    publish();
-  }, [sim, publish]);
-
-  // Live control (issue #26): the scalping screen's oversize split.
-  const setWasteFraction = useCallback((machineId, fraction) => {
-    setSplitterWasteFraction(sim, machineId, fraction);
     publish();
   }, [sim, publish]);
 
@@ -313,10 +258,8 @@ export function useSimEngine(line) {
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
   return {
-    snap, running, start, pause, stepOnce, restart, resetTrips, clearPlant, speed, setSpeed, setRate, setFeedRate, setLevel, emptySink,
-    setInterlockHigh, setInterlockLow, setInterlockHighHigh, setInterlockDelay, setElevatorSpeed: setElevatorSpeedFraction,
-    setGateFraction: setGateFractionValue,
-    setBatchSize: setBatchSizeM3, setBatchCycleTime, setWasteFraction, setSource, setDestination,
+    snap, running, start, pause, stepOnce, restart, resetTrips, clearPlant, speed, setSpeed, setControl, setLevel, emptySink,
+    setSource, setDestination,
     controlledStop, resumeLine, setUtilitiesHealthy,
     history, togglePlotSeries,
   };

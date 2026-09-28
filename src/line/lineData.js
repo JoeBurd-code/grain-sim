@@ -149,8 +149,8 @@ export const line = {
       instruments: ["LT", "LSHH", "LSH", "LSL"],
       label: { side: "left", align: "center" },
       // Live jump, not just an initial condition: dragging this sets the
-      // running sim's current level immediately (see PARAM_BINDERS.levelJump
-      // in PlantApp.jsx), for staging a scenario mid-presentation —
+      // running sim's current level immediately (see levelJump in
+      // sim/liveControls.js), for staging a scenario mid-presentation —
       // including dragging the level below the clearing set point before
       // pressing the plant control's RESET TRIPS (issue #45), without
       // waiting on the drum feeder's own drain (issue #20), which starts off
