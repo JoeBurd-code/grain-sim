@@ -571,7 +571,10 @@ describe("inlet drum feeder meters the buffer bin's discharge (issue #20)", () =
     expect(getMachineState(sim, FEEDER_ID).drawn).toBeGreaterThan(0);
   });
 
-  it("conserves volume across the fill/draw pair (fed + initialStored = stored + delivered + spilled)", () => {
+  // 20,000 steps: measured ~2.3 s alone, and it timed out on the default 5 s
+  // budget in full parallel runs (2026-09-28). ~4x, per the #40 sweep's own
+  // reasoning below.
+  it("conserves volume across the fill/draw pair (fed + initialStored = stored + delivered + spilled)", { timeout: 10000 }, () => {
     const sim = createSim(lineWithoutFeedSchedule);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(12));
