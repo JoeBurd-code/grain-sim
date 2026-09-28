@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { elevatorChain, chainSceneSpeed, computeElevatorBuckets, carryBucketLoads, bucketGeneration, BUCKET_SPACING } from "./elevatorMotion";
+import { elevatorChain, chainSceneSpeed, computeElevatorBuckets, carryBucketLoads, bucketGeneration, BUCKET_SPACING, bucketFrame, bucketPoolSize, outletPathFraction, BUCKET_W, BUCKET_H } from "./elevatorMotion";
 import { line } from "../line/lineData";
 
 // Small fixture mirroring the real treatingElevator's own geometry shape
@@ -316,5 +316,51 @@ describe("carryBucketLoads", () => {
     const pastNewCutoff = buckets.filter((b) => b.pathFrac > 0.1 && b.pathFrac < 0.95);
     expect(pastNewCutoff.length).toBeGreaterThan(0);
     expect(pastNewCutoff.every((b) => b.fillRatio > 0)).toBe(true); // not erased by the switch
+  });
+});
+
+// bucketFrame is what ElevatorBuckets (symbols.jsx) draws every frame, so
+// these run it on the real pendulum conveyor, Z-shaped body and drawn
+// outlet anchors included.
+describe("bucketFrame", () => {
+  const conveyor = line.machines.find((m) => m.id === "pendulumConveyor");
+  const bands = 24;
+  const full = (extra = {}) => ({
+    densityProfile: new Array(bands).fill(1), inTransitVol: 1, backlogVol: 0, ...extra,
+  });
+
+  it("gives every bucket its own slot inside the pool", () => {
+    const frame = bucketFrame(conveyor, full(), 37, new Map());
+    const slots = frame.map((b) => b.slot);
+    expect(frame.length).toBeGreaterThan(10);
+    expect(new Set(slots).size).toBe(slots.length);
+    for (const s of slots) expect(s).toBeLessThan(bucketPoolSize(conveyor));
+  });
+
+  it("draws no grain for an empty chain", () => {
+    const frame = bucketFrame(conveyor, { densityProfile: new Array(bands).fill(0), inTransitVol: 0, backlogVol: 0 }, 0, new Map());
+    expect(frame.every((b) => b.grain === null)).toBe(true);
+  });
+
+  it("stops grain at the selected outlet's drawn position, not the far end", () => {
+    const cutoff = outletPathFraction(conveyor, "outBuffer");
+    const frame = bucketFrame(conveyor, full({ selected: "outBuffer" }), 0, new Map());
+    const loaded = frame.filter((b) => b.grain);
+    expect(loaded.length).toBeGreaterThan(0);
+    expect(Math.max(...loaded.map((b) => b.pathFrac))).toBeLessThan(cutoff);
+    expect(frame.some((b) => b.pathFrac > cutoff && b.grain === null)).toBe(true);
+  });
+
+  it("carries grain the whole run when nothing is selected (a plain elevator)", () => {
+    const frame = bucketFrame(conveyor, full(), 0, new Map());
+    expect(Math.max(...frame.filter((b) => b.grain).map((b) => b.pathFrac))).toBeGreaterThan(0.9);
+  });
+
+  it("sizes a grain rect by the bucket's fill, inside its outline", () => {
+    const half = bucketFrame(conveyor, { densityProfile: new Array(bands).fill(0.5), inTransitVol: 1, backlogVol: 0 }, 0, new Map());
+    const b = half.find((x) => x.grain);
+    expect(b.grain.height).toBeGreaterThan(0);
+    expect(b.grain.height).toBeLessThan(BUCKET_H / 2 + 0.01);
+    expect(b.grain.width).toBeLessThan(BUCKET_W);
   });
 });

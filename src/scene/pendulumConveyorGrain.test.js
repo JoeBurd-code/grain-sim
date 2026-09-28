@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createSim, stepSim, DT, setSourceRate, setSource, setDestination, getMachineState } from "../sim/engine";
 import { BEHAVIORS } from "../sim/behaviors";
 import { line } from "../line/lineData";
-import { computeElevatorBuckets, carryBucketLoads, chainSceneSpeed, elevatorChain, outletPathFraction } from "./elevatorMotion";
+import { bucketFrame, chainSceneSpeed, elevatorChain, outletPathFraction } from "./elevatorMotion";
 import { tPerHourToM3PerSec } from "../sim/units";
 
 // Issue #69: the pendulum conveyor's grain has to stop at the outlet it is
@@ -54,17 +54,8 @@ function runTrace({ legs, onFrame }) {
       stepSim(sim, DT);
       const dyn = BEHAVIORS.routedTransportDelay.snapshot(getMachineState(sim, "pendulumConveyor"));
       phase += chainSceneSpeed(M, dyn.chainSpeedMPerMin) * DT;
-      const buckets = carryBucketLoads(
-        computeElevatorBuckets(M, dyn, phase), phase, held,
-        {
-          bandCount: dyn.densityProfile.length,
-          hasMaterial: dyn.inTransitVol > 0 || dyn.backlogVol > 0,
-          // Mirrors ElevatorBuckets (symbols.jsx) exactly: the cutoff comes
-          // from the selected outlet's own *drawn* anchor, not the
-          // snapshot's own distance-space `selectedSpanFraction`.
-          loadingCutoffFrac: outletPathFraction(M, dyn.selected),
-        },
-      );
+      // The exact call ElevatorBuckets (symbols.jsx) makes every frame.
+      const buckets = bucketFrame(M, dyn, phase, held);
       frames++;
       onFrame({ t: sim.t, dyn, buckets });
     }

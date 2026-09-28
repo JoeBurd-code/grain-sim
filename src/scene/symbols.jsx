@@ -5,7 +5,7 @@
 import { useLayoutEffect, useRef } from "react";
 import { C, FONT_DISP, FONT_MONO, mixColor, ratioColor } from "./theme";
 import { labelPlacement } from "./labelLayout";
-import { elevatorChain, ductBodyPaths, outletPathFraction, chainSceneSpeed, computeElevatorBuckets, carryBucketLoads, bucketGeneration, BUCKET_SPACING, BUCKET_EMPTY_THRESHOLD } from "./elevatorMotion";
+import { ductBodyPaths, chainSceneSpeed, computeElevatorBuckets, bucketFrame, bucketPoolSize, BUCKET_EMPTY_THRESHOLD } from "./elevatorMotion";
 import { treaterBatch, vibratoryFlowing } from "./litState";
 import { treaterGeometry, drumRibs, drumProngs, drumFillY, treaterDrumDegPerSec, DRUM_RIB_COUNT, DRUM_PRONG_COUNT } from "./treaterDrum";
 import { drumSpinDegPerSec, drumGateFraction } from "./drumFeederMotion";
@@ -168,15 +168,6 @@ export function MetalBinSymbol({ machine: m, dynamic }) {
   );
 }
 
-// Bucket outline size for the live, density-driven treatment below — large
-// enough to read as a real open-topped bucket (roughly 14x12) while still
-// leaving about half of BUCKET_SPACING as a visible gap to the next one.
-const BUCKET_W = 14;
-const BUCKET_H = 12;
-// Small inset so the grain rect never visually merges with the bucket's own
-// outline stroke.
-const BUCKET_GRAIN_INSET = 2;
-const BUCKET_GRAIN_FLOOR_GAP = 1.5;
 // Fixed opacity a loaded bucket used before density existed (issue #31) —
 // kept as a literal for the legacy binary-fill paths below (decorative
 // fallback, and the leadingProgress/trailingProgress sweep) now that the
@@ -189,18 +180,14 @@ const LEGACY_BUCKET_SIZE = 7;
 // path element and its own grain-level rect, both mutated in place by
 // useMachineMotion's per-frame callback rather than re-rendered by React.
 function ElevatorBuckets({ m, dynamic, motion }) {
-  const { totalLen } = elevatorChain(m);
-  // A couple of slots beyond the steady-state bucket count so a bucket
-  // entering or leaving at the chain's own wrap point always has an
-  // element to appear in/disappear from, rather than being clipped.
-  const poolSize = Math.floor(totalLen / BUCKET_SPACING) + 3;
+  const poolSize = bucketPoolSize(m);
   const outlineRefs = useRef([]);
   const grainRefs = useRef([]);
   const mRef = useRef(m);
   const dynamicRef = useRef(dynamic);
-  // Each physical bucket's carried load, keyed by bucketGeneration and kept
-  // across frames — see carryBucketLoads (elevatorMotion.js) for why a
-  // bucket's fill can't just be sampled at wherever it currently sits.
+  // Each physical bucket's carried load, kept across frames — see
+  // carryBucketLoads (elevatorMotion.js) for why a bucket's fill can't just
+  // be sampled at wherever it currently sits.
   const heldLoadsRef = useRef(new Map());
 
   // Runs every render (no deps): keeps the frame callback below reading the
@@ -213,58 +200,26 @@ function ElevatorBuckets({ m, dynamic, motion }) {
     motion.setRate(m.id, chainSceneSpeed(m, dynamic?.chainSpeedMPerMin));
   });
 
+  // Everything a frame draws comes from bucketFrame (elevatorMotion.js),
+  // the same call the real-engine trace test makes; this only writes it
+  // onto the pooled DOM nodes and hides the slots no bucket used.
   useLayoutEffect(() => {
     const id = m.id;
     const slotUsed = new Array(poolSize);
     function applyFrame(phase) {
-      const dyn = dynamicRef.current;
-      const buckets = carryBucketLoads(
-        computeElevatorBuckets(mRef.current, dyn, phase),
-        phase,
-        heldLoadsRef.current,
-        {
-          bandCount: dyn?.densityProfile?.length ?? 0,
-          hasMaterial: dyn?.inTransitVol > 0 || dyn?.backlogVol > 0,
-          // Issue #69: stamped onto each bucket as it loads, not applied to
-          // the chain as a whole — see carryBucketLoads. Undefined for plain
-          // transportDelay's own snapshot (treatingElevator), which
-          // discharges at the head and needs no cutoff.
-          //
-          // Issue #70 follow-up: taken from the selected outlet's own drawn
-          // anchor (outletPathFraction), NOT the snapshot's own
-          // `selectedSpanFraction` — that field is a fraction of real
-          // transit distance, and using it as a fraction of the drawn path
-          // left grain stopping partway up the climb once the drawn path
-          // gained a floor run and climb that carry no outlets. See
-          // outletPathFraction's own comment for why the two spaces are not
-          // interchangeable.
-          loadingCutoffFrac: dyn?.selected ? outletPathFraction(mRef.current, dyn.selected) : undefined,
-        },
-      );
       slotUsed.fill(false);
-      // Keyed by bucketGeneration, not array index: a bucket's own array
-      // index shifts by one every time a new bucket enters the boot or an
-      // old one discharges off the head, which would otherwise hand an
-      // unrelated bucket's fill to whatever DOM node used to occupy that
-      // index mid-transit — the exact "front bucket keeps refilling" glitch
-      // this replaced (see this symbol's own comment above).
-      for (const b of buckets) {
-        const gen = bucketGeneration(b.pos, phase);
-        const slot = ((gen % poolSize) + poolSize) % poolSize;
-        slotUsed[slot] = true;
-        const outlineEl = outlineRefs.current[slot];
-        const grainEl = grainRefs.current[slot];
-        const left = b.x - BUCKET_W / 2, top = b.y - BUCKET_H / 2, bottom = b.y + BUCKET_H / 2, right = b.x + BUCKET_W / 2;
-        outlineEl?.setAttribute("d", `M${left},${top} V${bottom} H${right} V${top}`);
+      for (const b of bucketFrame(mRef.current, dynamicRef.current, phase, heldLoadsRef.current)) {
+        slotUsed[b.slot] = true;
+        const outlineEl = outlineRefs.current[b.slot];
+        const grainEl = grainRefs.current[b.slot];
+        outlineEl?.setAttribute("d", b.outline);
         outlineEl?.setAttribute("opacity", "1");
-        const filled = b.fillRatio > BUCKET_EMPTY_THRESHOLD;
-        grainEl?.setAttribute("opacity", filled ? "1" : "0");
-        if (filled) {
-          const grainH = Math.min(1, b.fillRatio) * (BUCKET_H - BUCKET_GRAIN_FLOOR_GAP);
-          grainEl?.setAttribute("x", (left + BUCKET_GRAIN_INSET).toFixed(1));
-          grainEl?.setAttribute("width", (BUCKET_W - 2 * BUCKET_GRAIN_INSET).toFixed(1));
-          grainEl?.setAttribute("y", (bottom - BUCKET_GRAIN_FLOOR_GAP - grainH).toFixed(1));
-          grainEl?.setAttribute("height", grainH.toFixed(1));
+        grainEl?.setAttribute("opacity", b.grain ? "1" : "0");
+        if (b.grain) {
+          grainEl?.setAttribute("x", b.grain.x.toFixed(1));
+          grainEl?.setAttribute("width", b.grain.width.toFixed(1));
+          grainEl?.setAttribute("y", b.grain.y.toFixed(1));
+          grainEl?.setAttribute("height", b.grain.height.toFixed(1));
         }
       }
       for (let slot = 0; slot < poolSize; slot++) {

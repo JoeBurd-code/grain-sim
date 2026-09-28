@@ -281,3 +281,67 @@ export function carryBucketLoads(buckets, phase, held, { bandCount, hasMaterial 
   for (const gen of held.keys()) if (!live.has(gen)) held.delete(gen);
   return buckets;
 }
+
+// Drawn size of a live bucket: large enough to read as a real open-topped
+// bucket while leaving about half of BUCKET_SPACING as a visible gap to the
+// next one. The grain inside sits a little in from the outline's stroke.
+export const BUCKET_W = 14;
+export const BUCKET_H = 12;
+const BUCKET_GRAIN_INSET = 2;
+const BUCKET_GRAIN_FLOOR_GAP = 1.5;
+
+// How many DOM slots a live chain needs: its steady-state bucket count plus
+// a couple spare, so a bucket entering or leaving at the chain's wrap point
+// always has an element to appear in or vanish from.
+export function bucketPoolSize(m) {
+  return Math.floor(elevatorChain(m).totalLen / BUCKET_SPACING) + 3;
+}
+
+// One animation frame of a live elevator or conveyor, from the machine's
+// published snapshot to plain drawing instructions: which DOM slot each
+// bucket takes, its outline path, and its grain rect (null when empty).
+// ElevatorBuckets (symbols.jsx) only writes these onto SVG attributes, and
+// the real-engine trace (pendulumConveyorGrain.test.js) calls this same
+// function, so the test can never drift from what is drawn.
+//
+// It exists because every regression on the pendulum conveyor's grain (#69
+// twice, #70) was in the glue between the pure helpers above, not in the
+// helpers themselves: which cutoff to pass, from which space. The outlet
+// cutoff is the selected outlet's *drawn* anchor (outletPathFraction), never
+// the snapshot's `selectedSpanFraction`, which is a fraction of real transit
+// distance; the two agree only by coincidence (see outletPathFraction). A
+// plain transportDelay's snapshot carries no `selected`, so it gets no
+// cutoff and discharges at the head.
+//
+// `held` is the caller's Map, kept across frames (see carryBucketLoads).
+export function bucketFrame(m, dynamic, phase, held) {
+  const buckets = carryBucketLoads(computeElevatorBuckets(m, dynamic, phase), phase, held, {
+    bandCount: dynamic?.densityProfile?.length ?? 0,
+    hasMaterial: dynamic?.inTransitVol > 0 || dynamic?.backlogVol > 0,
+    loadingCutoffFrac: dynamic?.selected ? outletPathFraction(m, dynamic.selected) : undefined,
+  });
+  const poolSize = bucketPoolSize(m);
+  return buckets.map((b) => {
+    // Keyed by bucketGeneration, not array index: an index shifts by one
+    // every time a bucket enters the boot or leaves the head, which would
+    // hand an unrelated bucket's fill to whatever DOM node held that index.
+    const gen = bucketGeneration(b.pos, phase);
+    const slot = ((gen % poolSize) + poolSize) % poolSize;
+    const left = b.x - BUCKET_W / 2, top = b.y - BUCKET_H / 2, bottom = b.y + BUCKET_H / 2, right = b.x + BUCKET_W / 2;
+    let grain = null;
+    if (b.fillRatio > BUCKET_EMPTY_THRESHOLD) {
+      const h = Math.min(1, b.fillRatio) * (BUCKET_H - BUCKET_GRAIN_FLOOR_GAP);
+      grain = {
+        x: left + BUCKET_GRAIN_INSET,
+        y: bottom - BUCKET_GRAIN_FLOOR_GAP - h,
+        width: BUCKET_W - 2 * BUCKET_GRAIN_INSET,
+        height: h,
+      };
+    }
+    return {
+      slot, pathFrac: b.pathFrac, fillRatio: b.fillRatio,
+      outline: `M${left},${top} V${bottom} H${right} V${top}`,
+      grain,
+    };
+  });
+}
