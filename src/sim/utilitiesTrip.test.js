@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { BEHAVIORS } from "./behaviors";
 import { createSim, stepSim, resetTrips, getMachineState, getCombinedEvents, DT } from "./engine";
 import { setUtilitiesHealthy, getUtilitiesHealthy, getUtilitiesTripPhase } from "./engine";
 import { assertConserved } from "./conservation";
@@ -126,7 +127,7 @@ describe("utilities trip (issue #51)", () => {
     // before utilities ever fails — a genuine interlock in the real line
     // data, stood in here directly since this fixture carries none.
     const belt = getMachineState(sim, "belt");
-    belt.throttleTarget = 0.5;
+    BEHAVIORS.transportDelay.command(belt, 0.5, 0, "otherInterlock");
     belt.throttleFraction = 0.5;
 
     setUtilitiesHealthy(sim, false);
@@ -135,8 +136,8 @@ describe("utilities trip (issue #51)", () => {
 
     setUtilitiesHealthy(sim, true);
     resetTrips(sim);
-    // Restored to what it was commanded to *before* the utilities trip, not
-    // snapped back to full speed out from under the other interlock.
+    // The trip only released its own slot (commandSlots.js), so the other
+    // interlock's half speed still holds rather than snapping back to full.
     expect(getMachineState(sim, "belt").throttleTarget).toBe(0.5);
   });
 

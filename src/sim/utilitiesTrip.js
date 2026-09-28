@@ -35,63 +35,40 @@ const TRIP_RAMP_SEC = 0; // immediate — a trip strands material, no ramp to pr
 const RESUME_VALVE_RAMP_SEC = 6;
 const RESUME_THROTTLE_RAMP_SEC = 2;
 
-// One entry per actuator-bearing sim kind (the same five controlledStop.js
+// One entry per actuator-bearing sim kind (the same kinds controlledStop.js
 // names in its own header — accumulator/passThrough/splitter/router/
 // terminalSink hold no actuator of their own and are untouched: freezing
-// their neighbours freezes their throughput for free). `capture` reads
-// whatever this kind's own "where should this actuator be, absent this
-// trip" value is, *before* `stop` overwrites it, so `restore` can put it
-// back exactly — not a blind "fully open/running" default the way
-// controlledStop.js's own resume uses, because unlike a controlled stop
-// (which never fires until everything upstream has already, genuinely
-// drained) a utilities trip can catch an actuator mid-command from some
-// other still-latched interlock, and restoring "fully running" regardless
-// would silently un-latch that other trip too.
-// Shared by transportDelay and routedTransportDelay (see their own TRIPPABLE
-// entries below): both kinds' `command`/throttleTarget shape agrees exactly,
-// so one factory produces both entries rather than the two being written out
-// by hand — the same factoring controlledStop.js already applies to this
-// identical pairing.
+// their neighbours freezes their throughput for free). Every command goes
+// in this trip's own slot (commandSlots.js), so `restore` only has to
+// release that slot: whatever some other still-latched interlock commands
+// in its own slot keeps holding, with no need to capture and put back what
+// it was. The treater's `stopped` flag was already this trip's alone.
+const AUTHORITY = "utilitiesTrip";
+
 function chainTrippable(behaviorNS) {
   return {
-    capture: (state) => ({ target: state.throttleTarget }),
-    stop: (state) => behaviorNS.command(state, 0, TRIP_RAMP_SEC),
-    restore: (state, prior) => behaviorNS.command(state, prior.target, RESUME_THROTTLE_RAMP_SEC),
+    stop: (state) => behaviorNS.command(state, 0, TRIP_RAMP_SEC, AUTHORITY),
+    restore: (state) => behaviorNS.command(state, 1, RESUME_THROTTLE_RAMP_SEC, AUTHORITY),
+  };
+}
+function valveTrippable(behaviorNS) {
+  return {
+    stop: (state) => behaviorNS.command(state, "close", TRIP_RAMP_SEC, AUTHORITY),
+    restore: (state) => behaviorNS.command(state, "open", RESUME_VALVE_RAMP_SEC, AUTHORITY),
   };
 }
 
 const TRIPPABLE = {
-  source: {
-    capture: (state) => ({ target: state.opennessTarget }),
-    stop: (state) => BEHAVIORS.source.command(state, "close", TRIP_RAMP_SEC),
-    restore: (state, prior) => BEHAVIORS.source.command(state, prior.target === 0 ? "close" : "open", RESUME_VALVE_RAMP_SEC),
-  },
-  // Issue #73: same shape as `source` above — capture the position some
-  // other still-latched interlock may already have commanded, slam shut,
-  // and restore to exactly that rather than a blind "open".
-  gateValve: {
-    capture: (state) => ({ target: state.opennessTarget }),
-    stop: (state) => BEHAVIORS.gateValve.command(state, "close", TRIP_RAMP_SEC),
-    restore: (state, prior) => BEHAVIORS.gateValve.command(state, prior.target === 0 ? "close" : "open", RESUME_VALVE_RAMP_SEC),
-  },
+  source: valveTrippable(BEHAVIORS.source),
+  gateValve: valveTrippable(BEHAVIORS.gateValve),
   meteredFeeder: {
-    capture: (state) => ({ enabled: state.enabled }),
-    stop: (state) => BEHAVIORS.meteredFeeder.setEnabled(state, false),
-    restore: (state, prior) => BEHAVIORS.meteredFeeder.setEnabled(state, prior.enabled),
+    stop: (state) => BEHAVIORS.meteredFeeder.setEnabled(state, false, AUTHORITY),
+    restore: (state) => BEHAVIORS.meteredFeeder.setEnabled(state, true, AUTHORITY),
   },
   batchCycle: {
-    // No prior state worth capturing: `stopped` (behaviors.js, issue #51) is
-    // a flag this trip owns exclusively, independent of `blocked` (issue
-    // #25's hold-next-batch gate) — resuming always just clears it.
-    capture: () => ({}),
     stop: (state) => BEHAVIORS.batchCycle.setStopped(state, true),
     restore: (state) => BEHAVIORS.batchCycle.setStopped(state, false),
   },
-  // transportDelay and routedTransportDelay share this shape verbatim (only
-  // which BEHAVIORS namespace they call differs) — factored through
-  // chainTrippable below rather than duplicated, the same reasoning
-  // controlledStop.js already gives for its own identical pairing of these
-  // two kinds.
   transportDelay: chainTrippable(BEHAVIORS.transportDelay),
   routedTransportDelay: chainTrippable(BEHAVIORS.routedTransportDelay),
 };
@@ -112,7 +89,7 @@ export function initUtilitiesTrip() {
     healthy: true,
     phase: "running", // running -> armed -> tripped ; resetUtilitiesTrip always returns to running
     fireAt: null,
-    commanded: new Map(), // id -> { kind, prior } — exactly what stop() touched, for restore()
+    commanded: new Map(), // id -> kind — exactly what stop() touched, for restore()
     // Issue #73: which subsystem put the line in "tripped". Null means the
     // utilities toggle itself (this file's original and, until #73, only
     // cause), and `resetUtilitiesTrip` then gates on `healthy` exactly as
@@ -127,13 +104,13 @@ export function initUtilitiesTrip() {
 
 // The stop half of a whole-line trip, shared by the utilities toggle below
 // and by any control.js rule escalating to one (issue #73): every
-// actuator-bearing machine captured and slammed shut in the same tick,
+// actuator-bearing machine slammed shut in the same tick,
 // wherever its material happens to be.
 function stopEveryActuator(sim, ut) {
   for (const [id, state] of sim.machines) {
     const tripper = TRIPPABLE[state.kind];
     if (!tripper) continue;
-    ut.commanded.set(id, { kind: state.kind, prior: tripper.capture(state) });
+    ut.commanded.set(id, state.kind);
     tripper.stop(state);
   }
 }
@@ -223,9 +200,8 @@ export function resetUtilitiesTrip(sim) {
     logEvent(ut, sim.t, "reset commanded — utilities still failed, remains latched");
     return;
   }
-  for (const [id, { kind, prior }] of ut.commanded) {
-    const state = sim.machines.get(id);
-    TRIPPABLE[kind].restore(state, prior);
+  for (const [id, kind] of ut.commanded) {
+    TRIPPABLE[kind].restore(sim.machines.get(id));
   }
   ut.commanded = new Map();
   ut.phase = "running";

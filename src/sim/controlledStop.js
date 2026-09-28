@@ -36,6 +36,11 @@ const EPS = 1e-9;
 const VALVE_RAMP_SEC = 6;
 const THROTTLE_RAMP_SEC = 2;
 
+// Every stop and resume goes in this walk's own command slot
+// (commandSlots.js). Resuming only releases that slot, so it can never
+// reopen something a latched trip still holds shut in its own.
+const AUTHORITY = "controlledStop";
+
 function isEmpty(vol) {
   return vol <= EPS;
 }
@@ -72,9 +77,9 @@ function describeChainResume() {
 
 const STOPPABLE = {
   source: {
-    stop: (state) => BEHAVIORS.source.command(state, "close", VALVE_RAMP_SEC),
+    stop: (state) => BEHAVIORS.source.command(state, "close", VALVE_RAMP_SEC, AUTHORITY),
     isDrained: () => true, // a valve holds no material of its own
-    resume: (state) => BEHAVIORS.source.command(state, "open", VALVE_RAMP_SEC),
+    resume: (state) => BEHAVIORS.source.command(state, "open", VALVE_RAMP_SEC, AUTHORITY),
     describeStop: () => `valve commanded closed (ramping over ${VALVE_RAMP_SEC}s) — controlled stop`,
     describeResume: () => `valve commanded open (ramping over ${VALVE_RAMP_SEC}s) — line resumed`,
   },
@@ -85,21 +90,21 @@ const STOPPABLE = {
   // the after-bin outlet valve closes at the same pace on a controlled stop
   // as the source valve does.
   gateValve: {
-    stop: (state) => BEHAVIORS.gateValve.command(state, "close", VALVE_RAMP_SEC),
+    stop: (state) => BEHAVIORS.gateValve.command(state, "close", VALVE_RAMP_SEC, AUTHORITY),
     isDrained: () => true,
-    resume: (state) => BEHAVIORS.gateValve.command(state, "open", VALVE_RAMP_SEC),
+    resume: (state) => BEHAVIORS.gateValve.command(state, "open", VALVE_RAMP_SEC, AUTHORITY),
     describeStop: () => `valve commanded closed (ramping over ${VALVE_RAMP_SEC}s) — controlled stop`,
     describeResume: () => `valve commanded open (ramping over ${VALVE_RAMP_SEC}s) — line resumed`,
   },
   meteredFeeder: {
-    stop: (state) => BEHAVIORS.meteredFeeder.setEnabled(state, false),
+    stop: (state) => BEHAVIORS.meteredFeeder.setEnabled(state, false, AUTHORITY),
     isDrained: () => true, // holds no material of its own
-    resume: (state) => BEHAVIORS.meteredFeeder.setEnabled(state, true),
+    resume: (state) => BEHAVIORS.meteredFeeder.setEnabled(state, true, AUTHORITY),
     describeStop: () => `feeder disabled — controlled stop`,
     describeResume: () => `feeder re-enabled — line resumed`,
   },
   batchCycle: {
-    stop: (state) => BEHAVIORS.batchCycle.command(state, true, "controlledStop"),
+    stop: (state) => BEHAVIORS.batchCycle.command(state, true, AUTHORITY),
     // A charge already accepting material keeps running to completion and
     // discharges normally regardless of `blocked` (capacityAvailableBatchCycle
     // only withholds a *fresh* charge) — so commanding this immediately never
@@ -129,7 +134,7 @@ const STOPPABLE = {
     // circuits it: a tripped machine's phase never advances again, so
     // waiting on it would hang.
     isDrained: (state) => state.stopped || state.phase === "charging",
-    resume: (state) => BEHAVIORS.batchCycle.command(state, false, "controlledStop"),
+    resume: (state) => BEHAVIORS.batchCycle.command(state, false, AUTHORITY),
     describeStop: () => `won't start a fresh charge — controlled stop`,
     describeResume: () => `released to start its next charge — line resumed`,
   },
@@ -139,16 +144,16 @@ const STOPPABLE = {
   // rather than duplicated, since the two kinds' `command`/`snapshot`
   // signatures already agree exactly (behaviors.js).
   transportDelay: {
-    stop: (state) => BEHAVIORS.transportDelay.command(state, 0, THROTTLE_RAMP_SEC),
+    stop: (state) => BEHAVIORS.transportDelay.command(state, 0, THROTTLE_RAMP_SEC, AUTHORITY),
     isDrained: (state, sim, id) => transitDrained(BEHAVIORS.transportDelay, state, sim, id),
-    resume: (state) => BEHAVIORS.transportDelay.command(state, 1, THROTTLE_RAMP_SEC),
+    resume: (state) => BEHAVIORS.transportDelay.command(state, 1, THROTTLE_RAMP_SEC, AUTHORITY),
     describeStop: describeChainStop,
     describeResume: describeChainResume,
   },
   routedTransportDelay: {
-    stop: (state) => BEHAVIORS.routedTransportDelay.command(state, 0, THROTTLE_RAMP_SEC),
+    stop: (state) => BEHAVIORS.routedTransportDelay.command(state, 0, THROTTLE_RAMP_SEC, AUTHORITY),
     isDrained: (state, sim, id) => transitDrained(BEHAVIORS.routedTransportDelay, state, sim, id),
-    resume: (state) => BEHAVIORS.routedTransportDelay.command(state, 1, THROTTLE_RAMP_SEC),
+    resume: (state) => BEHAVIORS.routedTransportDelay.command(state, 1, THROTTLE_RAMP_SEC, AUTHORITY),
     describeStop: describeChainStop,
     describeResume: describeChainResume,
   },

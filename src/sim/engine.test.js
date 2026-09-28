@@ -3570,6 +3570,15 @@ describe("clearPlant (issue #55 — CLEAR PLANT)", () => {
 describe("Concetti pre-bin's staged pause and restart (issue #73)", () => {
   const SIGNAL_DELAY = 5, ESCALATION = 30, CONVEYOR_START = 30, VALVE_OPEN = 10;
   const valve = (sim) => getMachineState(sim, AFTER_BIN_VALVE_ID);
+  // The conveyor answers to several authorities at once (commandSlots.js).
+  // When the pause sequence starts it again it only releases its own slot,
+  // so the conveyor runs at whatever the Concetti feed schedule still
+  // commands in its slot, not at a blind 100% over the top of it.
+  const conveyorSlot = (sim, ruleId) => getMachineState(sim, CONVEYOR_ID).throttleCommands[ruleId];
+  const expectPauseReleasedConveyor = (sim) => {
+    expect(conveyorSlot(sim, "concettiHighHighPauseSequence")).toBe(1);
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(conveyorSlot(sim, "concettiFeedSchedule"));
+  };
   const run = (sim, seconds) => {
     for (let i = 0; i < Math.round(seconds / DT); i++) stepSim(sim, DT);
   };
@@ -3632,7 +3641,8 @@ describe("Concetti pre-bin's staged pause and restart (issue #73)", () => {
 
     run(sim, 2); // conveyor starts
     expect(concettiPauseSequence(sim).phase).toBe("restartingValve");
-    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(1);
+    expectPauseReleasedConveyor(sim);
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBeGreaterThan(0);
     expect(valve(sim).opennessTarget).toBe(0); // the drain path runs first, alone
 
     run(sim, VALVE_OPEN - 2);
@@ -3650,7 +3660,7 @@ describe("Concetti pre-bin's staged pause and restart (issue #73)", () => {
     setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.9);
     run(sim, CONVEYOR_START + 1); // conveyor back on, valve still shut
     expect(concettiPauseSequence(sim).phase).toBe("restartingValve");
-    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(1);
+    expectPauseReleasedConveyor(sim);
 
     setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97); // fills again
     run(sim, 1);
@@ -3751,7 +3761,10 @@ describe("Concetti pre-bin's staged pause and restart (issue #73)", () => {
     // them (see disarmStagedPauseRestart).
     expect(concettiPauseSequence(sim).phase).toBe("running");
     expect(valve(sim).opennessTarget).toBe(1);
-    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(1);
+    // The pause releases its own slot. The feed schedule, disarmed by the
+    // same reroute, keeps the band it last commanded — its disarm never
+    // withdraws an issued command (docs/OPEN_QUESTIONS.md).
+    expectPauseReleasedConveyor(sim);
     expect(getMachineState(sim, TREATER_ID).blocked).toBe(false);
   });
 
@@ -3769,6 +3782,64 @@ describe("Concetti pre-bin's staged pause and restart (issue #73)", () => {
     expect(messages.some((m) => m.includes("conveyor started"))).toBe(true);
     expect(messages.some((m) => m.includes("valve above the scalping screen opened"))).toBe(true);
     for (const entry of concettiPauseSequence(sim).log) expect(typeof entry.t).toBe("number");
+  });
+});
+
+// Command slots (commandSlots.js): every authority over a machine writes
+// its own slot and the most restrictive wins, so no authority can undo
+// another's command by writing last. Both conveyor cases below were live
+// bugs before the slots existed (found by a headless trace, 2026-09-28).
+describe("authorities over one machine never overwrite each other", () => {
+  const run = (sim, seconds) => {
+    for (let i = 0; i < Math.round(seconds / DT); i++) stepSim(sim, DT);
+  };
+  const scheduleOf = (sim) => sim.control.find((r) => r.id === "concettiFeedSchedule");
+
+  it("a feed schedule band change cannot restart the conveyor while the pause sequence is still holding it for its ordered restart", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
+    run(sim, 6);
+    expect(concettiPauseSequence(sim).phase).toBe("paused");
+
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.5); // clears LSHH; the schedule re-bands on its own
+    run(sim, 10); // well inside the pause's 30 s conveyor dwell
+    expect(concettiPauseSequence(sim).phase).toBe("restartingConveyor");
+    expect(scheduleOf(sim).phase).not.toMatch(/^arming/); // the schedule has already commanded its new band
+    expect(getMachineState(sim, CONVEYOR_ID).throttleCommands.concettiFeedSchedule).toBeGreaterThan(0);
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(0); // the pause still holds it
+  });
+
+  it("the source selection survives a controlled stop and a utilities trip, and comes back unchanged", () => {
+    const sim = createSim(line);
+    setSource(sim, "proBox");
+    controlledStop(sim);
+    for (let i = 0; i < (20 * 60) / DT && getControlledStopPhase(sim) !== "stopped"; i++) stepSim(sim, DT);
+    expect(getControlledStopPhase(sim)).toBe("stopped");
+    expect(getSource(sim)).toBe("proBox"); // was null: the stop had borrowed the selector's own switch
+    expect(getMachineState(sim, "inletDrumFeeder1").enabled).toBe(false);
+
+    resumeLine(sim);
+    run(sim, 1);
+    setUtilitiesHealthy(sim, false);
+    run(sim, 1.5);
+    expect(getSource(sim)).toBe("proBox");
+    expect(getMachineState(sim, "inletDrumFeeder1").enabled).toBe(false);
+    expect(getMachineState(sim, "inletDrumFeeder2").enabled).toBe(false);
+
+    setUtilitiesHealthy(sim, true);
+    resetTrips(sim);
+    expect(getMachineState(sim, "inletDrumFeeder1").enabled).toBe(true);
+    expect(getMachineState(sim, "inletDrumFeeder2").enabled).toBe(false); // never the deselected one
+  });
+
+  it("switching source during a controlled stop does not start the newly selected feeder until the line resumes", () => {
+    const sim = createSim(line);
+    setSource(sim, "proBox");
+    controlledStop(sim);
+    for (let i = 0; i < (20 * 60) / DT && getControlledStopPhase(sim) !== "stopped"; i++) stepSim(sim, DT);
+    setSource(sim, "treatingLine");
+    expect(getSource(sim)).toBe("treatingLine");
+    expect(getMachineState(sim, "inletDrumFeeder2").enabled).toBe(false); // still held by the stop
   });
 });
 

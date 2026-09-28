@@ -238,8 +238,10 @@ export function primeFeedSchedules(control, machines) {
     if (rule.kind !== "gradedFeedSchedule") continue;
     const band = rule[rule.phase];
     const elevator = machines.get(rule.actuatorId);
+    // Through the rule's own command slot (commandSlots.js), not a bare field
+    // write: another authority's later command resolves against this one.
+    BEHAVIORS[elevator.kind].command(elevator, band.speedFraction, 0, rule.id);
     elevator.throttleFraction = band.speedFraction;
-    elevator.throttleTarget = band.speedFraction;
     for (const feederId of rule.feederIds) {
       const feeder = machines.get(feederId);
       feeder.gateThrottleFraction = band.gateFraction;
@@ -287,7 +289,7 @@ function stepThresholdTrip(rule, sim) {
   }
 
   if (rule.phase === "delayedClose" && sim.t >= rule.fireAt) {
-    behavior.command(actuator, "close", rule.rampTimeSec);
+    behavior.command(actuator, "close", rule.rampTimeSec, rule.id);
     logEvent(rule, sim.t, `valve commanded closed (ramping over ${rule.rampTimeSec}s)`);
     rule.phase = "closing";
     rule.fireAt = null;
@@ -319,7 +321,7 @@ function resetThresholdTrip(rule, sim) {
     return;
   }
   const { actuator, behavior } = resolveActuator(rule, sim);
-  behavior.command(actuator, "open", rule.rampTimeSec);
+  behavior.command(actuator, "open", rule.rampTimeSec, rule.id);
   logEvent(rule, sim.t, `reset — valve commanded open (ramping over ${rule.rampTimeSec}s)`);
   rule.phase = "opening";
   rule.fireAt = null;
@@ -400,7 +402,7 @@ function stepHysteresisValve(rule, sim) {
 
   if (rule.phase === "armingTrip") {
     if (sim.t >= rule.fireAt) {
-      behavior.command(actuator, "close", rule.rampTimeSec);
+      behavior.command(actuator, "close", rule.rampTimeSec, rule.id);
       logEvent(rule, sim.t, `valve commanded closed (ramping over ${rule.rampTimeSec}s) — high-high trip`);
       rule.phase = "stopping";
       rule.fireAt = null;
@@ -442,7 +444,7 @@ function stepHysteresisValve(rule, sim) {
   }
   if (sim.t >= rule.fireAt) {
     const armTarget = rule.phase === "armingClose" ? "closed" : "open";
-    behavior.command(actuator, armTarget === "closed" ? "close" : "open", rule.rampTimeSec);
+    behavior.command(actuator, armTarget === "closed" ? "close" : "open", rule.rampTimeSec, rule.id);
     logEvent(rule, sim.t, `valve commanded ${armTarget} (ramping over ${rule.rampTimeSec}s)`);
     rule.settledBand = armTarget;
     rule.phase = armTarget;
@@ -469,7 +471,7 @@ function resetHysteresisValve(rule, sim) {
   }
   const targetBand = hysteresisTarget(rule, level, "closed");
   const { actuator, behavior } = resolveActuator(rule, sim);
-  behavior.command(actuator, targetBand === "closed" ? "close" : "open", rule.rampTimeSec);
+  behavior.command(actuator, targetBand === "closed" ? "close" : "open", rule.rampTimeSec, rule.id);
   logEvent(rule, sim.t, `reset — valve commanded ${targetBand} (ramping over ${rule.rampTimeSec}s)`);
   rule.settledBand = targetBand;
   rule.phase = "recovering";
@@ -537,12 +539,12 @@ function stepTwoStageThrottle(rule, sim) {
   }
 
   if (rule.phase === "armSlow" && sim.t >= rule.fireAt) {
-    behavior.command(actuator, rule.slowFraction, rule.slowRampTimeSec);
+    behavior.command(actuator, rule.slowFraction, rule.slowRampTimeSec, rule.id);
     logEvent(rule, sim.t, `elevator commanded to ${Math.round(rule.slowFraction * 100)}% speed (ramping over ${rule.slowRampTimeSec}s)`);
     rule.phase = "slowing";
     rule.fireAt = null;
   } else if (rule.phase === "armStop" && sim.t >= rule.fireAt) {
-    behavior.command(actuator, 0, rule.stopRampTimeSec);
+    behavior.command(actuator, 0, rule.stopRampTimeSec, rule.id);
     logEvent(rule, sim.t, `elevator commanded to stop (ramping over ${rule.stopRampTimeSec}s)`);
     rule.phase = "stopping";
     rule.fireAt = null;
@@ -582,12 +584,12 @@ function resetTwoStageThrottle(rule, sim) {
   }
   const { actuator, behavior } = resolveActuator(rule, sim);
   if (rule.phase === "stopped" && level >= rule.slowSetpoint) {
-    behavior.command(actuator, rule.slowFraction, rule.slowRampTimeSec);
+    behavior.command(actuator, rule.slowFraction, rule.slowRampTimeSec, rule.id);
     logEvent(rule, sim.t, `reset — elevator commanded to ${Math.round(rule.slowFraction * 100)}% speed (ramping over ${rule.slowRampTimeSec}s) — slow set point still tripped`);
     rule.phase = "slowing";
     return;
   }
-  behavior.command(actuator, 1, rule.recoverRampTimeSec);
+  behavior.command(actuator, 1, rule.recoverRampTimeSec, rule.id);
   logEvent(rule, sim.t, `reset — elevator commanded back to full speed (ramping over ${rule.recoverRampTimeSec}s)`);
   rule.phase = "recovering";
 }
@@ -758,7 +760,7 @@ function stepThresholdStopTrip(rule, sim) {
   }
 
   if (rule.phase === "armed" && sim.t >= rule.fireAt) {
-    behavior.command(actuator, 0, rule.rampTimeSec);
+    behavior.command(actuator, 0, rule.rampTimeSec, rule.id);
     logEvent(rule, sim.t, `conveyor commanded to stop (ramping over ${rule.rampTimeSec}s)`);
     rule.phase = "stopping";
     rule.fireAt = null;
@@ -803,7 +805,7 @@ function resetThresholdStopTrip(rule, sim) {
     return;
   }
   const { actuator, behavior } = resolveActuator(rule, sim);
-  behavior.command(actuator, 1, rule.rampTimeSec);
+  behavior.command(actuator, 1, rule.rampTimeSec, rule.id);
   logEvent(rule, sim.t, `reset — conveyor commanded back to full speed (ramping over ${rule.rampTimeSec}s)`);
   rule.phase = "recovering";
 }
@@ -930,7 +932,7 @@ function formatBandTargets(band) {
 function commandBandTargets(rule, sim, bandName) {
   const band = rule[bandName];
   const { actuator, behavior } = resolveActuator(rule, sim);
-  behavior.command(actuator, band.speedFraction, band.rampTimeSec);
+  behavior.command(actuator, band.speedFraction, band.rampTimeSec, rule.id);
   for (const { feeder, behavior: feederBehavior } of resolveFeeders(rule, sim)) {
     feederBehavior.commandGate(feeder, band.gateFraction, band.rampTimeSec);
   }
@@ -1008,7 +1010,7 @@ function stepGradedFeedSchedule(rule, sim) {
 
   if (rule.phase === "armingTrip") {
     if (sim.t >= rule.fireAt) {
-      behavior.command(actuator, 0, rule.trip.rampTimeSec);
+      behavior.command(actuator, 0, rule.trip.rampTimeSec, rule.id);
       logEvent(rule, sim.t, `elevator commanded to stop (ramping over ${rule.trip.rampTimeSec}s) — high-high trip`);
       rule.phase = "stopping";
       rule.fireAt = null;
@@ -1084,12 +1086,11 @@ function resetGradedFeedSchedule(rule, sim) {
 // with a pending, not-yet-committed timer — the three band arms and the trip
 // arm — have anything to cancel; "stopping"/"recovering"/"tripped" each
 // represent a command already issued and must survive being disarmed
-// unchanged. Not exercised by any `armedWhen` config on the real line (the
-// real preBinFeedSchedule rule, issue #60, has none — nothing routes away
-// from the treating zone's own dedicated upstream path), but every other
-// kind with a cancellable arm declares this unconditionally rather than
-// waiting for a config that happens to use it — see stepControl's own
-// comment on why.
+// unchanged. The real concettiFeedSchedule (issue #61) is disarmed whenever
+// the conveyor routes away from Concetti, and the band it last commanded
+// keeps holding in its own command slot on the new route. Whether it should
+// release instead is an open question (docs/OPEN_QUESTIONS.md, "Command
+// slots").
 function disarmGradedFeedSchedule(rule) {
   if (FEED_SCHEDULE_ARM_TARGET[rule.phase] || rule.phase === "armingTrip") {
     rule.phase = rule.settledBand;
@@ -1182,11 +1183,11 @@ function commandTreaterHold(rule, sim, held) {
 }
 function commandValve(rule, sim, direction) {
   const valve = sim.machines.get(rule.valveId);
-  BEHAVIORS[valve.kind].command(valve, direction, rule.valveRampSec);
+  BEHAVIORS[valve.kind].command(valve, direction, rule.valveRampSec, rule.id);
 }
 function commandConveyor(rule, sim, fraction) {
   const conveyor = sim.machines.get(rule.conveyorId);
-  BEHAVIORS[conveyor.kind].command(conveyor, fraction, rule.conveyorRampSec);
+  BEHAVIORS[conveyor.kind].command(conveyor, fraction, rule.conveyorRampSec, rule.id);
 }
 // Entering the pause, from `running` or from either restart stage: a
 // re-assertion part-way through a restart must put the line straight back
@@ -1208,13 +1209,12 @@ function stepStagedPauseRestart(rule, sim) {
 
   // While the whole line is tripped, this rule holds exactly where it is.
   // Every other kind in this file is latched, so none of them had to say
-  // this: a latched rule cannot move on its own anyway, and stepUtilitiesTrip
-  // (which runs last in stepSim) only overrides commands on the single tick
-  // the trip fires. This one recovers by itself, so without the guard it
-  // would run its whole ordered restart *during* a line trip and hand the
-  // conveyor and valve back to a line an operator has not restarted yet —
-  // the exact opposite of what the escalation is for. Its own `reset` is
-  // what starts the restart instead, on the operator's press.
+  // this. This one recovers by itself, so without the guard it would run its
+  // whole ordered restart *during* a line trip. The trip's own command slot
+  // (commandSlots.js) would still keep the conveyor and valve shut, but the
+  // restart would log stages that never happened and finish before the
+  // operator restarts the line. Its own `reset` is what starts the restart
+  // instead, on the operator's press.
   if (sim.utilitiesTrip?.phase === "tripped") return;
 
   const high = level >= rule.highHighSetpoint;

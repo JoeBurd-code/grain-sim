@@ -17,6 +17,7 @@
 // validateLine.js checks declared `sim.kind` values against.
 
 import { SPEED_DIAL, GATE_DIAL, dialEffective, dialReading } from "./dial";
+import { THROTTLE, OPENNESS, DEFAULT_AUTHORITY, SOURCE_SELECTOR, commandFraction, commandOn } from "./commandSlots";
 
 // Shared by source and passThrough: neither holds any volume of its own, so
 // what either can accept is exactly what its own downstream can accept.
@@ -67,12 +68,11 @@ function conserveSource(state) {
 function snapshotSource(state) {
   return { nominalRate: state.nominalRate, openness: state.openness };
 }
-// Commands the valve toward fully open or fully closed over `rampTimeSec`.
-// The control layer is the only caller; a source with no interlock never
-// has this invoked and keeps its default openness of 1.
-function commandSource(state, direction, rampTimeSec) {
-  state.opennessTarget = direction === "close" ? 0 : 1;
-  state.opennessRampPerSec = rampTimeSec > 0 ? 1 / rampTimeSec : Infinity;
+// Commands the valve toward fully open or fully closed over `rampTimeSec`,
+// in `authority`'s own slot (commandSlots.js): shut while any authority
+// says close. A source nothing commands keeps its default openness of 1.
+function commandSource(state, direction, rampTimeSec, authority = DEFAULT_AUTHORITY) {
+  commandFraction(state, OPENNESS, authority, direction === "close" ? 0 : 1, rampTimeSec);
 }
 function isSettledSource(state) {
   return state.openness === state.opennessTarget;
@@ -156,9 +156,8 @@ function snapshotGateValve(state) {
 }
 // Same binary open/close contract as `commandSource`, so a control rule can
 // drive either without knowing which it holds.
-function commandGateValve(state, direction, rampTimeSec) {
-  state.opennessTarget = direction === "close" ? 0 : 1;
-  state.opennessRampPerSec = rampTimeSec > 0 ? 1 / rampTimeSec : Infinity;
+function commandGateValve(state, direction, rampTimeSec, authority = DEFAULT_AUTHORITY) {
+  commandFraction(state, OPENNESS, authority, direction === "close" ? 0 : 1, rampTimeSec);
 }
 function isSettledGateValve(state) {
   return state.openness === state.opennessTarget;
@@ -272,6 +271,10 @@ function initMeteredFeeder(m) {
   return {
     kind: "meteredFeeder", rate: m.sim.rateM3PerSec, drawn: 0, manualOverride: false,
     enabled: m.sim.enabled ?? true,
+    // `enabled` resolved from one slot per authority (commandSlots.js): the
+    // source selector, the controlled stop and the utilities trip each hold
+    // their own, so a stop never erases which source was selected.
+    enableCommands: { [SOURCE_SELECTOR]: m.sim.enabled ?? true },
     // `runPermit` (issue #47 — the packaging conveyor's own "not running"
     // process interlock) is a *second*, independent on/off gate alongside
     // `enabled`: the source selector (setSource, engine.js) owns `enabled`
@@ -360,14 +363,13 @@ function snapshotMeteredFeeder(state) {
   }
   return snap;
 }
-// The source selector's command (issue #46): gates intake on/off without
-// touching `rate`, so the presenter's own dial survives being deselected
-// and reselected. The control layer is not the caller here — this is a
-// direct presenter action (setSource, engine.js), same category as
-// setFeederRate — so unlike commandMeteredFeeder there is no interlock/
-// manualOverride interaction to worry about.
-function setEnabledMeteredFeeder(state, enabled) {
-  state.enabled = enabled;
+// Gates intake on/off without touching `rate`, so the presenter's own dial
+// survives being switched off and on again. Written by the source selector
+// (issue #46, setSource in engine.js), the controlled stop and the utilities
+// trip, each in its own slot (commandSlots.js): intake runs only while all
+// of them say on.
+function setEnabledMeteredFeeder(state, enabled, authority = DEFAULT_AUTHORITY) {
+  commandOn(state, "enableCommands", "enabled", authority, enabled);
 }
 // The conveyor's own "not running" interlock command (issue #47,
 // autoStopOnNotRunning in control.js): gates intake on/off exactly like
@@ -591,9 +593,10 @@ function snapshotTransportDelay(state) {
 // open/close), ramping over `rampTimeSec` rather than snapping — the two
 // stage interlock (control.js) is the only caller; a transport delay with no
 // interlock on it never has this invoked and keeps its default throttle of 1.
-function commandTransportDelay(state, targetFraction, rampTimeSec) {
-  state.throttleTarget = targetFraction;
-  state.throttleRampPerSec = rampTimeSec > 0 ? 1 / rampTimeSec : Infinity;
+// In `authority`'s own slot (commandSlots.js): the chain runs at the
+// slowest speed any authority currently commands.
+function commandTransportDelay(state, targetFraction, rampTimeSec, authority = DEFAULT_AUTHORITY) {
+  commandFraction(state, THROTTLE, authority, targetFraction, rampTimeSec);
 }
 function isSettledTransportDelay(state) {
   return state.throttleFraction === state.throttleTarget;
@@ -818,9 +821,8 @@ function snapshotRoutedTransportDelay(state) {
 // commandTransportDelay — a target speed fraction, ramped over
 // `rampTimeSec` — kept as a separate function only because it operates on
 // this kind's own state shape, not because the behaviour differs.
-function commandRoutedTransportDelay(state, targetFraction, rampTimeSec) {
-  state.throttleTarget = targetFraction;
-  state.throttleRampPerSec = rampTimeSec > 0 ? 1 / rampTimeSec : Infinity;
+function commandRoutedTransportDelay(state, targetFraction, rampTimeSec, authority = DEFAULT_AUTHORITY) {
+  commandFraction(state, THROTTLE, authority, targetFraction, rampTimeSec);
 }
 function isSettledRoutedTransportDelay(state) {
   return state.throttleFraction === state.throttleTarget;

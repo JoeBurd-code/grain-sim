@@ -4,6 +4,7 @@
 // not part of this seam.
 import { BEHAVIORS, REGISTERED_KINDS, unregisteredKindMessage } from "./behaviors";
 import { SPEED_DIAL, GATE_DIAL, setDial, releaseDial } from "./dial";
+import { SOURCE_SELECTOR } from "./commandSlots";
 import {
   initControl, stepControl, combineEventLogs, primeInstruments, primeFeedSchedules, resetTrips as resetControlTrips,
   hasLatchedTrip,
@@ -262,9 +263,9 @@ export function stepSim(sim, dt) {
   // check or any rule's phase, per this step's own reasoning in control.js.
   stepFeedRateDerivation(sim);
   stepControlledStop(sim);
-  // Issue #51: stepped last, so a utilities trip firing this tick overrides
-  // whatever the two passes above just commanded — a trip is total, and
-  // nothing else on the line gets to argue with it.
+  // Issue #51. Order no longer decides who wins: every authority writes its
+  // own command slot and the most restrictive holds (commandSlots.js), so a
+  // tripped line stays stopped whatever the passes above command.
   stepUtilitiesTrip(sim);
   return sim;
 }
@@ -612,7 +613,7 @@ export function setSource(sim, source) {
   for (const [key, id] of Object.entries(PACKAGING_FEEDERS)) {
     const state = sim.machines.get(id);
     if (state?.kind === "meteredFeeder") {
-      BEHAVIORS.meteredFeeder.setEnabled(state, key === source);
+      BEHAVIORS.meteredFeeder.setEnabled(state, key === source, SOURCE_SELECTOR);
     }
   }
 }
@@ -624,7 +625,7 @@ export function setSource(sim, source) {
 // packaging feeder, or the unreachable case of both/neither enabled.
 export function getSource(sim) {
   const enabled = Object.entries(PACKAGING_FEEDERS).filter(
-    ([, id]) => sim.machines.get(id)?.enabled === true
+    ([, id]) => sim.machines.get(id)?.enableCommands?.[SOURCE_SELECTOR] === true
   );
   return enabled.length === 1 ? enabled[0][0] : null;
 }
