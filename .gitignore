@@ -70,3 +70,7 @@ docs/meeting.md
 # Business/product planning for the factory builder - local reference only,
 # not for the public repo.
 docs/factory-builder-plan.md
+
+# Local market research (names the client and business plans; repo is public)
+reports/
+research_notes/
