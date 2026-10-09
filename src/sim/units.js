@@ -18,6 +18,15 @@ export function m3ToTonnes(m3) {
   return m3 * BULK_DENSITY_T_PER_M3;
 }
 
+// Batch and bag sizes: the engineer gives these in kg.
+export function kgToM3(kg) {
+  return kg / 1000 / BULK_DENSITY_T_PER_M3;
+}
+
+export function m3ToKg(m3) {
+  return m3 * BULK_DENSITY_T_PER_M3 * 1000;
+}
+
 // Simatek elevator feed-rate formula (issue #57): TPH = Speed% x Gate% x k,
 // matching the plant's own commissioning spreadsheet
 // (Elevator_Feed_Rate_Calculator_v4_UPDATED.xlsx, user-supplied 2026-08-19,

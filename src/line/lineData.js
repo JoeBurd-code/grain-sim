@@ -49,6 +49,16 @@ import { tPerHourToM3PerSec, BULK_DENSITY_T_PER_M3 } from "../sim/units";
 // same total three more times, not just once as the whole-run `distanceM`.
 const PENDULUM_CONVEYOR_RUN_M = 7.084 + 9.157 + 14.846;
 
+// Build mode fields (issue #77, table approved on the issue). A slider
+// default names its slider; a behaviour setting names the line value it
+// changes (line/adjustableFields.js). Each default is today's value, and a
+// test holds the two together. The capacity and rating limits are assumed,
+// approved by the user on issue #77, and did not come from the engineer.
+const sliderDefault = (param, value) => ({ param, default: value });
+const capacityField = (min, max, value) => ({ id: "capacity", label: "capacity", unit: "m³", kind: "number", min, max, default: value, bind: "capacity" });
+const ratedCapacityField = (label, min, max, value) => ({ id: "ratedCapacity", label, unit: "t/h", kind: "number", min, max, default: value, bind: "ratedCapacity" });
+const chainSpeedField = (value) => ({ id: "chainSpeed", label: "chain speed", unit: "m/min", kind: "number", min: 2, max: 30, default: value, bind: "chainSpeed" });
+
 export const line = {
   zones: [
     { id: "treating", name: "TREATING" },
@@ -83,6 +93,7 @@ export const line = {
       // the same rate the old #42 auto-start interlock used to pick for the
       // identical reason before issue #60 replaced it. See
       // docs/OPEN_QUESTIONS.md.
+      adjustable: [sliderDefault("rate", 15)],
       sim: {
         kind: "source",
         rateM3PerSec: tPerHourToM3PerSec(15),
@@ -168,6 +179,13 @@ export const line = {
       // raised with the engineer. Starts empty (issue #55): every bin,
       // buffer and belt on the line starts with zero held material on page
       // load and RESTART, not a demo-paced starting level.
+      adjustable: [
+        sliderDefault("highSetpoint", 85),
+        sliderDefault("lowSetpoint", 35),
+        sliderDefault("highHighSetpoint", 95),
+        sliderDefault("signalDelay", 7),
+        capacityField(2, 20, 7.7),
+      ],
       sim: {
         kind: "accumulator",
         capacityM3: 7.7,
@@ -248,6 +266,10 @@ export const line = {
       // the drawing's own geometry gives a capacity well below the line's
       // sustained ~12 t/h rate. Both are logged as open, not quietly picked;
       // see docs/OPEN_QUESTIONS.md.
+      adjustable: [
+        ratedCapacityField("rated capacity", 5, 40, 20),
+        chainSpeedField(10.08),
+      ],
       sim: {
         kind: "transportDelay",
         distanceM: 8.731,
@@ -294,6 +316,12 @@ export const line = {
       // short bin hands a partial charge into the treater's own hopper and
       // reads empty despite the seed being neither lost nor treated short,
       // which looks exactly like "grain vanished" from the plant view.
+      adjustable: [
+        sliderDefault("lowSetpoint", 35),
+        sliderDefault("highSetpoint", 85),
+        sliderDefault("highHighSetpoint", 95),
+        capacityField(0.5, 5, 1.63),
+      ],
       sim: {
         kind: "accumulator",
         capacityM3: 1.63,
@@ -352,6 +380,10 @@ export const line = {
         { id: "batchSize", label: "batch size", min: 40, max: 300, value: 160, unit: "kg", bind: "batchSize" },
         { id: "cycleTime", label: "cycle time", min: 10, max: 90, value: 48, unit: "s", bind: "batchCycleTime" },
       ],
+      adjustable: [
+        sliderDefault("batchSize", 160),
+        sliderDefault("cycleTime", 48),
+      ],
       sim: {
         kind: "batchCycle",
         chargeM3: 0.16 / BULK_DENSITY_T_PER_M3,
@@ -396,6 +428,12 @@ export const line = {
       // reasoning as the buffer bin (#18/#19) and pre-bin (#22): the FD
       // confirms these are operator-adjustable SCADA configuration, not
       // fixed plant values. Starts empty (issue #55).
+      adjustable: [
+        sliderDefault("highSetpoint", 60),
+        sliderDefault("lowSetpoint", 20),
+        sliderDefault("signalDelay", 5),
+        capacityField(0.2, 2, 0.67),
+      ],
       sim: {
         kind: "accumulator",
         capacityM3: 0.67,
@@ -445,6 +483,7 @@ export const line = {
       // position switches (REAL_LINE_SPECS.md §7): those are position
       // confirmations, not level switches, and nothing in the control layer
       // reads them — the drawn gate already shows the same fact.
+      adjustable: [ratedCapacityField("maximum flow", 5, 40, 19.2)],
       sim: {
         kind: "gateValve",
         ceilingM3PerSec: tPerHourToM3PerSec(19.2),
@@ -479,6 +518,10 @@ export const line = {
       // line's real rate, but a genuine ceiling rather than an unmodelled
       // infinity, so an artificially overwhelming feed still backs up here
       // instead of passing through unconstrained.
+      adjustable: [
+        sliderDefault("wasteFrac", 1),
+        ratedCapacityField("rated capacity", 10, 100, 64.4),
+      ],
       sim: {
         kind: "splitter",
         wasteFraction: 0.01,
@@ -532,6 +575,7 @@ export const line = {
       // point, the same assumed ~85%-of-capacity convention every other
       // bin's LSH0 uses. Starts empty (issue #55), same as every other bin
       // on the line.
+      adjustable: [capacityField(0.05, 0.6, 0.2)],
       sim: {
         kind: "accumulator",
         capacityM3: 0.2,
@@ -604,6 +648,7 @@ export const line = {
       // which enables/disables inletDrumFeeder1 downstream — this valve can
       // sit open with nothing flowing.
       params: [{ id: "rate", label: "source rate", min: 0, max: 20, value: 12, unit: "t/h", bind: "sourceRate", readBind: "sourceRateActual" }],
+      adjustable: [sliderDefault("rate", 12)],
       sim: {
         kind: "source",
         rateM3PerSec: tPerHourToM3PerSec(12),
@@ -799,6 +844,10 @@ export const line = {
       // same generic transportDelay control treatingElevator's dial uses,
       // now shared by routedTransportDelay too (engine.js's setElevatorSpeed).
       params: [{ id: "speed", label: "speed", min: 0, max: 100, value: 100, unit: "%", bind: "elevatorSpeed", readBind: "elevatorSpeedActual" }],
+      adjustable: [
+        ratedCapacityField("rated capacity", 5, 40, 20.84),
+        chainSpeedField(10.08),
+      ],
       sim: {
         kind: "routedTransportDelay",
         defaultPort: "outConcetti",
@@ -862,6 +911,7 @@ export const line = {
       // affordance every other accumulator on the line already has — see
       // metalBin1's own comment below.
       params: [{ id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" }],
+      adjustable: [capacityField(1, 15, 4.51)],
       sim: {
         kind: "accumulator",
         capacityM3: 4.51,
@@ -967,6 +1017,7 @@ export const line = {
       // drains on its own and a presenter may not have either one currently
       // selected as the destination. Starts empty (issue #55).
       params: [{ id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" }],
+      adjustable: [capacityField(1.5, 18, 6)],
       sim: {
         kind: "accumulator",
         capacityM3: 6,
@@ -1008,6 +1059,7 @@ export const line = {
       // the working-volume and no-modelled-discharge reasoning. Starts
       // empty (issue #55).
       params: [{ id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" }],
+      adjustable: [capacityField(1.5, 18, 6)],
       sim: {
         kind: "accumulator",
         capacityM3: 6,
@@ -1087,6 +1139,12 @@ export const line = {
       // storage like the metal bins — closer in scale to the treater
       // pre-bin (1.63 m3) than to a 6 m3 metal bin. See
       // docs/OPEN_QUESTIONS.md. Starts empty (issue #55).
+      adjustable: [
+        sliderDefault("highSetpoint", 85),
+        sliderDefault("lowSetpoint", 35),
+        sliderDefault("signalDelay", 5),
+        capacityField(0.6, 8, 2.5),
+      ],
       sim: {
         kind: "accumulator",
         capacityM3: 2.5,
@@ -1113,6 +1171,7 @@ export const line = {
       // t/h is reused as a plausible presenter-settable range, same
       // reasoning the Pro Box source's own rate slider already leans on.
       params: [{ id: "rate", label: "feed rate", min: 0, max: 20, value: 10, unit: "t/h", bind: "feederRate", readBind: "feederRateActual" }],
+      adjustable: [sliderDefault("rate", 10)],
       sim: {
         kind: "meteredFeeder",
         rateM3PerSec: tPerHourToM3PerSec(10),
@@ -1152,6 +1211,10 @@ export const line = {
       // assumption, not a plant fact, so `chargeM3` and the 45 s fill time
       // are both assumed and flagged for engineer follow-up; see
       // docs/OPEN_QUESTIONS.md.
+      adjustable: [
+        sliderDefault("batchSize", 1000),
+        sliderDefault("cycleTime", 45),
+      ],
       sim: {
         kind: "batchCycle",
         chargeM3: 1.0 / BULK_DENSITY_T_PER_M3,
@@ -1267,6 +1330,12 @@ export const line = {
       // bagging scale (batchCycle) — a partial bag can't be sewn shut, so
       // this pre-bin must hold a short amount rather than handing it into
       // the scale's own hopper early (same reasoning as treaterPreBin).
+      adjustable: [
+        sliderDefault("lowSetpoint", 35),
+        sliderDefault("highSetpoint", 85),
+        sliderDefault("highHighSetpoint", 95),
+        capacityField(0.2, 2, 0.72),
+      ],
       sim: {
         kind: "accumulator",
         capacityM3: 0.72,
@@ -1302,6 +1371,10 @@ export const line = {
       params: [
         { id: "batchSize", label: "bag size", min: 10, max: 100, value: 50, unit: "kg", bind: "batchSize" },
         { id: "cycleTime", label: "fill time", min: 5, max: 60, value: 15, unit: "s", bind: "batchCycleTime" },
+      ],
+      adjustable: [
+        sliderDefault("batchSize", 50),
+        sliderDefault("cycleTime", 15),
       ],
       sim: {
         kind: "batchCycle",

@@ -9,6 +9,10 @@
 // (see goldenLine.js), so there is one loading path, not two.
 import { validateLine } from "./validateLine";
 
+// Build mode edits (issue #77). The rules live in adjustableFields.js; a
+// line document is edited only through these.
+export { setAdjustableValue, differsFromDefault } from "./adjustableFields";
+
 export const LINE_FORMAT = "grain-sim-line";
 export const LINE_FORMAT_VERSION = 1;
 

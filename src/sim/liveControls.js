@@ -18,7 +18,7 @@ import {
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockHighHighSetpoint, setInterlockSignalDelay,
   setElevatorSpeed, setGateFraction, setBatchSize, setBatchCycleSec, setSplitterWasteFraction,
 } from "./engine";
-import { tPerHourToM3PerSec, m3PerSecToTPerHour, BULK_DENSITY_T_PER_M3 } from "./units";
+import { tPerHourToM3PerSec, m3PerSecToTPerHour, kgToM3 } from "./units";
 
 const pct = (value) => value / 100;
 
@@ -41,7 +41,7 @@ const LIVE_CONTROLS = {
   elevatorSpeed: (sim, id, value) => setElevatorSpeed(sim, id, pct(value)),
   gatePosition: (sim, id, value) => setGateFraction(sim, id, pct(value)),
   // Batch treater (issue #24): the slider is in kg, the engineer's own unit.
-  batchSize: (sim, id, kg) => setBatchSize(sim, id, (kg / 1000) / BULK_DENSITY_T_PER_M3),
+  batchSize: (sim, id, kg) => setBatchSize(sim, id, kgToM3(kg)),
   batchCycleTime: (sim, id, seconds) => setBatchCycleSec(sim, id, seconds),
   // Scalping screen oversize split (issue #26).
   wasteFraction: (sim, id, value) => setSplitterWasteFraction(sim, id, pct(value)),
