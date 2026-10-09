@@ -1,5 +1,7 @@
 # Line topology as data, not a visual editor
 
+> Superseded by ADR 0008 (lines are user-editable documents).
+
 The line is a data-described graph: one config object lists this line's machines,
 their ports, parameters, and connections, interpreted by a small set of shared
 behavior functions to simulate and draw. There is deliberately no drag-and-drop

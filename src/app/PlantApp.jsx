@@ -3,8 +3,8 @@
 // stubs, legend, chart dock) lands with issue #9; zone buttons here are the
 // provisional form from issue #5.
 import { useCallback, useMemo, useRef, useState } from "react";
-import { line } from "../line/lineData";
-import { validateLine } from "../line/validateLine";
+import { goldenLine as line, goldenLineErrors, GOLDEN_LINE_NAME } from "../line/goldenLine";
+import { exportLine } from "../line/lineDocument";
 import { lineBounds, zoneBounds } from "../line/bounds";
 import Scene from "../scene/Scene";
 import MachinePopup, { THUMB_PX, TRACK_PX } from "./MachinePopup";
@@ -12,6 +12,8 @@ import TransportControls from "./TransportControls";
 import PlantControls from "./PlantControls";
 import ChartDock from "./ChartDock";
 import EventLogPanel from "./EventLogPanel";
+import ModeSwitch from "./ModeSwitch";
+import BuildPanel from "./BuildPanel";
 import { useViewport } from "../scene/useViewport";
 import { useSimEngine } from "../sim/useSimEngine";
 import { readLiveControl } from "../sim/liveControls";
@@ -19,7 +21,29 @@ import { isSeriesPlotted } from "../sim/plotHistory";
 import { plotColorFor } from "./plotColors";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 
-const validation = validateLine(line);
+// The golden line is validated on its way in through the import path
+// (goldenLine.js); any errors land here for the LINE DATA INVALID screen.
+const validation = { ok: goldenLineErrors.length === 0, errors: goldenLineErrors };
+
+// "golden line" -> "golden-line.json".
+function fileNameFor(name) {
+  const slug = name.trim().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase();
+  return `${slug || "line"}.json`;
+}
+
+// SAVE (issue #75): the current line as a JSON file download. Build mode
+// only — a file is a design, never a run.
+function downloadLine(lineToSave, name) {
+  const blob = new Blob([exportLine(lineToSave, name)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileNameFor(name);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 // Every machine with an interlock rule, in declaration order — the fixed
 // roster for the combined event panel's per-machine toggles (issue #33).
@@ -59,6 +83,19 @@ export default function PlantApp() {
     engine.restart();
     setParamValues({});
   }, [engine]);
+
+  // Issue #75: the app is always in exactly one mode. Every switch, in
+  // either direction, is a full RESTART, so a design never applies to an old
+  // run and Sim mode always starts from empty, paused. Selection and the
+  // event panel are dropped too, so neither mode inherits the other's state.
+  const [mode, setMode] = useState("sim");
+  const building = mode === "build";
+  const onModeChange = useCallback((next) => {
+    onRestart();
+    setSelectedId(null);
+    setEventPanelOpen(false);
+    setMode(next);
+  }, [onRestart]);
 
   // Metal bin 1/2 (lineData.js) never discharge on their own — no document
   // covers truck loadout gate logic, so they only ever fill — and unlike the
@@ -180,16 +217,25 @@ export default function PlantApp() {
         padding: "10px 16px", borderBottom: `1px solid ${C.line}`, flex: "none",
       }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-          <TransportControls
-            running={engine.running}
-            onStart={engine.start}
-            onPause={engine.pause}
-            onStep={engine.stepOnce}
-            onRestart={onRestart}
-            speed={engine.speed}
-            onSpeedChange={engine.setSpeed}
-            elapsed={engine.snap.t}
-          />
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <ModeSwitch mode={mode} onChange={onModeChange} />
+            {building ? (
+              <button className="zonebtn" style={{ ...zoneBtnStyle, color: C.wheat }} onClick={() => downloadLine(line, GOLDEN_LINE_NAME)}>
+                SAVE
+              </button>
+            ) : (
+              <TransportControls
+                running={engine.running}
+                onStart={engine.start}
+                onPause={engine.pause}
+                onStep={engine.stepOnce}
+                onRestart={onRestart}
+                speed={engine.speed}
+                onSpeedChange={engine.setSpeed}
+                elapsed={engine.snap.t}
+              />
+            )}
+          </div>
           <div style={{ display: "flex", gap: 6, flex: "none" }}>
             {line.zones.map((z) => (
               <button key={z.id} className="zonebtn" style={zoneBtnStyle} onClick={() => fitTo(zoneBounds(line, z.id))}>
@@ -199,21 +245,23 @@ export default function PlantApp() {
             <button className="zonebtn" style={{ ...zoneBtnStyle, color: C.wheat }} onClick={() => fitTo(home)}>
               FIT ALL
             </button>
-            <button
-              className="zonebtn"
-              style={eventPanelOpen
-                ? { ...zoneBtnStyle, background: C.wheat, color: "#1a1a14", border: `1px solid ${C.wheat}` }
-                : zoneBtnStyle}
-              onClick={() => setEventPanelOpen((v) => !v)}
-            >
-              EVENT LOG
-            </button>
+            {!building && (
+              <button
+                className="zonebtn"
+                style={eventPanelOpen
+                  ? { ...zoneBtnStyle, background: C.wheat, color: "#1a1a14", border: `1px solid ${C.wheat}` }
+                  : zoneBtnStyle}
+                onClick={() => setEventPanelOpen((v) => !v)}
+              >
+                EVENT LOG
+              </button>
+            )}
           </div>
           <div style={{ fontSize: 9, color: selected ? C.wheat : C.muted, textAlign: "right", minWidth: 170 }}>
             {selected ? selected.name : "click a machine · drag to pan · wheel to zoom"}
           </div>
         </div>
-        <PlantControls
+        {!building && <PlantControls
           onResetTrips={engine.resetTrips}
           anyTripLatched={engine.snap.anyTripLatched}
           source={engine.snap.source}
@@ -229,50 +277,53 @@ export default function PlantApp() {
           utilitiesTripPhase={engine.snap.utilitiesTripPhase}
           onSetUtilitiesHealthy={engine.setUtilitiesHealthy}
           onClearPlant={engine.clearPlant}
-        />
+        />}
       </header>
 
       {validation.ok ? (
-        <main ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}>
-          {vb && (
-            <Scene
-              line={line}
-              vb={vb}
-              handlers={handlers}
-              wasDrag={wasDrag}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-              simSnap={engine.snap.machines}
-              running={engine.running}
-              speed={engine.speed}
-              simTime={engine.snap.t}
-            />
-          )}
-          {selected && (
-            <MachinePopup
-              key={selected.id}
-              machine={selected}
-              dynamic={engine.snap.machines.get(selected.id)}
-              levelPlotted={isSeriesPlotted(engine.history, selected.id, "level")}
-              ratePlotted={isSeriesPlotted(engine.history, selected.id, "rate")}
-              plotColor={plotColorFor(selected.id)}
-              onToggleSeries={(kind) => engine.togglePlotSeries(selected.id, kind)}
-              onClose={closePopup}
-              paramValues={paramValues}
-              onParamChange={onParamChange}
-              onParamRead={onParamRead}
-              events={engine.snap.machines.get(selected.id)?.events}
-            />
-          )}
-          {eventPanelOpen && (
-            <EventLogPanel
-              machines={interlockedMachines}
-              events={engine.snap.events}
-              onClose={() => setEventPanelOpen(false)}
-              jumpTo={eventJump}
-            />
-          )}
-        </main>
+        <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
+          <main ref={containerRef} style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden", position: "relative" }}>
+            {vb && (
+              <Scene
+                line={line}
+                vb={vb}
+                handlers={handlers}
+                wasDrag={wasDrag}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                simSnap={engine.snap.machines}
+                running={engine.running}
+                speed={engine.speed}
+                simTime={engine.snap.t}
+              />
+            )}
+            {selected && !building && (
+              <MachinePopup
+                key={selected.id}
+                machine={selected}
+                dynamic={engine.snap.machines.get(selected.id)}
+                levelPlotted={isSeriesPlotted(engine.history, selected.id, "level")}
+                ratePlotted={isSeriesPlotted(engine.history, selected.id, "rate")}
+                plotColor={plotColorFor(selected.id)}
+                onToggleSeries={(kind) => engine.togglePlotSeries(selected.id, kind)}
+                onClose={closePopup}
+                paramValues={paramValues}
+                onParamChange={onParamChange}
+                onParamRead={onParamRead}
+                events={engine.snap.machines.get(selected.id)?.events}
+              />
+            )}
+            {eventPanelOpen && !building && (
+              <EventLogPanel
+                machines={interlockedMachines}
+                events={engine.snap.events}
+                onClose={() => setEventPanelOpen(false)}
+                jumpTo={eventJump}
+              />
+            )}
+          </main>
+          {building && <BuildPanel machine={selected} />}
+        </div>
       ) : (
         <main style={{ padding: 24 }}>
           <div style={{ fontFamily: FONT_DISP, fontSize: 16, color: C.red, marginBottom: 10 }}>LINE DATA INVALID</div>
@@ -282,7 +333,7 @@ export default function PlantApp() {
         </main>
       )}
 
-      {validation.ok && (
+      {validation.ok && !building && (
         <ChartDock history={engine.history} events={engine.snap.events} onEventClick={onEventMarkerClick} />
       )}
     </div>
