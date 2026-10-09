@@ -2,7 +2,7 @@
 // snapshot publication carry over unchanged from the original GrainFlowSim
 // mock's design: the speed multiplier scales how much sim time is consumed
 // per wall-clock second, never the fixed timestep itself.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   createSim, stepSim, resetSim, resetTrips as resetTripsSim, clearPlant as clearPlantSim, setAccumulatorLevel, emptyTerminalSink, DT,
   getCombinedEvents,
@@ -76,8 +76,13 @@ function publishSnap(sim) {
   };
 }
 
+// `line` is the line the sim runs. A new line object builds a new sim, paused
+// and empty (issue #76), so the caller decides when a rebuild happens by
+// when it hands over a new line: PlantApp does that only on a mode switch,
+// OPEN or START OVER, never on each Build mode edit.
 export function useSimEngine(line) {
-  const [sim] = useState(() => createSim(line));
+  const [built, setBuilt] = useState(() => ({ line, sim: createSim(line) }));
+  const { sim } = built;
   const [snap, setSnap] = useState(() => publishSnap(sim));
   const [running, setRunning] = useState(false);
   const [speed, setSpeed] = useState(5);
@@ -86,6 +91,17 @@ export function useSimEngine(line) {
   // that determines the graph's sample rate -- every recordSample call below
   // rides the same `publish` this hook already runs on.
   const [history, setHistory] = useState(() => createPlotHistory());
+
+  // Rebuild during render rather than in an effect, so no frame ever draws
+  // the new line against the old sim's snapshot. The guard compares by
+  // reference, so a render with the same line is a no-op.
+  if (built.line !== line) {
+    const next = { line, sim: createSim(line) };
+    setBuilt(next);
+    setSnap(publishSnap(next.sim));
+    setHistory(createPlotHistory());
+    setRunning(false);
+  }
 
   const runRef = useRef(false);
   const speedRef = useRef(speed);
@@ -254,6 +270,16 @@ export function useSimEngine(line) {
     setUtilitiesHealthySim(sim, healthy);
     publish();
   }, [sim, publish]);
+
+  // A rebuilt sim starts paused: stop any frame loop still driving the old one.
+  // A layout effect, so no queued frame can step the old sim and publish its
+  // snapshot over the new one before the loop stops.
+  useLayoutEffect(() => {
+    runRef.current = false;
+    cancelAnimationFrame(rafRef.current);
+    lastTsRef.current = 0;
+    budgetRef.current = 0;
+  }, [sim]);
 
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 

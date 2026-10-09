@@ -3,8 +3,8 @@
 // stubs, legend, chart dock) lands with issue #9; zone buttons here are the
 // provisional form from issue #5.
 import { useCallback, useMemo, useRef, useState } from "react";
-import { goldenLine as line, goldenLineErrors, GOLDEN_LINE_NAME } from "../line/goldenLine";
-import { exportLine } from "../line/lineDocument";
+import { goldenLine, goldenLineErrors, GOLDEN_LINE_NAME } from "../line/goldenLine";
+import { exportLine, importLineFile } from "../line/lineDocument";
 import { lineBounds, zoneBounds } from "../line/bounds";
 import Scene from "../scene/Scene";
 import MachinePopup, { THUMB_PX, TRACK_PX } from "./MachinePopup";
@@ -23,7 +23,9 @@ import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 
 // The golden line is validated on its way in through the import path
 // (goldenLine.js); any errors land here for the LINE DATA INVALID screen.
-const validation = { ok: goldenLineErrors.length === 0, errors: goldenLineErrors };
+// An opened file is validated by importLineFile and never loads when it fails.
+const goldenValidation = { ok: goldenLineErrors.length === 0, errors: goldenLineErrors };
+const GOLDEN_LINE_DOC = { line: goldenLine, name: GOLDEN_LINE_NAME, fromFile: false };
 
 // "golden line" -> "golden-line.json".
 function fileNameFor(name) {
@@ -49,25 +51,37 @@ function downloadLine(lineToSave, name) {
 // roster for the combined event panel's per-machine toggles (issue #33).
 // Derived from line data, not from events seen so far, so a toggle exists
 // for a machine even before its first trip.
-const interlockedMachineIds = new Set((line.interlocks ?? []).map((i) => i.sensor.machine));
-const interlockedMachines = line.machines.filter((m) => interlockedMachineIds.has(m.id));
+function interlockedMachinesOf(line) {
+  const ids = new Set((line.interlocks ?? []).map((i) => i.sensor.machine));
+  return line.machines.filter((m) => ids.has(m.id));
+}
 
 const zoneBtnStyle = {
   background: "transparent", color: C.muted, border: `1px solid ${C.line}`,
   borderRadius: 4, padding: "4px 10px", fontFamily: FONT_MONO, fontSize: 10,
   letterSpacing: "0.08em", cursor: "pointer",
 };
+const zoneBtnActiveStyle = { ...zoneBtnStyle, background: C.wheat, color: "#1a1a14", border: `1px solid ${C.wheat}` };
 
 export default function PlantApp() {
+  // Issue #76: the current line is the golden line or an opened file. The
+  // sim runs `simLine`, which is set only on a mode switch, OPEN or START
+  // OVER, so a Build mode edit to the current line never rebuilds the sim.
+  const [current, setCurrent] = useState(GOLDEN_LINE_DOC);
+  const [simLine, setSimLine] = useState(GOLDEN_LINE_DOC.line);
+  const { line } = current;
+  const validation = current.fromFile ? { ok: true, errors: [] } : goldenValidation;
+  const interlockedMachines = useMemo(() => interlockedMachinesOf(line), [line]);
+
   const [selectedId, setSelectedId] = useState(null);
   const [eventPanelOpen, setEventPanelOpen] = useState(false);
   const [eventJump, setEventJump] = useState(null);
   const jumpTokenRef = useRef(0);
   const selected = line.machines.find((m) => m.id === selectedId);
 
-  const home = useMemo(() => lineBounds(line), []);
+  const home = useMemo(() => lineBounds(line), [line]);
   const { containerRef, vb, fitTo, wasDrag, handlers } = useViewport(home);
-  const engine = useSimEngine(line);
+  const engine = useSimEngine(simLine);
 
   // The operator's last-dragged slider position per machine/param, kept
   // above MachinePopup's own mount boundary (it unmounts entirely on
@@ -90,12 +104,70 @@ export default function PlantApp() {
   // event panel are dropped too, so neither mode inherits the other's state.
   const [mode, setMode] = useState("sim");
   const building = mode === "build";
+  // Build mode's right panel shows the line settings or the selected
+  // machine, never both: one panel, always in the same place.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  // OPEN's last refusal, shown until the next OPEN, START OVER or mode switch.
+  const [openError, setOpenError] = useState(null);
+  // Bumped on every mode switch. A file read that finishes after a switch is
+  // dropped, so OPEN never loads a line outside Build mode.
+  const modeSwitchCountRef = useRef(0);
   const onModeChange = useCallback((next) => {
+    modeSwitchCountRef.current += 1;
     onRestart();
+    setSimLine(line);
     setSelectedId(null);
     setEventPanelOpen(false);
+    setSettingsOpen(false);
+    setOpenError(null);
     setMode(next);
-  }, [onRestart]);
+  }, [onRestart, line]);
+
+  // OPEN and START OVER both replace the current line and rebuild the sim
+  // from it. They exist only in Build mode, where the sim is already reset.
+  const loadLine = useCallback((next) => {
+    setCurrent(next);
+    setSimLine(next.line);
+    setParamValues({});
+    setSelectedId(null);
+    setOpenError(null);
+    fitTo(lineBounds(next.line));
+  }, [fitTo]);
+
+  const fileInputRef = useRef(null);
+  const onOpenFile = useCallback(async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // so picking the same file again still fires
+    if (!file) return;
+    const switchCount = modeSwitchCountRef.current;
+    let text;
+    try {
+      text = await file.text();
+    } catch {
+      text = null;
+    }
+    if (modeSwitchCountRef.current !== switchCount) return;
+    if (text === null) {
+      setOpenError({ name: file.name, errors: ["This file could not be read."] });
+      return;
+    }
+    const result = importLineFile(text, file.name);
+    if (!result.ok) {
+      setOpenError({ name: file.name, errors: result.errors });
+      return;
+    }
+    loadLine({ line: result.line, name: result.name, fromFile: true });
+  }, [loadLine]);
+
+  const onStartOver = useCallback(() => {
+    loadLine(GOLDEN_LINE_DOC);
+    setSettingsOpen(false);
+  }, [loadLine]);
+
+  const onSelect = useCallback((id) => {
+    setSelectedId(id);
+    if (id) setSettingsOpen(false);
+  }, []);
 
   // Metal bin 1/2 (lineData.js) never discharge on their own — no document
   // covers truck loadout gate logic, so they only ever fill — and unlike the
@@ -219,10 +291,31 @@ export default function PlantApp() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
             <ModeSwitch mode={mode} onChange={onModeChange} />
+            <div style={{ fontSize: 10, color: C.text, letterSpacing: "0.04em" }} title="current line">
+              {current.name}
+            </div>
             {building ? (
-              <button className="zonebtn" style={{ ...zoneBtnStyle, color: C.wheat }} onClick={() => downloadLine(line, GOLDEN_LINE_NAME)}>
-                SAVE
-              </button>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="zonebtn" style={{ ...zoneBtnStyle, color: C.wheat }} onClick={() => fileInputRef.current?.click()}>
+                  OPEN
+                </button>
+                <input ref={fileInputRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={onOpenFile} />
+                <button className="zonebtn" style={{ ...zoneBtnStyle, color: C.wheat }} onClick={() => downloadLine(line, current.name)}>
+                  SAVE
+                </button>
+                <button
+                  className="zonebtn"
+                  style={settingsOpen
+                    ? zoneBtnActiveStyle
+                    : zoneBtnStyle}
+                  onClick={() => {
+                    setSettingsOpen((v) => !v);
+                    setSelectedId(null);
+                  }}
+                >
+                  SETTINGS
+                </button>
+              </div>
             ) : (
               <TransportControls
                 running={engine.running}
@@ -249,7 +342,7 @@ export default function PlantApp() {
               <button
                 className="zonebtn"
                 style={eventPanelOpen
-                  ? { ...zoneBtnStyle, background: C.wheat, color: "#1a1a14", border: `1px solid ${C.wheat}` }
+                  ? zoneBtnActiveStyle
                   : zoneBtnStyle}
                 onClick={() => setEventPanelOpen((v) => !v)}
               >
@@ -261,6 +354,17 @@ export default function PlantApp() {
             {selected ? selected.name : "click a machine · drag to pan · wheel to zoom"}
           </div>
         </div>
+        {building && openError && (
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 10, color: C.red }}>
+            <div>
+              <div>Could not open {openError.name}. The current line is unchanged.</div>
+              {openError.errors.map((e, i) => <div key={i}>· {e}</div>)}
+            </div>
+            <button className="zonebtn" style={{ ...zoneBtnStyle, padding: "2px 8px" }} onClick={() => setOpenError(null)}>
+              DISMISS
+            </button>
+          </div>
+        )}
         {!building && <PlantControls
           onResetTrips={engine.resetTrips}
           anyTripLatched={engine.snap.anyTripLatched}
@@ -290,7 +394,7 @@ export default function PlantApp() {
                 handlers={handlers}
                 wasDrag={wasDrag}
                 selectedId={selectedId}
-                onSelect={setSelectedId}
+                onSelect={onSelect}
                 simSnap={engine.snap.machines}
                 running={engine.running}
                 speed={engine.speed}
@@ -322,7 +426,14 @@ export default function PlantApp() {
               />
             )}
           </main>
-          {building && <BuildPanel machine={selected} />}
+          {building && (
+            <BuildPanel
+              machine={selected}
+              settingsOpen={settingsOpen}
+              lineName={current.name}
+              onStartOver={onStartOver}
+            />
+          )}
         </div>
       ) : (
         <main style={{ padding: 24 }}>

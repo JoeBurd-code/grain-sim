@@ -56,3 +56,12 @@ export function importLine(text) {
   }
   return { ok: true, line, name: typeof doc.name === "string" ? doc.name : "untitled line" };
 }
+
+// OPEN (issue #76): a file the user picked. The line takes the file's name,
+// not the name stored inside it, so a saved copy of the golden line never
+// passes for the golden line itself.
+export function importLineFile(text, fileName) {
+  const result = importLine(text);
+  if (!result.ok) return result;
+  return { ...result, name: fileName.replace(/\.json$/i, "") || result.name };
+}

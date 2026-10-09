@@ -2,10 +2,10 @@
 // golden line (lineData.js) must survive a round trip exactly, minus its
 // provenance labels, which stay in the hand-written source only.
 import { describe, it, expect } from "vitest";
-import { exportLine, importLine, LINE_FORMAT, LINE_FORMAT_VERSION } from "./lineDocument";
+import { exportLine, importLine, importLineFile, LINE_FORMAT, LINE_FORMAT_VERSION } from "./lineDocument";
 import { goldenLine, GOLDEN_LINE_NAME } from "./goldenLine";
 import { line } from "./lineData";
-import { createSim, stepSim, getMachineState, setDestination, DT } from "../sim/engine";
+import { createSim, stepSim, resetSim, getMachineState, setDestination, DT } from "../sim/engine";
 
 function hasKeyDeep(value, key) {
   if (Array.isArray(value)) return value.some((v) => hasKeyDeep(v, key));
@@ -99,10 +99,50 @@ describe("importLine", () => {
   });
 });
 
+// Issue #76: OPEN reads a file the user picked. The line is named after the
+// file, so a saved copy of the golden line never passes for the golden line.
+describe("importLineFile", () => {
+  it("names the line after the file, without its extension", () => {
+    const result = importLineFile(exportLine(line, GOLDEN_LINE_NAME), "golden-line.json");
+    expect(result.ok).toBe(true);
+    expect(result.name).toBe("golden-line");
+  });
+
+  it("keeps a file name that has no .json extension", () => {
+    expect(importLineFile(exportLine(line, "x"), "my scenario").name).toBe("my scenario");
+    expect(importLineFile(exportLine(line, "x"), "Scenario.JSON").name).toBe("Scenario");
+  });
+
+  it("refuses a bad file with the same message importLine gives", () => {
+    const result = importLineFile("{ not json", "broken.json");
+    expect(result.ok).toBe(false);
+    expect(result.line).toBeUndefined();
+    expect(result.error).toBe(importLine("{ not json").error);
+  });
+});
+
 describe("golden line", () => {
   it("is the hand-written line loaded through the import path", () => {
     expect(goldenLine.machines.map((m) => m.id)).toEqual(line.machines.map((m) => m.id));
     expect(hasKeyDeep(goldenLine, "provenance")).toBe(false);
+  });
+});
+
+describe("an opened line in the engine", () => {
+  it("RESTART returns to the opened line's values, not the golden line's", () => {
+    const doc = JSON.parse(exportLine(line, "x"));
+    doc.line.machines.find((m) => m.id === "treaterBufferBin").sim.capacityM3 = 3.25;
+    const opened = importLineFile(JSON.stringify(doc), "small-bin.json");
+    expect(opened.ok, opened.error).toBe(true);
+
+    const sim = createSim(opened.line);
+    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
+    expect(sim.t).toBeGreaterThan(59); // guard: the run moved on before the restart
+    resetSim(sim);
+
+    expect(sim.t).toBe(0);
+    expect(getMachineState(sim, "treaterBufferBin").capacity).toBe(3.25);
+    expect(getMachineState(createSim(goldenLine), "treaterBufferBin").capacity).toBe(7.7);
   });
 });
 
