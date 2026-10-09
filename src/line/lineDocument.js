@@ -12,6 +12,8 @@ import { validateLine } from "./validateLine";
 // Build mode edits (issue #77). The rules live in adjustableFields.js; a
 // line document is edited only through these.
 export { setAdjustableValue, differsFromDefault } from "./adjustableFields";
+// Browser autosave (issue #79) stores edits to the golden line as changes.
+export { diffFromBase, applyChanges } from "./lineChanges";
 
 export const LINE_FORMAT = "grain-sim-line";
 export const LINE_FORMAT_VERSION = 1;

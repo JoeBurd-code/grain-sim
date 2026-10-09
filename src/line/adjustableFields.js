@@ -61,7 +61,7 @@ function bagCounterBelow(line, machineId) {
   return null;
 }
 
-function closeTo(a, b) {
+export function closeTo(a, b) {
   return Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(b));
 }
 

@@ -2,7 +2,7 @@
 // line definition with pan/zoom navigation. The full header chrome (transport
 // stubs, legend, chart dock) lands with issue #9; zone buttons here are the
 // provisional form from issue #5.
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { goldenLine, goldenLineErrors, GOLDEN_LINE_NAME } from "../line/goldenLine";
 import { exportLine, importLineFile, setAdjustableValue } from "../line/lineDocument";
 import { lineBounds, zoneBounds } from "../line/bounds";
@@ -14,6 +14,7 @@ import ChartDock from "./ChartDock";
 import EventLogPanel from "./EventLogPanel";
 import ModeSwitch from "./ModeSwitch";
 import BuildPanel from "./BuildPanel";
+import { loadSavedWork, storeWork, clearSavedWork } from "./savedWork";
 import { useViewport } from "../scene/useViewport";
 import { useSimEngine } from "../sim/useSimEngine";
 import { readLiveControl } from "../sim/liveControls";
@@ -67,8 +68,16 @@ export default function PlantApp() {
   // Issue #76: the current line is the golden line or an opened file. The
   // sim runs `simLine`, which is set only on a mode switch, OPEN or START
   // OVER, so a Build mode edit to the current line never rebuilds the sim.
-  const [current, setCurrent] = useState(GOLDEN_LINE_DOC);
-  const [simLine, setSimLine] = useState(GOLDEN_LINE_DOC.line);
+  // Issue #79: the page opens on the work the browser saved, if any.
+  const [initial] = useState(() => loadSavedWork(GOLDEN_LINE_DOC) ?? GOLDEN_LINE_DOC);
+  const [current, setCurrent] = useState(initial);
+  const [simLine, setSimLine] = useState(initial.line);
+  // Autosave on every change to the current line. The line the page opened
+  // on is not stored again, so saved work this app cannot read (a file that
+  // no longer validates, a newer format) stays until the user changes the line.
+  useEffect(() => {
+    if (current !== initial) storeWork(GOLDEN_LINE_DOC, current);
+  }, [current, initial]);
   const { line } = current;
   const validation = current.fromFile ? { ok: true, errors: [] } : goldenValidation;
   const interlockedMachines = useMemo(() => interlockedMachinesOf(line), [line]);
@@ -160,6 +169,7 @@ export default function PlantApp() {
   }, [loadLine]);
 
   const onStartOver = useCallback(() => {
+    clearSavedWork();
     loadLine(GOLDEN_LINE_DOC);
     setSettingsOpen(false);
   }, [loadLine]);
