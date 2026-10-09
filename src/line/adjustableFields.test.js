@@ -3,10 +3,11 @@
 // units (t/h, m³, %, s, kg); the line holds engine units.
 import { describe, it, expect } from "vitest";
 import { adjustableFields, readAdjustableValue } from "./adjustableFields";
-import { setAdjustableValue, differsFromDefault } from "./lineDocument";
+import { setAdjustableValue, differsFromDefault, exportLine, importLineFile } from "./lineDocument";
 import { validateLine } from "./validateLine";
 import { goldenLine } from "./goldenLine";
-import { createSim, getMachineState, stepSim, DT } from "../sim/engine";
+import { createSim, getMachineState, stepSim, resetSim, DT } from "../sim/engine";
+import { setLiveControl } from "../sim/liveControls";
 import { tPerHourToM3PerSec, BULK_DENSITY_T_PER_M3 } from "../sim/units";
 
 // The table approved on issue #77: [machine, field, unit, min, max, default].
@@ -320,3 +321,59 @@ describe("the engine builds the edited line", () => {
     expect(state.nominalRate).toBeCloseTo(tPerHourToM3PerSec(6), 12);
   });
 });
+
+// Issue #78: a Build mode edit is the line's new starting point. Sim mode
+// sliders act on the sim only, so they never reach the design, and RESTART
+// returns to the edited value, not the golden line's.
+describe("an edited line in the engine", () => {
+  const closeTo = (a, b) => Math.abs(a - b) < 1e-9;
+  const binRules = (sim) => sim.control.filter((r) => r.sensorId === "treaterBufferBin" && r.highSetpoint !== undefined);
+
+  it("runs the edit, keeps slider changes out of the design, and restarts to the edit", () => {
+    const edited = setAdjustableValue(goldenLine, "treaterBufferBin", "highSetpoint", 70);
+    expect(edited.ok, edited.error).toBe(true);
+    const sim = createSim(edited.line);
+    expect(binRules(sim).length).toBeGreaterThan(0); // guard: the bin has a rule to check
+    expect(binRules(sim).every((r) => closeTo(r.highSetpoint, 0.7))).toBe(true);
+
+    setLiveControl(sim, "treaterBufferBin", "interlockHighSetpoint", 50);
+    setLiveControl(sim, "upstreamStub", "sourceRate", 5);
+    for (let i = 0; i < Math.round(30 / DT); i++) stepSim(sim, DT);
+    expect(binRules(sim).every((r) => closeTo(r.highSetpoint, 0.5))).toBe(true); // guard: the slider took effect
+
+    expect(readAdjustableValue(edited.line, "treaterBufferBin", "highSetpoint")).toBe(70);
+    expect(readAdjustableValue(edited.line, "upstreamStub", "rate")).toBe(15);
+    expect(differsFromDefault(edited.line, "upstreamStub", "rate")).toBe(false);
+
+    resetSim(sim);
+    expect(binRules(sim).every((r) => closeTo(r.highSetpoint, 0.7))).toBe(true);
+  });
+});
+
+describe("an edited line saved and opened again", () => {
+  it("keeps every edit and its changed marker", () => {
+    let edited = goldenLine;
+    for (const [machineId, fieldId, value] of [
+      ["treaterBufferBin", "capacity", 9],
+      ["treaterBufferBin", "lowSetpoint", 30],
+      ["upstreamStub", "rate", 11],
+      ["flexiconFillingHead", "batchSize", 800],
+    ]) {
+      const r = setAdjustableValue(edited, machineId, fieldId, value);
+      expect(r.ok, r.error).toBe(true);
+      edited = r.line;
+    }
+    const opened = importLineFile(exportLine(edited, "my line"), "my-line.json");
+    expect(opened.ok, opened.error).toBe(true);
+
+    expect(allFieldValues(opened.line)).toEqual(allFieldValues(edited));
+    expect(differsFromDefault(opened.line, "treaterBufferBin", "capacity")).toBe(true);
+    expect(differsFromDefault(opened.line, "upstreamStub", "rate")).toBe(true);
+    expect(differsFromDefault(opened.line, "treaterPreBin", "capacity")).toBe(false);
+  });
+});
+
+// Every adjustable value on the line, in plant units.
+function allFieldValues(line) {
+  return line.machines.flatMap((m) => adjustableFields(m).map((f) => [m.id, f.id, readAdjustableValue(line, m.id, f.id)]));
+}

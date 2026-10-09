@@ -4,7 +4,7 @@
 // provisional form from issue #5.
 import { useCallback, useMemo, useRef, useState } from "react";
 import { goldenLine, goldenLineErrors, GOLDEN_LINE_NAME } from "../line/goldenLine";
-import { exportLine, importLineFile } from "../line/lineDocument";
+import { exportLine, importLineFile, setAdjustableValue } from "../line/lineDocument";
 import { lineBounds, zoneBounds } from "../line/bounds";
 import Scene from "../scene/Scene";
 import MachinePopup, { THUMB_PX, TRACK_PX } from "./MachinePopup";
@@ -163,6 +163,23 @@ export default function PlantApp() {
     loadLine(GOLDEN_LINE_DOC);
     setSettingsOpen(false);
   }, [loadLine]);
+
+  // Issue #78: a Build mode edit changes the current line only. The sim
+  // picks it up on the switch back to Sim mode, where it is what RESTART
+  // returns to; Sim mode sliders act on the sim and never reach this line.
+  // A refused value leaves the line as it was and the message goes back to
+  // the panel. The edit is applied again inside the updater, so two commits
+  // before one render (a blur and a click) both land.
+  const onEditField = useCallback((machineId, fieldId, value) => {
+    const result = setAdjustableValue(line, machineId, fieldId, value);
+    if (result.ok) {
+      setCurrent((c) => {
+        const next = setAdjustableValue(c.line, machineId, fieldId, value);
+        return next.ok ? { ...c, line: next.line } : c;
+      });
+    }
+    return result;
+  }, [line]);
 
   const onSelect = useCallback((id) => {
     setSelectedId(id);
@@ -428,10 +445,12 @@ export default function PlantApp() {
           </main>
           {building && (
             <BuildPanel
+              line={line}
               machine={selected}
               settingsOpen={settingsOpen}
               lineName={current.name}
               onStartOver={onStartOver}
+              onEditField={onEditField}
             />
           )}
         </div>
