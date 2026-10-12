@@ -29,3 +29,19 @@ export function diverterTestLine() {
     interlocks: [],
   };
 }
+
+// The diverter line with a metered feeder under the bin, so the bin holds a
+// level instead of draining in one tick: grain in -> bin -> feeder ->
+// diverter -> two bays (issue #85). No interlocks.
+export function binFeederTestLine() {
+  const line = diverterTestLine();
+  line.machines.splice(2, 0, {
+    id: "feeder", type: "feeder", name: "FEEDER", tag: "T.feeder", status: "new", zone: "all",
+    x: 150, y: 0, w: 40, h: 40, ports: { inputs: ["in"], outputs: ["out"] },
+    anchors: { in: { x: 20, y: 20 }, out: { x: 20, y: 20 } },
+    sim: { kind: "meteredFeeder", rateM3PerSec: 0.003 },
+  });
+  line.connections[1] = { from: { machine: "bin", port: "out" }, to: { machine: "feeder", port: "in" }, kind: "product" };
+  line.connections.splice(2, 0, { from: { machine: "feeder", port: "out" }, to: { machine: "splitValve", port: "in" }, kind: "product" });
+  return line;
+}

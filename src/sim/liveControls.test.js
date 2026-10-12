@@ -1,12 +1,17 @@
 import { describe, it, expect } from "vitest";
 import { setLiveControl, readLiveControl } from "./liveControls";
-import { createSim, stepSim, getMachineState, DT } from "./engine";
+import { createSim, stepSim, getMachineState, resetSim, setAccumulatorLevel, DT } from "./engine";
+import { setAdjustableValue } from "../line/lineDocument";
+import { binFeederTestLine } from "../line/testLines";
 import { BEHAVIORS } from "./behaviors";
 import { line } from "../line/lineData";
+import { setpointSliders } from "../line/setpointSliders";
 import { tPerHourToM3PerSec, BULK_DENSITY_T_PER_M3 } from "./units";
 
-// Every popup slider the real line declares, as [machineId, param].
-const SLIDERS = line.machines.flatMap((m) => (m.params ?? []).filter((p) => p.bind).map((p) => [m.id, p]));
+// Every popup slider on the real line, as [machineId, param]: each machine's
+// own params, and the set point sliders generated from its rules (issue #85).
+const SLIDERS = line.machines.flatMap((m) => [...(m.params ?? []), ...setpointSliders(line, m.id)]
+  .filter((p) => p.bind).map((p) => [m.id, p]));
 
 // The published snapshot, which is what the popup actually reads — never the
 // raw machine state (a raw-state read is how an earlier trace asserted
@@ -33,7 +38,7 @@ describe("liveControls against the real line", () => {
     const sim = createSim(line);
     for (const [id, p] of SLIDERS) {
       for (const v of [p.value, p.min, p.max]) {
-        expect(() => setLiveControl(sim, id, p.bind, v), `${id}.${p.id} = ${v}`).not.toThrow();
+        expect(() => setLiveControl(sim, id, p.bind, v, p.target), `${id}.${p.id} = ${v}`).not.toThrow();
       }
     }
     expect(() => stepSim(sim, DT)).not.toThrow();
@@ -129,5 +134,48 @@ describe("liveControls names", () => {
 
   it("reads null for a param with no readBind", () => {
     expect(readLiveControl({ rate: 1 }, undefined)).toBeNull();
+  });
+});
+
+// Issue #85: the set point sliders generated from a line's sentences drive
+// the sim the same way, and a run's change is temporary.
+describe("generated set point sliders", () => {
+  // A small built line whose one interlock closes the grain in at a level
+  // that names no switch.
+  function builtLine() {
+    const built = binFeederTestLine();
+    built.interlocks = [{
+      id: "binHigh", kind: "sentence",
+      when: { machine: "bin", condition: "above", setpoint: 0.8, delaySec: 0 },
+      then: [{ action: "close", machine: "grainIn" }], reset: "latched",
+    }];
+    return built;
+  }
+
+  it("moves the sentence's set point on a small built line, with no hand-written param", () => {
+    const built = builtLine();
+    const [slider] = setpointSliders(built, "bin");
+    const sim = createSim(built);
+    setAccumulatorLevel(sim, "bin", 0.4);
+    stepSim(sim, DT);
+    expect(getMachineState(sim, "grainIn").opennessTarget).toBe(1); // 40 % is under the 80 % set point
+
+    setLiveControl(sim, "bin", slider.bind, 30, slider.target);
+    stepSim(sim, DT);
+    expect(getMachineState(sim, "grainIn").opennessTarget).toBe(0);
+  });
+
+  it("RESTART puts back the Build mode set point after a run moved it", () => {
+    const edited = setAdjustableValue(line, "treaterBufferBin", "highSetpoint", 70);
+    expect(edited.ok).toBe(true);
+    const sim = createSim(edited.line);
+    const slider = setpointSliders(edited.line, "treaterBufferBin").find((s) => s.id === "highSetpoint");
+    setLiveControl(sim, "treaterBufferBin", slider.bind, 50, slider.target);
+    const valve = () => sim.control.find((r) => r.id === "bufferBinValve");
+    expect(valve().highSetpoint).toBeCloseTo(0.5, 12);
+
+    resetSim(sim);
+    expect(valve().highSetpoint).toBeCloseTo(0.7, 12);
+    expect(setpointSliders(sim.line, "treaterBufferBin").find((s) => s.id === "highSetpoint").value).toBe(70);
   });
 });

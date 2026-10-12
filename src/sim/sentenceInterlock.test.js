@@ -130,11 +130,13 @@ describe("interlock sentence: command slots", () => {
   });
 });
 
-describe("interlock sentence: beside a coded interlock on the same line", () => {
-  it("a coded trip stops the conveyor, then the sentence stops the feeder", () => {
+describe("interlock sentences in a cascade", () => {
+  it("a bin trip stops the conveyor, then the conveyor sentence stops the feeder", () => {
     const binTrip = {
-      id: "binHighTrip", kind: "thresholdStopTrip", sensor: { machine: "bin" },
-      highSetpoint: 0.85, lowSetpoint: 0.35, signalDelaySec: 5, action: { machine: "conveyor", rampTimeSec: 0 },
+      id: "binHighTrip", kind: "sentence",
+      when: { machine: "bin", condition: "above", setpoint: 0.85, delaySec: 5 },
+      then: [{ action: "stop", machine: "conveyor" }],
+      reset: "latched",
     };
     const sim = createSim(smallLine([binTrip, sentence("feederStop", "stopped", 1)]));
     run(sim, 2);

@@ -55,6 +55,12 @@ const PENDULUM_CONVEYOR_RUN_M = 7.084 + 9.157 + 14.846;
 // test holds the two together. The capacity and rating limits are assumed,
 // approved by the user on issue #77, and did not come from the engineer.
 const sliderDefault = (param, value) => ({ param, default: value });
+// A set point field names its level switch: its label and limits are the
+// bin's own set point slider's (issue #85, line/setpointSliders.js).
+const setpointDefault = (code, value) => ({ setpoint: code, default: value });
+// The signal delay is a Build mode field only: a run changes set points, never
+// delays (issue #85).
+const signalDelayField = (value) => ({ id: "signalDelay", label: "signal delay", unit: "s", kind: "number", min: 0, max: 15, default: value, bind: "interlockSignalDelay" });
 const capacityField = (min, max, value) => ({ id: "capacity", label: "capacity", unit: "m³", kind: "number", min, max, default: value, bind: "capacity" });
 const ratedCapacityField = (label, min, max, value) => ({ id: "ratedCapacity", label, unit: "t/h", kind: "number", min, max, default: value, bind: "ratedCapacity" });
 const chainSpeedField = (value) => ({ id: "chainSpeed", label: "chain speed", unit: "m/min", kind: "number", min: 2, max: 30, default: value, bind: "chainSpeed" });
@@ -219,10 +225,13 @@ export const line = {
       // by default (see treatDrumFeeder below).
       params: [
         { id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" },
-        { id: "highSetpoint", label: "LSH set point", min: 35, max: 90, value: 85, unit: "%", bind: "interlockHighSetpoint" },
-        { id: "lowSetpoint", label: "LSL set point", min: 0, max: 55, value: 35, unit: "%", bind: "interlockLowSetpoint" },
-        { id: "highHighSetpoint", label: "LSHH trip set point", min: 55, max: 100, value: 95, unit: "%", bind: "interlockHighHighSetpoint" },
-        { id: "signalDelay", label: "signal delay", min: 0, max: 15, value: 7, unit: "s", bind: "interlockSignalDelay" },
+      ],
+      // Issue #85: the limits of this bin's set point sliders. The sliders
+      // themselves are generated from the rules that read each switch.
+      setpointSliders: [
+        { switch: "LSH", label: "LSH set point", min: 35, max: 90 },
+        { switch: "LSL", label: "LSL set point", min: 0, max: 55 },
+        { switch: "LSHH", label: "LSHH trip set point", min: 55, max: 100 },
       ],
       // 7.7 m3 / 5.5 t working volume [CONFIRMED 2026-06-30,
       // REAL_LINE_SPECS.md §5]. LSH/LSL set points are assumed (see
@@ -231,10 +240,10 @@ export const line = {
       // buffer and belt on the line starts with zero held material on page
       // load and RESTART, not a demo-paced starting level.
       adjustable: [
-        sliderDefault("highSetpoint", 85),
-        sliderDefault("lowSetpoint", 35),
-        sliderDefault("highHighSetpoint", 95),
-        sliderDefault("signalDelay", 7),
+        setpointDefault("LSH", 85),
+        setpointDefault("LSL", 35),
+        setpointDefault("LSHH", 95),
+        signalDelayField(7),
         capacityField(2, 20, 7.7),
       ],
       sim: {
@@ -351,9 +360,13 @@ export const line = {
       // schedule instead of the old two-stage slow-then-stop throttle.
       params: [
         { id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" },
-        { id: "lowSetpoint", label: "LSL recover", min: 0, max: 55, value: 35, unit: "%", bind: "interlockLowSetpoint" },
-        { id: "highSetpoint", label: "LSH set point", min: 35, max: 90, value: 85, unit: "%", bind: "interlockHighSetpoint" },
-        { id: "highHighSetpoint", label: "LSHH trip set point", min: 55, max: 100, value: 95, unit: "%", bind: "interlockHighHighSetpoint" },
+      ],
+      // Issue #85: the limits of this bin's set point sliders. The sliders
+      // themselves are generated from the rules that read each switch.
+      setpointSliders: [
+        { switch: "LSL", label: "LSL recover", min: 0, max: 55 },
+        { switch: "LSH", label: "LSH set point", min: 35, max: 90 },
+        { switch: "LSHH", label: "LSHH trip set point", min: 55, max: 100 },
       ],
       // 1.63 m3 / 1.17 t working volume [CONFIRMED, FD 2026-08-05 Treating
       // mimic label, REAL_LINE_SPECS.md §2/§8.1 — supersedes the earlier
@@ -368,9 +381,9 @@ export const line = {
       // reads empty despite the seed being neither lost nor treated short,
       // which looks exactly like "grain vanished" from the plant view.
       adjustable: [
-        sliderDefault("lowSetpoint", 35),
-        sliderDefault("highSetpoint", 85),
-        sliderDefault("highHighSetpoint", 95),
+        setpointDefault("LSL", 35),
+        setpointDefault("LSH", 85),
+        setpointDefault("LSHH", 95),
         capacityField(0.5, 5, 1.63),
       ],
       sim: {
@@ -470,9 +483,12 @@ export const line = {
       // docs/OPEN_QUESTIONS.md).
       params: [
         { id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" },
-        { id: "highSetpoint", label: "LSH0 set point", min: 30, max: 100, value: 60, unit: "%", bind: "interlockHighSetpoint" },
-        { id: "lowSetpoint", label: "LSL0 clear point", min: 0, max: 30, value: 20, unit: "%", bind: "interlockLowSetpoint" },
-        { id: "signalDelay", label: "signal delay", min: 0, max: 15, value: 5, unit: "s", bind: "interlockSignalDelay" },
+      ],
+      // Issue #85: the limits of this bin's set point sliders. The sliders
+      // themselves are generated from the rules that read each switch.
+      setpointSliders: [
+        { switch: "LSH", label: "LSH0 set point", min: 30, max: 100 },
+        { switch: "LSL", label: "LSL0 clear point", min: 0, max: 30 },
       ],
       // 0.67 m3 working volume [CONFIRMED 2026-06-30, REAL_LINE_SPECS.md
       // §5]. LSH0/LSL0 set points are assumed, same low-sensitivity
@@ -480,9 +496,9 @@ export const line = {
       // confirms these are operator-adjustable SCADA configuration, not
       // fixed plant values. Starts empty (issue #55).
       adjustable: [
-        sliderDefault("highSetpoint", 60),
-        sliderDefault("lowSetpoint", 20),
-        sliderDefault("signalDelay", 5),
+        setpointDefault("LSH", 60),
+        setpointDefault("LSL", 20),
+        signalDelayField(5),
         capacityField(0.2, 2, 0.67),
       ],
       sim: {
@@ -615,7 +631,7 @@ export const line = {
       // outloadBufferBin above). No `LSL0` is named in the FD, and no
       // numeric `LSH0` setpoint is confirmed anywhere, so unlike the bins
       // with a real interlock behind them (treaterAfterBin etc.), this one
-      // gets no highSetpoint/lowSetpoint dial and no thresholdStopTrip rule
+      // gets no set point slider and no trip interlock
       // — the engineer was explicit that it's "not a control point of its
       // own," just the standard accumulator fill/backpressure behaviour
       // every bin on the line already gets by default (issue #18). No
@@ -1176,9 +1192,12 @@ export const line = {
       label: { side: "left", align: "center" },
       params: [
         { id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" },
-        { id: "highSetpoint", label: "LSH set point", min: 45, max: 100, value: 85, unit: "%", bind: "interlockHighSetpoint" },
-        { id: "lowSetpoint", label: "LSL set point", min: 0, max: 45, value: 35, unit: "%", bind: "interlockLowSetpoint" },
-        { id: "signalDelay", label: "signal delay", min: 0, max: 15, value: 5, unit: "s", bind: "interlockSignalDelay" },
+      ],
+      // Issue #85: the limits of this bin's set point sliders. The sliders
+      // themselves are generated from the rules that read each switch.
+      setpointSliders: [
+        { switch: "LSH", label: "LSH set point", min: 45, max: 100 },
+        { switch: "LSL", label: "LSL set point", min: 0, max: 45 },
       ],
       // Issue #48: reuses the accumulator behaviour unchanged (issue #18),
       // a seventh configuration. Working volume has no confirmed source —
@@ -1191,9 +1210,9 @@ export const line = {
       // pre-bin (1.63 m3) than to a 6 m3 metal bin. See
       // docs/OPEN_QUESTIONS.md. Starts empty (issue #55).
       adjustable: [
-        sliderDefault("highSetpoint", 85),
-        sliderDefault("lowSetpoint", 35),
-        sliderDefault("signalDelay", 5),
+        setpointDefault("LSH", 85),
+        setpointDefault("LSL", 35),
+        signalDelayField(5),
         capacityField(0.6, 8, 2.5),
       ],
       sim: {
@@ -1371,9 +1390,13 @@ export const line = {
       // for any gradedFeedSchedule rule, no per-machine code needed).
       params: [
         { id: "level", label: "fill level", min: 0, max: 100, value: 0, unit: "%", bind: "levelJump" },
-        { id: "lowSetpoint", label: "LSL recover", min: 0, max: 55, value: 35, unit: "%", bind: "interlockLowSetpoint" },
-        { id: "highSetpoint", label: "LSH set point", min: 35, max: 90, value: 85, unit: "%", bind: "interlockHighSetpoint" },
-        { id: "highHighSetpoint", label: "LSHH trip set point", min: 55, max: 100, value: 95, unit: "%", bind: "interlockHighHighSetpoint" },
+      ],
+      // Issue #85: the limits of this bin's set point sliders. The sliders
+      // themselves are generated from the rules that read each switch.
+      setpointSliders: [
+        { switch: "LSL", label: "LSL recover", min: 0, max: 55 },
+        { switch: "LSH", label: "LSH set point", min: 35, max: 90 },
+        { switch: "LSHH", label: "LSHH trip set point", min: 55, max: 100 },
       ],
       // Issue #49: reuses the accumulator behaviour unchanged (issue #18),
       // an eighth configuration. Working volume has a drawing reading but a
@@ -1386,9 +1409,9 @@ export const line = {
       // this pre-bin must hold a short amount rather than handing it into
       // the scale's own hopper early (same reasoning as treaterPreBin).
       adjustable: [
-        sliderDefault("lowSetpoint", 35),
-        sliderDefault("highSetpoint", 85),
-        sliderDefault("highHighSetpoint", 95),
+        setpointDefault("LSL", 35),
+        setpointDefault("LSH", 85),
+        setpointDefault("LSHH", 95),
         capacityField(0.2, 2, 0.72),
       ],
       sim: {
@@ -1579,11 +1602,12 @@ export const line = {
     { from: { machine: "palletising", port: "out" }, to: { machine: "palletStub", port: "in" }, kind: "product" },
   ],
 
-  // The control layer (issue #19): declarative threshold rules, each
-  // reading one machine's level and, after a signal delay, commanding an
-  // action on another machine. `treaterBufferBin.params` above exposes the
-  // set points and signal delay declared here as live sliders; `control.js`
-  // turns each entry into one runtime rule.
+  // The control layer. Every interlock is a sentence (sim/sentenceInterlock.js,
+  // issue #82, ADR 0009): when a machine is in a condition for a signal
+  // delay, then steps in order, an optional "when it clears" part, and a
+  // reset. A sentence on a level names its level switch, and each bin's
+  // popup set point sliders are generated from these (line/setpointSliders.js,
+  // issue #85). `control.js` turns each entry into one runtime rule.
   interlocks: [
     {
       id: "bufferBinValve",
@@ -1643,85 +1667,6 @@ export const line = {
       then: [{ action: "close", machine: "upstreamStub", rampTimeSec: 6 }],
       reset: "latched",
       provenance: { "when.setpoint": "assumed", "when.delaySec": "confirmed", "then.0.rampTimeSec": "assumed" },
-    },
-    {
-      id: "preBinFeedSchedule",
-      kind: "gradedFeedSchedule",
-      sensor: { machine: "treaterPreBin" },
-      // Issue #56/#58/#60: replaces the old two-stage slow-then-stop
-      // throttle (preBinSlowStopTrip) and the separate treatingElevatorRunningAutoStart
-      // one-shot start (issue #42) with a single rule commanding both
-      // actuators continuously. LSL/LSH set points are unchanged from that
-      // old rule's own lowSetpoint/stop.setpoint (35%/85%) — the FD
-      // (2026-08-05) independently confirms the same `52.507.H00.LSH0` -> 5s
-      // -> elevator `52.506.E00` trip delay used below for LSHH's own trip
-      // stage, re-sensored from LSH to the new LSHH per issue #56's own
-      // decision (LSH itself no longer trips anything, purely display —
-      // see the pre-bin's own INSTRUMENT_FIELDS entry, control.js).
-      // LSHH (95%) is the new, confirmed sensor position issue #56 gives
-      // directly. Each band's (speedFraction, gateFraction) pair is the
-      // pre-bin's own real, currently-commissioned nominal operating point
-      // (85% speed / 55% gate, ~13.92 TPH per the Simatek calculator,
-      // units.js) scaled by sqrt(targetTph / nominalTph) to hit that band's
-      // own target TPH while preserving the nominal Speed:Gate ratio (issue
-      // #56's own "Implementation Decisions" section) — reproduced exactly
-      // by units.test.js's own worked band examples. No FD or worksheet
-      // number backs any band's own delay/ramp time (an engineer-described
-      // addition, same as the old slow stage it replaces): 3s/4s carried
-      // over from that old stage's own assumed figures. See
-      // docs/OPEN_QUESTIONS.md.
-      lowSetpoint: 0.35,
-      highSetpoint: 0.85,
-      highHighSetpoint: 0.95,
-      boost: { speedFraction: 0.8525, gateFraction: 0.5516, delaySec: 3, rampTimeSec: 4 }, // ~14 TPH
-      normal: { speedFraction: 0.7893, gateFraction: 0.5107, delaySec: 3, rampTimeSec: 4 }, // ~12 TPH
-      throttle: { speedFraction: 0.5581, gateFraction: 0.3611, delaySec: 3, rampTimeSec: 4 }, // ~6 TPH
-      trip: { delaySec: 5, rampTimeSec: 6 },
-      action: { elevator: { machine: "treatingElevator" }, feeder: { machine: "treatDrumFeeder" } },
-      provenance: {
-        lowSetpoint: "confirmed", highSetpoint: "confirmed", highHighSetpoint: "confirmed",
-        "boost.speedFraction": "derived", "boost.gateFraction": "derived",
-        "boost.delaySec": "assumed", "boost.rampTimeSec": "assumed",
-        "normal.speedFraction": "derived", "normal.gateFraction": "derived",
-        "normal.delaySec": "assumed", "normal.rampTimeSec": "assumed",
-        "throttle.speedFraction": "derived", "throttle.gateFraction": "derived",
-        "throttle.delaySec": "assumed", "throttle.rampTimeSec": "assumed",
-        "trip.delaySec": "confirmed", "trip.rampTimeSec": "assumed",
-      },
-    },
-    {
-      id: "afterBinHoldTreater",
-      kind: "holdNextBatch",
-      sensor: { machine: "treaterAfterBin" },
-      // The third distinct response to a full bin on this line (issue #25),
-      // and the FD's own words for it: "Treater after-bin high
-      // 52.601.H00.LSH0 -> Treater 52.508.T00 -> 5 s -> treater stops
-      // accepting batches" (docs/PLC_FUNCTIONAL_DESCRIPTION.md §5). Unlike
-      // the buffer bin and pre-bin trips, there is no ramp on the actuator
-      // side to time: the batch-cycle behaviour's `blocked` gate is either
-      // open or shut (src/sim/behaviors.js `commandBatchCycle`), so the
-      // signal delay below is the only timing this interlock has.
-      //
-      // highSetpoint is assumed, like every other bin's LSH0, but not
-      // arbitrarily: a single charge (0.222 m3) is ~33% of this bin's own
-      // 0.67 m3 capacity, far larger relative to its vessel than any other
-      // bin on the line, and the batch already mid-cycle when the trip
-      // fires is not stopped (see acceptance criteria) — it still has to
-      // land somewhere. 60%, not the buffer bin/pre-bin's 85%, is chosen so
-      // one more full charge always has room to discharge after the trip
-      // without the physical backpressure the accumulator already enforces
-      // ever coming into play. lowSetpoint (the clearing threshold) keeps
-      // the same low-sensitivity reasoning as the buffer bin (#18/#19) and
-      // pre-bin (#22): operator-adjustable SCADA configuration, not a fixed
-      // plant value.
-      highSetpoint: 0.6,
-      lowSetpoint: 0.2,
-      signalDelaySec: 5,
-      action: { machine: "batchTreater" },
-      provenance: {
-        highSetpoint: "assumed", lowSetpoint: "assumed",
-        signalDelaySec: "confirmed",
-      },
     },
     // Issue #47: the outload branch's own cascade. The FD's cause-and-effect
     // matrix qualifies all four destination interlocks on 52.604.E00 "if
@@ -1799,74 +1744,6 @@ export const line = {
       reset: "latched",
       armedWhen: [{ machine: "pendulumConveyor", port: "outBinSeg" }],
       provenance: { "when.setpoint": "assumed", "when.delaySec": "confirmed", "then.0.rampTimeSec": "assumed" },
-    },
-    {
-      id: "concettiFeedSchedule",
-      kind: "gradedFeedSchedule",
-      sensor: { machine: "concettiPreBin" },
-      // Issue #56/#58/#61: the same live boost/normal/throttle schedule +
-      // latched LSHH trip issue #60 wired onto the Treater pre-bin
-      // (preBinFeedSchedule above — see that rule's own comment for the
-      // shared mechanism), replacing the old concettiPreBinHighTrip
-      // (thresholdStopTrip, re-sensored from LSH to LSHH exactly like the
-      // Treater case — LSH itself no longer trips anything, purely display,
-      // see concettiPreBin's own instrument comment). This is still the
-      // demonstration the parent spec (#56) names as its central argument —
-      // a bag machine at one end of the building throttling/tripping this
-      // conveyor, which throttles/trips both inlet drum feeders one second
-      // later (conveyorRunningInterlockFeeder1/2 below), which starves the
-      // scalping screen, backs up the treater after-bin (afterBinHoldTreater),
-      // and stops the batch treater — one cascade spanning the entire line —
-      // it's just graded now instead of a single hard stop.
-      //
-      // `action.feeder` is an array of both inlet drum feeders (issue #61):
-      // only one is ever `enabled` at a time (the source selector, issue
-      // #46), so this schedule commands both feeders' gate throttle
-      // uniformly rather than tracking which one is currently live —
-      // control.js's own resolveFeeders comment gives the full reasoning.
-      // LSL/LSH/LSHH set points (35%/85%/95%) are the same shared table
-      // issue #56 gives for both pre-bins. Each band's (speedFraction,
-      // gateFraction) pair reproduces this bin's own nominal operating point
-      // (95% speed / 65% gate, ~18.38 TPH per the Simatek calculator,
-      // units.js) scaled to each band's own target TPH (boost 18 / normal 14
-      // / throttle 7) the same way preBinFeedSchedule's own bands were
-      // derived — reproduced exactly by units.test.js's own worked Concetti
-      // band examples, reused directly rather than re-derived. `armedWhen`
-      // needs only one condition, unchanged from the old
-      // concettiPreBinHighTrip: this branch has no diverter downstream of
-      // the conveyor, just the one outlet, `outConcetti` — so the schedule
-      // must never throttle/trip the shared conveyor while it's routed to
-      // Flexicon or the outload branch instead.
-      //
-      // Issue #73: this rule no longer carries a high-high stage at all.
-      // The three bands below are unchanged, but LSHH now commands
-      // concettiHighHighPauseSequence (a sentence since issue #84, below) instead
-      // of this rule's own latched conveyor trip. The engineer's own
-      // description of what should happen at LSHH is an ordered pause and
-      // self-recovery, not a latch, and two rules on one bin must not both
-      // claim the same switch — so `highHighSetpoint` and `trip` are gone
-      // from here rather than left in place and ignored, and this rule's
-      // own LSHH dot with them (control.js's instrumentReadings skips a
-      // listed code a rule carries no set point for). The bin still shows
-      // one LSHH dot; it belongs to the sequence rule now. (Since issue #84
-      // the treater hold sentence reads LSHH too; the pause's red reading
-      // wins, control.js mergeInstruments.)
-      lowSetpoint: 0.35,
-      highSetpoint: 0.85,
-      boost: { speedFraction: 0.9401, gateFraction: 0.6432, delaySec: 3, rampTimeSec: 4 }, // ~18 TPH
-      normal: { speedFraction: 0.829, gateFraction: 0.5672, delaySec: 3, rampTimeSec: 4 }, // ~14 TPH
-      throttle: { speedFraction: 0.5862, gateFraction: 0.4011, delaySec: 3, rampTimeSec: 4 }, // ~7 TPH
-      action: { elevator: { machine: "pendulumConveyor" }, feeder: [{ machine: "inletDrumFeeder1" }, { machine: "inletDrumFeeder2" }] },
-      armedWhen: [{ machine: "pendulumConveyor", port: "outConcetti" }],
-      provenance: {
-        lowSetpoint: "confirmed", highSetpoint: "confirmed",
-        "boost.speedFraction": "derived", "boost.gateFraction": "derived",
-        "boost.delaySec": "assumed", "boost.rampTimeSec": "assumed",
-        "normal.speedFraction": "derived", "normal.gateFraction": "derived",
-        "normal.delaySec": "assumed", "normal.rampTimeSec": "assumed",
-        "throttle.speedFraction": "derived", "throttle.gateFraction": "derived",
-        "throttle.delaySec": "assumed", "throttle.rampTimeSec": "assumed",
-      },
     },
     {
       id: "concettiHighHighPauseSequence",
@@ -1998,6 +1875,159 @@ export const line = {
       then: [{ action: "stop", machine: "inletDrumFeeder2" }],
       reset: "auto",
       provenance: { "when.delaySec": "confirmed" },
+    },
+  ],
+  // Machine rules (issue #85): rules a machine runs that are not interlock
+  // sentences. The two graded feed schedules are machine settings (#80), and
+  // the treater after-bin's "hold the next batch" does not fit the sentence
+  // model (docs/OPEN_QUESTIONS.md). Each still reads a level switch, so the
+  // bin's popup sliders cover its set points too.
+  machineRules: [
+    {
+      id: "preBinFeedSchedule",
+      kind: "gradedFeedSchedule",
+      sensor: { machine: "treaterPreBin" },
+      // Issue #56/#58/#60: replaces the old two-stage slow-then-stop throttle
+      // (preBinSlowStopTrip) and the separate treatingElevatorRunningAutoStart
+      // one-shot start (issue #42) with a single rule commanding both actuators
+      // continuously. LSL/LSH set points are unchanged from that old rule's own
+      // lowSetpoint/stop.setpoint (35%/85%) — the FD (2026-08-05) independently
+      // confirms the same `52.507.H00.LSH0` -> 5s -> elevator `52.506.E00` trip
+      // delay used below for LSHH's own trip stage, re-sensored from LSH to the
+      // new LSHH per issue #56's own decision (LSH itself no longer trips
+      // anything, purely display — see the pre-bin's own INSTRUMENT_FIELDS
+      // entry, control.js). LSHH (95%) is the new, confirmed sensor position
+      // issue #56 gives directly. Each band's (speedFraction, gateFraction)
+      // pair is the pre-bin's own real, currently-commissioned nominal
+      // operating point (85% speed / 55% gate, ~13.92 TPH per the Simatek
+      // calculator, units.js) scaled by sqrt(targetTph / nominalTph) to hit
+      // that band's own target TPH while preserving the nominal Speed:Gate
+      // ratio (issue #56's own "Implementation Decisions" section) — reproduced
+      // exactly by units.test.js's own worked band examples. No FD or worksheet
+      // number backs any band's own delay/ramp time (an engineer-described
+      // addition, same as the old slow stage it replaces): 3s/4s carried over
+      // from that old stage's own assumed figures. See docs/OPEN_QUESTIONS.md.
+      lowSetpoint: 0.35,
+      highSetpoint: 0.85,
+      highHighSetpoint: 0.95,
+      boost: { speedFraction: 0.8525, gateFraction: 0.5516, delaySec: 3, rampTimeSec: 4 }, // ~14 TPH
+      normal: { speedFraction: 0.7893, gateFraction: 0.5107, delaySec: 3, rampTimeSec: 4 }, // ~12 TPH
+      throttle: { speedFraction: 0.5581, gateFraction: 0.3611, delaySec: 3, rampTimeSec: 4 }, // ~6 TPH
+      trip: { delaySec: 5, rampTimeSec: 6 },
+      action: { elevator: { machine: "treatingElevator" }, feeder: { machine: "treatDrumFeeder" } },
+      provenance: {
+        lowSetpoint: "confirmed", highSetpoint: "confirmed", highHighSetpoint: "confirmed",
+        "boost.speedFraction": "derived", "boost.gateFraction": "derived",
+        "boost.delaySec": "assumed", "boost.rampTimeSec": "assumed",
+        "normal.speedFraction": "derived", "normal.gateFraction": "derived",
+        "normal.delaySec": "assumed", "normal.rampTimeSec": "assumed",
+        "throttle.speedFraction": "derived", "throttle.gateFraction": "derived",
+        "throttle.delaySec": "assumed", "throttle.rampTimeSec": "assumed",
+        "trip.delaySec": "confirmed", "trip.rampTimeSec": "assumed",
+      },
+    },
+    {
+      id: "afterBinHoldTreater",
+      kind: "holdNextBatch",
+      sensor: { machine: "treaterAfterBin" },
+      // The third distinct response to a full bin on this line (issue #25),
+      // and the FD's own words for it: "Treater after-bin high
+      // 52.601.H00.LSH0 -> Treater 52.508.T00 -> 5 s -> treater stops
+      // accepting batches" (docs/PLC_FUNCTIONAL_DESCRIPTION.md §5). Unlike
+      // the buffer bin and pre-bin trips, there is no ramp on the actuator
+      // side to time: the batch-cycle behaviour's `blocked` gate is either
+      // open or shut (src/sim/behaviors.js `commandBatchCycle`), so the
+      // signal delay below is the only timing this rule has.
+      //
+      // highSetpoint is assumed, like every other bin's LSH0, but not
+      // arbitrarily: a single charge (0.222 m3) is ~33% of this bin's own
+      // 0.67 m3 capacity, far larger relative to its vessel than any other
+      // bin on the line, and the batch already mid-cycle when the trip
+      // fires is not stopped (see acceptance criteria) — it still has to
+      // land somewhere. 60%, not the buffer bin/pre-bin's 85%, is chosen so
+      // one more full charge always has room to discharge after the trip
+      // without the physical backpressure the accumulator already enforces
+      // ever coming into play. lowSetpoint (the clearing threshold) keeps
+      // the same low-sensitivity reasoning as the buffer bin (#18/#19) and
+      // pre-bin (#22): operator-adjustable SCADA configuration, not a fixed
+      // plant value.
+      highSetpoint: 0.6,
+      lowSetpoint: 0.2,
+      signalDelaySec: 5,
+      action: { machine: "batchTreater" },
+      provenance: {
+        highSetpoint: "assumed", lowSetpoint: "assumed",
+        signalDelaySec: "confirmed",
+      },
+    },
+    {
+      id: "concettiFeedSchedule",
+      kind: "gradedFeedSchedule",
+      sensor: { machine: "concettiPreBin" },
+      // Issue #56/#58/#61: the same live boost/normal/throttle schedule +
+      // latched LSHH trip issue #60 wired onto the Treater pre-bin
+      // (preBinFeedSchedule above — see that rule's own comment for the shared
+      // mechanism), replacing the old concettiPreBinHighTrip
+      // (thresholdStopTrip, re-sensored from LSH to LSHH exactly like the
+      // Treater case — LSH itself no longer trips anything, purely display, see
+      // concettiPreBin's own instrument comment). This is still the
+      // demonstration the parent spec (#56) names as its central argument — a
+      // bag machine at one end of the building throttling/tripping this
+      // conveyor, which throttles/trips both inlet drum feeders one second
+      // later (conveyorRunningInterlockFeeder1/2, in `interlocks`), which
+      // starves the scalping screen, backs up the treater after-bin
+      // (afterBinHoldTreater), and stops the batch treater — one cascade
+      // spanning the entire line — it's just graded now instead of a single
+      // hard stop.
+      //
+      // `action.feeder` is an array of both inlet drum feeders (issue #61):
+      // only one is ever `enabled` at a time (the source selector, issue
+      // #46), so this schedule commands both feeders' gate throttle
+      // uniformly rather than tracking which one is currently live —
+      // control.js's own resolveFeeders comment gives the full reasoning.
+      // LSL/LSH/LSHH set points (35%/85%/95%) are the same shared table
+      // issue #56 gives for both pre-bins. Each band's (speedFraction,
+      // gateFraction) pair reproduces this bin's own nominal operating point
+      // (95% speed / 65% gate, ~18.38 TPH per the Simatek calculator,
+      // units.js) scaled to each band's own target TPH (boost 18 / normal 14
+      // / throttle 7) the same way preBinFeedSchedule's own bands were
+      // derived — reproduced exactly by units.test.js's own worked Concetti
+      // band examples, reused directly rather than re-derived. `armedWhen`
+      // needs only one condition, unchanged from the old
+      // concettiPreBinHighTrip: this branch has no diverter downstream of
+      // the conveyor, just the one outlet, `outConcetti` — so the schedule
+      // must never throttle/trip the shared conveyor while it's routed to
+      // Flexicon or the outload branch instead.
+      //
+      // Issue #73: this rule no longer carries a high-high stage at all. The
+      // three bands below are unchanged, but LSHH now commands
+      // concettiHighHighPauseSequence (a sentence since issue #84, in
+      // `interlocks`) instead of this rule's own latched conveyor trip. The
+      // engineer's own description of what should happen at LSHH is an ordered
+      // pause and self-recovery, not a latch, and two rules on one bin must not
+      // both claim the same switch — so `highHighSetpoint` and `trip` are gone
+      // from here rather than left in place and ignored, and this rule's own
+      // LSHH dot with them (control.js's instrumentReadings skips a listed code
+      // a rule carries no set point for). The bin still shows one LSHH dot; it
+      // belongs to the sequence rule now. (Since issue #84 the treater hold
+      // sentence reads LSHH too; the pause's red reading wins, control.js
+      // mergeInstruments.)
+      lowSetpoint: 0.35,
+      highSetpoint: 0.85,
+      boost: { speedFraction: 0.9401, gateFraction: 0.6432, delaySec: 3, rampTimeSec: 4 }, // ~18 TPH
+      normal: { speedFraction: 0.829, gateFraction: 0.5672, delaySec: 3, rampTimeSec: 4 }, // ~14 TPH
+      throttle: { speedFraction: 0.5862, gateFraction: 0.4011, delaySec: 3, rampTimeSec: 4 }, // ~7 TPH
+      action: { elevator: { machine: "pendulumConveyor" }, feeder: [{ machine: "inletDrumFeeder1" }, { machine: "inletDrumFeeder2" }] },
+      armedWhen: [{ machine: "pendulumConveyor", port: "outConcetti" }],
+      provenance: {
+        lowSetpoint: "confirmed", highSetpoint: "confirmed",
+        "boost.speedFraction": "derived", "boost.gateFraction": "derived",
+        "boost.delaySec": "assumed", "boost.rampTimeSec": "assumed",
+        "normal.speedFraction": "derived", "normal.gateFraction": "derived",
+        "normal.delaySec": "assumed", "normal.rampTimeSec": "assumed",
+        "throttle.speedFraction": "derived", "throttle.gateFraction": "derived",
+        "throttle.delaySec": "assumed", "throttle.rampTimeSec": "assumed",
+      },
     },
   ],
   // The always-on speed x gate -> rate derivation (issue #59), wired onto

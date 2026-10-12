@@ -1,9 +1,12 @@
 // The fields a user may change on a machine in Build mode (issue #77).
 //
 // A machine declares its fields in an `adjustable` list. An entry is one of:
-//   { param: "highSetpoint", default: 85 }
+//   { param: "batchSize", default: 160 }
 //     the default of an existing popup slider. Label, unit and limits come
 //     from the slider's own entry in `params`.
+//   { setpoint: "LSH", default: 85 }
+//     the set point of a level switch. Label and limits come from the
+//     machine's set point slider for that switch (setpointSliders.js).
 //   { id, label, unit, kind: "number", min, max, default, bind }
 //   { id, label, unit, kind: "option", options: [...], default, bind }
 //     a behaviour setting, such as a bin's capacity.
@@ -13,7 +16,8 @@
 // to the engine unit the line holds. This module never changes a line it is
 // given: setAdjustableValue returns a new one.
 import { tPerHourToM3PerSec, m3PerSecToTPerHour, kgToM3, m3ToKg } from "../sim/units";
-import { interlockSensorMachine, interlockValue, putInterlockValue, SWITCH_FIELDS } from "./interlocks";
+import { lineRules, interlockSensorMachine, interlockValue, putInterlockValue, SWITCH_FIELDS } from "./interlocks";
+import { switchSlider, SWITCH_BINDS } from "./setpointSliders";
 
 // Plant unit <-> line (engine) unit.
 const SAME = { toLine: (v) => v, fromLine: (v) => v };
@@ -31,10 +35,10 @@ function simValue(key, unit, convert) {
 }
 
 // Every place on the line that holds this machine's value for `key`: each
-// interlock that reads the machine and carries it, coded rule or sentence,
-// and (issue #83) the machine's own display-only level switch.
+// rule that reads the machine and carries it, interlock sentence or machine
+// rule, and (issue #83) the machine's own display-only level switch.
 function holdersOf(line, machine, key) {
-  const holders = (line.interlocks ?? [])
+  const holders = lineRules(line)
     .filter((r) => interlockSensorMachine(r) === machine.id && interlockValue(r, key) !== undefined)
     .map((r) => ({ get: () => interlockValue(r, key), put: (value) => putInterlockValue(r, key, value) }));
   const code = Object.keys(SWITCH_FIELDS).find((c) => SWITCH_FIELDS[c] === key);
@@ -45,7 +49,7 @@ function holdersOf(line, machine, key) {
   return holders;
 }
 
-// A value held for this machine by its interlocks, the same places the live
+// A value held for this machine by its rules, the same places the live
 // slider moves (setInterlockField, engine.js).
 function interlockField(key, unit, convert) {
   return {
@@ -113,6 +117,13 @@ const BINDS = {
 // The machine's fields in one shape, whichever way each was declared.
 export function adjustableFields(machine) {
   return (machine.adjustable ?? []).map((decl) => {
+    if (decl.setpoint !== undefined) {
+      return {
+        id: SWITCH_FIELDS[decl.setpoint] ?? decl.setpoint, setpoint: decl.setpoint, kind: "number",
+        ...switchSlider(machine, decl.setpoint), unit: "%", bind: SWITCH_BINDS[decl.setpoint],
+        default: decl.default,
+      };
+    }
     if (decl.param === undefined) return { kind: "number", ...decl };
     const p = machine.params?.find((q) => q.id === decl.param);
     return {
@@ -220,6 +231,10 @@ export function adjustableFieldErrors(line) {
       const at = `machine "${m.id}" adjustable field "${f.id}"`;
       if (seen.has(f.id)) errors.push(`${at} is declared twice`);
       seen.add(f.id);
+      if (f.setpoint !== undefined && !SWITCH_FIELDS[f.setpoint]) {
+        errors.push(`${at} names unknown level switch "${f.setpoint}"`);
+        continue;
+      }
       if (f.param !== undefined && !m.params?.some((p) => p.id === f.param)) {
         errors.push(`${at} names no slider "${f.param}"`);
         continue;

@@ -1,9 +1,11 @@
-// What a machine popup slider means to the sim. A param in lineData.js opts
-// into live control by naming a `bind` (how a dragged value reaches the
-// engine) and optionally a `readBind` (what live figure the slider shows back
-// from the machine's published snapshot). This module is the one place both
-// names are defined, including each one's unit conversion between the
-// slider's own units (t/h, kg, %, s) and the engine's (m3/s, m3, fractions).
+// What a machine popup slider means to the sim. A param in lineData.js, or a
+// set point slider generated from the line's rules (line/setpointSliders.js,
+// issue #85), opts into live control by naming a `bind` (how a dragged value
+// reaches the engine) and optionally a `readBind` (what live figure the slider
+// shows back from the machine's published snapshot). This module is the one
+// place both names are defined, including each one's unit conversion between
+// the slider's own units (t/h, kg, %, s) and the engine's (m3/s, m3,
+// fractions).
 //
 // Before this, one slider drag crossed four modules: the param's `bind`
 // string, a PARAM_BINDERS entry in PlantApp.jsx doing the unit conversion, a
@@ -15,14 +17,19 @@
 // module does not define instead of it silently doing nothing.
 import {
   setSourceRate, setFeederRate, setAccumulatorLevel,
-  setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockHighHighSetpoint, setInterlockSignalDelay,
+  setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockHighHighSetpoint, setInterlockPartSetpoint,
   setElevatorSpeed, setGateFraction, setBatchSize, setBatchCycleSec, setSplitterWasteFraction,
 } from "./engine";
 import { tPerHourToM3PerSec, m3PerSecToTPerHour, kgToM3 } from "./units";
 
 const pct = (value) => value / 100;
 
-// bind name -> (sim, machineId, sliderValue) => void
+// bind name -> (sim, machineId, sliderValue, target) => void. Only a set
+// point slider with no level switch carries a `target`: the sentence and
+// part it moves.
+//
+// Issue #85: a run changes set points only, never delays or structure, so
+// there is no signal delay control here. Build mode sets delays.
 const LIVE_CONTROLS = {
   sourceRate: (sim, id, tph) => setSourceRate(sim, id, tPerHourToM3PerSec(tph)),
   feederRate: (sim, id, tph) => setFeederRate(sim, id, tPerHourToM3PerSec(tph)),
@@ -34,7 +41,7 @@ const LIVE_CONTROLS = {
   interlockLowSetpoint: (sim, id, value) => setInterlockLowSetpoint(sim, id, pct(value)),
   // The pre-bin graded feed schedule's own LSHH trip set point (issue #60).
   interlockHighHighSetpoint: (sim, id, value) => setInterlockHighHighSetpoint(sim, id, pct(value)),
-  interlockSignalDelay: (sim, id, seconds) => setInterlockSignalDelay(sim, id, seconds),
+  interlockPartSetpoint: (sim, id, value, target) => setInterlockPartSetpoint(sim, target.interlock, target.part, pct(value)),
   // Elevator VFD (issue #21) and drum feeder gate (issue #60): both are
   // dials (sim/dial.js), so a drag landing back on the interlock's cap
   // releases the dial rather than setting it.
@@ -85,10 +92,10 @@ const LIVE_READINGS = {
 };
 
 // A dragged slider value, in the slider's own units, reaching the sim.
-export function setLiveControl(sim, machineId, bind, value) {
+export function setLiveControl(sim, machineId, bind, value, target) {
   const control = LIVE_CONTROLS[bind];
   if (!control) throw new Error(`unknown live control bind "${bind}"`);
-  control(sim, machineId, value);
+  control(sim, machineId, value, target);
 }
 
 // The live figure a slider shows back, read off a machine's published

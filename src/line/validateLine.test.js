@@ -157,21 +157,21 @@ describe("validateLine", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("accepts an interlock whose sensor and actuator both reference real machines", () => {
+  it("accepts a machine rule whose sensor and actuator both reference real machines", () => {
     const line = makeValidLine();
     line.machines[0].sim = { kind: "source", rateM3PerSec: 1 }; // feedStub
-    line.interlocks = [{
-      id: "trip", sensor: { machine: "bufferBin" }, highSetpoint: 0.9, lowSetpoint: 0.3,
+    line.machineRules = [{
+      id: "trip", kind: "holdNextBatch", sensor: { machine: "bufferBin" }, highSetpoint: 0.9, lowSetpoint: 0.3,
       signalDelaySec: 3, action: { machine: "feedStub", rampTimeSec: 5 },
     }];
     const result = validateLine(line);
     expect(result.ok).toBe(true);
   });
 
-  it("rejects an interlock whose sensor references an unknown machine", () => {
+  it("rejects a machine rule whose sensor references an unknown machine", () => {
     const line = makeValidLine();
-    line.interlocks = [{
-      id: "trip", sensor: { machine: "ghostBin" }, highSetpoint: 0.9, lowSetpoint: 0.3,
+    line.machineRules = [{
+      id: "trip", kind: "holdNextBatch", sensor: { machine: "ghostBin" }, highSetpoint: 0.9, lowSetpoint: 0.3,
       signalDelaySec: 3, action: { machine: "feedStub", rampTimeSec: 5 },
     }];
     const result = validateLine(line);
@@ -179,10 +179,10 @@ describe("validateLine", () => {
     expect(result.errors.join("\n")).toContain("ghostBin");
   });
 
-  it("rejects an interlock whose action references an unknown machine", () => {
+  it("rejects a machine rule whose action references an unknown machine", () => {
     const line = makeValidLine();
-    line.interlocks = [{
-      id: "trip", sensor: { machine: "bufferBin" }, highSetpoint: 0.9, lowSetpoint: 0.3,
+    line.machineRules = [{
+      id: "trip", kind: "holdNextBatch", sensor: { machine: "bufferBin" }, highSetpoint: 0.9, lowSetpoint: 0.3,
       signalDelaySec: 3, action: { machine: "ghostValve", rampTimeSec: 5 },
     }];
     const result = validateLine(line);
@@ -190,11 +190,11 @@ describe("validateLine", () => {
     expect(result.errors.join("\n")).toContain("ghostValve");
   });
 
-  it("rejects an interlock whose action targets a machine that cannot be commanded", () => {
+  it("rejects a machine rule whose action targets a machine that cannot be commanded", () => {
     const line = makeValidLine();
     line.machines[1].sim = { kind: "accumulator", capacityM3: 1 }; // bufferBin: no `command` behaviour method
-    line.interlocks = [{
-      id: "trip", sensor: { machine: "bufferBin" }, highSetpoint: 0.9, lowSetpoint: 0.3,
+    line.machineRules = [{
+      id: "trip", kind: "holdNextBatch", sensor: { machine: "bufferBin" }, highSetpoint: 0.9, lowSetpoint: 0.3,
       signalDelaySec: 3, action: { machine: "bufferBin", rampTimeSec: 5 },
     }];
     const result = validateLine(line);
@@ -202,16 +202,46 @@ describe("validateLine", () => {
     expect(result.errors.join("\n")).toContain("bufferBin");
   });
 
-  it("accepts an interlock whose action targets a source (which can be commanded)", () => {
+  it("accepts a machine rule whose action targets a source (which can be commanded)", () => {
     const line = makeValidLine();
     line.machines[0].sim = { kind: "source", rateM3PerSec: 1 }; // feedStub
     line.machines[1].sim = { kind: "accumulator", capacityM3: 1 };
-    line.interlocks = [{
-      id: "trip", sensor: { machine: "bufferBin" }, highSetpoint: 0.9, lowSetpoint: 0.3,
+    line.machineRules = [{
+      id: "trip", kind: "holdNextBatch", sensor: { machine: "bufferBin" }, highSetpoint: 0.9, lowSetpoint: 0.3,
       signalDelaySec: 3, action: { machine: "feedStub", rampTimeSec: 5 },
     }];
     const result = validateLine(line);
     expect(result.ok).toBe(true);
+  });
+
+  // Issue #85: every interlock is a sentence. A coded rule kind left in
+  // `interlocks` is refused, and so is a machine rule of a kind that is not one.
+  it("rejects an interlock that is not a sentence", () => {
+    const line = makeValidLine();
+    line.machines[0].sim = { kind: "source", rateM3PerSec: 1 };
+    line.interlocks = [{
+      id: "trip", kind: "thresholdTrip", sensor: { machine: "bufferBin" }, highSetpoint: 0.9, lowSetpoint: 0.3,
+      signalDelaySec: 3, action: { machine: "feedStub", rampTimeSec: 5 },
+    }];
+    expect(validateLine(line).errors.join("\n")).toMatch(/interlock "trip" has kind "thresholdTrip"; every interlock is a sentence/);
+  });
+
+  it("rejects a machine rule of an unknown kind", () => {
+    const line = makeValidLine();
+    line.machineRules = [{ id: "odd", kind: "sentence", when: { machine: "bufferBin", condition: "above", setpoint: 0.9, delaySec: 1 } }];
+    expect(validateLine(line).errors.join("\n")).toMatch(/machine rule "odd" has unknown kind "sentence"/);
+  });
+
+  it.each([
+    ["an unknown switch", [{ switch: "LSX", label: "x", min: 0, max: 100 }], /unknown level switch "LSX"/],
+    ["the same switch twice", [{ switch: "LSH", label: "a", min: 0, max: 100 }, { switch: "LSH", label: "b", min: 0, max: 100 }], /two set point sliders for "LSH"/],
+    ["no label", [{ switch: "LSH", min: 0, max: 100 }], /slider "LSH" needs a label/],
+    ["limits the wrong way round", [{ switch: "LSH", label: "a", min: 90, max: 30 }], /slider "LSH" needs limits from 0 to 100 %/],
+    ["limits past 100 %", [{ switch: "LSH", label: "a", min: 0, max: 120 }], /slider "LSH" needs limits from 0 to 100 %/],
+  ])("rejects set point slider limits with %s", (_what, sliders, message) => {
+    const line = makeValidLine();
+    line.machines[1].setpointSliders = sliders;
+    expect(validateLine(line).errors.join("\n")).toMatch(message);
   });
 
   // Issue #47: a router (or routedTransportDelay) machine's declared output

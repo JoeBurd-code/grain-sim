@@ -209,8 +209,8 @@ export function useSimEngine(line) {
   // liveControls.js, the one place both are defined. Publishes immediately,
   // so a drag while paused shows at once rather than waiting for a
   // throttled tick that may never come.
-  const setControl = useCallback((machineId, bind, value) => {
-    setLiveControl(sim, machineId, bind, value);
+  const setControl = useCallback((machineId, bind, value, target) => {
+    setLiveControl(sim, machineId, bind, value, target);
     publish();
   }, [sim, publish]);
 

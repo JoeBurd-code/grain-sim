@@ -1,9 +1,10 @@
 // A line as a document (issue #75): the JSON file a user SAVEs and OPENs in
 // Build mode. The file holds the design at the RESTART state — machines,
-// slider defaults, positions, connections, interlocks, zones — already in
-// the engine's own units. It holds no run state and no provenance labels:
-// those stay in the hand-written golden line (lineData.js), which remains
-// the record of what the client's engineer confirmed.
+// slider defaults, positions, connections, interlocks, machine rules and
+// zones, already in the engine's own units. It holds no run state and no
+// provenance labels: those stay in the hand-written golden line
+// (lineData.js), which remains the record of what the client's engineer
+// confirmed.
 //
 // Every line reaches the app through importLine, the golden line included
 // (see goldenLine.js), so there is one loading path, not two.
@@ -16,7 +17,9 @@ export { setAdjustableValue, differsFromDefault } from "./adjustableFields";
 export { diffFromBase, applyChanges } from "./lineChanges";
 
 export const LINE_FORMAT = "grain-sim-line";
-export const LINE_FORMAT_VERSION = 1;
+// Version 2 (issue #85): every interlock is a sentence, and the rules that
+// are not move to `machineRules`. A version 1 file is refused with a message.
+export const LINE_FORMAT_VERSION = 2;
 
 function withoutProvenance(key, value) {
   return key === "provenance" ? undefined : value;

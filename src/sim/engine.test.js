@@ -14,7 +14,7 @@ import { assertConserved, conservationTotals } from "./conservation";
 import { tPerHourToM3PerSec, m3PerSecToTPerHour } from "./units";
 import { instrumentReadings, mergeEvents, mergeInstruments } from "./control";
 import { line } from "../line/lineData";
-import { interlockCommandedMachines, interlockSensorMachine } from "../line/interlocks";
+import { interlockCommandedMachines, interlockSensorMachine, lineRules } from "../line/interlocks";
 import { BEHAVIORS } from "./behaviors";
 
 const SOURCE_ID = "upstreamStub";
@@ -41,66 +41,62 @@ const bufferBinLevel = (sim) => {
   return bin.stored / bin.capacity;
 };
 
-// Issue #46: the scalping screen's product output now carries on into a
-// real, live packaging chain (inletDrumFeeder2 -> pendulumConveyor ->
-// grainBreak -> outloadBufferBin) instead of terminating as "delivered" at
-// the un-engined build frontier. The outload buffer bin has no discharge
-// modelled yet (its own downstream, the outload diverter, is still un-sim-
-// enabled until the destination-selector ticket) — so it fills once, for
-// good, and backpressures the entire treating zone behind it, exactly per
-// this ticket's own acceptance criteria. The many long-running,
-// steady-state tests below predate packaging and are about the treating
-// zone specifically (the feeder/elevator/pre-bin/after-bin/treater
-// interplay) — same reasoning as `lineWithoutBatchTreater` further down —
-// so they isolate that zone by stripping just the one new sim block that
-// actually changes their behaviour, `inletDrumFeeder2`, restoring exactly
-// the pre-#46 "delivered" sink at the screen's own product port. The real,
-// full-line packaging behaviour (including the backpressure this strips
-// away here) gets its own dedicated coverage in the issue #46 describe
-// block below, against the real `line`.
-// Issue #47 also adds an interlock whose actuator is inletDrumFeeder2
-// (conveyorRunningInterlockFeeder2, the conveyor's own "not running" PI on
-// each packaging feeder) — stripped alongside the feeder itself, since a
-// rule commanding a machine that no longer exists in this fixture isn't
-// meaningful here either.
-// Issue #62 inserts a real accumulator (scalpingDischargeHopper) between the
-// screen and inletDrumFeeder2, so stripping the feeder alone no longer
-// restores the screen's own product port as the unconstrained "delivered"
-// sink this fixture relies on — the hopper is still sim-enabled, and an
-// accumulator with nothing sim-enabled downstream of it fills once and
-// blocks for good (issue #18's own fill-only convention), not the
-// unconstrained passthrough a splitter falls back to. The hopper's sim block
-// is stripped alongside the feeder's so the screen's product port is once
-// again the un-engined frontier this fixture's isolation depends on.
-// Issue #60: replaces the pre-bin's old two-stage throttle (issue #22) plus
-// the separate feeder auto-start (issue #42) with a single gradedFeedSchedule
-// rule commanding both the treating elevator and treatDrumFeeder, and wires
-// the always-on speed x gate -> rate derivation (issue #59) onto that same
-// pair. Under that wiring, treatDrumFeeder's own commanded rate is
-// continuously overwritten from the elevator's live speed and this feeder's
-// own live gate (see stepFeedRateDerivation, control.js) — deliberately
-// unguarded by manualOverride, so setFeederRate no longer has any lasting
-// effect on it. Every describe block below that predates #60 and isn't
-// actually testing the new schedule/derivation itself used setFeederRate as
-// its generic "how fast is material entering the elevator" lever, so those
-// blocks run against this variant instead — same isolation idiom as
-// lineWithoutBatchTreater/lineWithoutPackaging below (both now built on top
-// of this one), restoring treatDrumFeeder to a plain, directly rate-controlled
+// Issue #46: the scalping screen's product output now carries on into a real,
+// live packaging chain (inletDrumFeeder2 -> pendulumConveyor -> grainBreak ->
+// outloadBufferBin) instead of terminating as "delivered" at the un-engined
+// build frontier. The outload buffer bin has no discharge modelled yet (its own
+// downstream, the outload diverter, is still un-sim- enabled until the
+// destination-selector ticket) — so it fills once, for good, and backpressures
+// the entire treating zone behind it, exactly per this ticket's own acceptance
+// criteria. The many long-running, steady-state tests below predate packaging
+// and are about the treating zone specifically (the
+// feeder/elevator/pre-bin/after-bin/treater interplay) — same reasoning as
+// `lineWithoutBatchTreater` further down — so they isolate that zone by
+// stripping just the one new sim block that actually changes their behaviour,
+// `inletDrumFeeder2`, restoring exactly the pre-#46 "delivered" sink at the
+// screen's own product port. The real, full-line packaging behaviour (including
+// the backpressure this strips away here) gets its own dedicated coverage in
+// the issue #46 describe block below, against the real `line`. Issue #47 also
+// adds an interlock whose actuator is inletDrumFeeder2
+// (conveyorRunningInterlockFeeder2, the conveyor's own "not running" PI on each
+// packaging feeder) — stripped alongside the feeder itself, since a rule
+// commanding a machine that no longer exists in this fixture isn't meaningful
+// here either. Issue #62 inserts a real accumulator (scalpingDischargeHopper)
+// between the screen and inletDrumFeeder2, so stripping the feeder alone no
+// longer restores the screen's own product port as the unconstrained
+// "delivered" sink this fixture relies on — the hopper is still sim-enabled,
+// and an accumulator with nothing sim-enabled downstream of it fills once and
+// blocks for good (issue #18's own fill-only convention), not the unconstrained
+// passthrough a splitter falls back to. The hopper's sim block is stripped
+// alongside the feeder's so the screen's product port is once again the
+// un-engined frontier this fixture's isolation depends on. Issue #60: replaces
+// the pre-bin's old two-stage throttle (issue #22) plus the separate feeder
+// auto-start (issue #42) with a single gradedFeedSchedule rule commanding both
+// the treating elevator and treatDrumFeeder, and wires the always-on speed x
+// gate -> rate derivation (issue #59) onto that same pair. Under that wiring,
+// treatDrumFeeder's own commanded rate is continuously overwritten from the
+// elevator's live speed and this feeder's own live gate (see
+// stepFeedRateDerivation, control.js), so setFeederRate no longer has any
+// lasting effect on it. Every describe block below that predates #60 and isn't
+// actually testing the new schedule/derivation itself used setFeederRate as its
+// generic "how fast is material entering the elevator" lever, so those blocks
+// run against this variant instead — same isolation idiom as
+// lineWithoutBatchTreater/lineWithoutPackaging below (both now built on top of
+// this one), restoring treatDrumFeeder to a plain, directly rate-controlled
 // meteredFeeder and treatingElevator to an uninterlocked transport delay,
 // exactly their pre-#60 behaviour. The schedule/derivation's own real-line
 // behaviour gets its own dedicated coverage against the real `line`, in the
 // "treater pre-bin's graded feed schedule (issue #60)" describe block below.
 // Issue #61 lands the exact same wiring on the Concetti pre-bin
-// (inletDrumFeeder1/2 + pendulumConveyor) — every `feedRateDerivations`
-// entry is stripped here, not just treatDrumFeeder's own, so this fixture's
-// name keeps meaning what it says: no schedule, no derivation, every feeder
-// on the line directly rate-controlled. The Concetti schedule/derivation's
-// own real-line coverage lives in the "Concetti pre-bin's graded feed
-// schedule (issue #61)" describe block below, the same pattern as the
-// Treater's.
+// (inletDrumFeeder1/2 + pendulumConveyor) — every `feedRateDerivations` entry
+// is stripped here, not just treatDrumFeeder's own, so this fixture's name
+// keeps meaning what it says: no schedule, no derivation, every feeder on the
+// line directly rate-controlled. The Concetti schedule/derivation's own
+// real-line coverage lives in the "Concetti pre-bin's graded feed schedule
+// (issue #61)" describe block below, the same pattern as the Treater's.
 const lineWithoutFeedSchedule = {
   ...line,
-  interlocks: line.interlocks.filter((i) => i.kind !== "gradedFeedSchedule"),
+  machineRules: line.machineRules.filter((i) => i.kind !== "gradedFeedSchedule"),
   feedRateDerivations: [],
 };
 
@@ -348,9 +344,9 @@ describe("buffer bin's LSH/LSL live valve regulation, late (issue #19; re-shaped
     expect(largeDelayOvershoot).toBeGreaterThan(smallDelayOvershoot);
   });
 
-  // On request: LSH/LSL are no longer thresholdTrip's own latch (issue #45)
-  // — they're ordinary bang-bang float-valve hysteresis now (control.js's
-  // hysteresisValve), reopening on their own once the level clears the low
+  // On request: LSH/LSL are no longer a latch (issue #45). They are
+  // ordinary bang-bang float-valve hysteresis now (the bufferBinValve
+  // sentence, lineData.js), reopening on their own once the level clears the low
   // set point, no RESET TRIPS needed. The FD's own "no automatic reopen"
   // trip finding still holds in the sim, just re-sensored onto a new LSHH —
   // see the describe block below.
@@ -660,7 +656,8 @@ function feedElevator(sim, tPerHour = 12) {
 const lineWithoutBatchTreater = {
   ...lineWithoutFeedSchedule,
   machines: lineWithoutFeedSchedule.machines.map((m) => (m.id === "batchTreater" ? { ...m, sim: undefined } : m)),
-  interlocks: lineWithoutFeedSchedule.interlocks.filter((r) => r.action?.machine !== "batchTreater"),
+  interlocks: lineWithoutFeedSchedule.interlocks.filter((r) => !interlockCommandedMachines(r).includes("batchTreater")),
+  machineRules: lineWithoutFeedSchedule.machineRules.filter((r) => !interlockCommandedMachines(r).includes("batchTreater")),
 };
 
 describe("treating elevator carries grain with a real transport delay (issue #21)", () => {
@@ -826,7 +823,8 @@ function preBinInterlock(sim) {
 const lineWithScheduleWithoutBatchTreater = {
   ...line,
   machines: line.machines.map((m) => (m.id === "batchTreater" ? { ...m, sim: undefined } : m)),
-  interlocks: line.interlocks.filter((r) => r.action?.machine !== "batchTreater"),
+  interlocks: line.interlocks.filter((r) => !interlockCommandedMachines(r).includes("batchTreater")),
+  machineRules: line.machineRules.filter((r) => !interlockCommandedMachines(r).includes("batchTreater")),
 };
 
 // Bands per issue #56/#58: boost (14 TPH), normal (12 TPH), throttle (6
@@ -2623,7 +2621,7 @@ describe("the Flexicon pre-bin's own high-level trip cascades and latches like t
 // uses throughout this file.
 const lineWithConcettiSchedule = {
   ...line,
-  interlocks: line.interlocks.filter((i) => i.id !== "preBinFeedSchedule"),
+  machineRules: line.machineRules.filter((i) => i.id !== "preBinFeedSchedule"),
   feedRateDerivations: line.feedRateDerivations.filter((d) => d.id !== "treatingFeedRateDerivation"),
 };
 
@@ -3077,9 +3075,9 @@ describe("the Concetti pre-bin's own high-level trip cascades the full length of
     expect(getMachineState(sim, TREATING_FEEDER_ID).runPermit).toBe(true);
 
     // Issue #61: the trip's own stop command now ramps over 6s (matching the
-    // Treater's own gradedFeedSchedule trip), not the old thresholdStopTrip's
-    // 0.5s — but the downstream "not running" signal (autoStopOnNotRunning,
-    // control.js) fires the instant the command itself is issued
+    // Treater's own gradedFeedSchedule trip), not the old 0.5s trip, but the
+    // downstream "not running" signal (the conveyorRunningInterlockFeeder1/2
+    // sentences) fires the instant the command itself is issued
     // (isSettledRoutedTransportDelay reads throttleFraction === throttleTarget,
     // which diverges the moment the target changes, well before the physical
     // ramp completes), so `throttleTarget` — not `throttleFraction` — is
@@ -3129,8 +3127,8 @@ describe("the Concetti pre-bin's own high-level trip cascades the full length of
     expect(preBinT).toBeDefined();
     expect(conveyorT).toBeDefined();
     expect(conveyorT).toBeGreaterThan(preBinT); // the conveyor-tagged (feeder-stop) events land after the pre-bin's own signal
-    // Both packaging drum feeders' own stop is logged (autoStopOnNotRunning,
-    // same shared conveyor sensor) — two distinct events, not one.
+    // Both packaging drum feeders' own stop is logged (the conveyor-running
+    // sentences, same shared conveyor sensor) — two distinct events, not one.
     expect(events.filter((e) => e.machineId === CONVEYOR_ID).length).toBeGreaterThanOrEqual(2);
     // The escalation's own line-wide entry, tagged to the bin that caused it.
     expect(events.some((e) => e.machineId === CONCETTI_PRE_BIN_ID && e.message.includes("entire line tripped"))).toBe(true);
@@ -4041,7 +4039,7 @@ describe("instrument alarm roles on the real line (issue #72)", () => {
   // never had lamp readings, and are not checked here.)
   it("publishes a reading for every level switch lamp drawn on a bin an interlock reads", () => {
     const sim = createSim(line);
-    const sensed = new Set(line.interlocks.map(interlockSensorMachine));
+    const sensed = new Set(lineRules(line).map(interlockSensorMachine));
     const published = new Set(sim.control.flatMap((r) => Object.keys(r.instruments ?? {}).map((code) => `${r.sensorId} ${code}`)));
     const drawn = line.machines.filter((m) => sensed.has(m.id) && BEHAVIORS[m.sim?.kind]?.level)
       .flatMap((m) => (m.instruments ?? []).filter((c) => c.startsWith("LS")).map((c) => `${m.id} ${c}`));

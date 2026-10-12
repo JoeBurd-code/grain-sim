@@ -10,14 +10,13 @@
 // facing health toggle, standing in for all three at once.
 //
 // Same latch shape as every trip in control.js (armed on the failing edge,
-// always fires once armed, terminal until reset — see thresholdTrip's own
-// header comment there) but aimed at *every* actuator on the line at once
-// rather than one sensor's one actuator, which doesn't fit that file's
-// one-rule-per-sensor/actuator shape — so this is its own module, the same
-// way controlledStop.js is a second plant-control subsystem beside it. What
-// it does share with control.js is the RESET TRIPS button itself
-// (engine.js's resetTrips calls both) and the presenter's own mental model
-// of "it latches, only a reset clears it" (issue #45).
+// always fires once armed, terminal until reset) but aimed at *every* actuator
+// on the line at once rather than one sensor's one actuator, which doesn't fit
+// that file's one-rule-per-sensor/actuator shape — so this is its own module,
+// the same way controlledStop.js is a second plant-control subsystem beside it.
+// What it does share with control.js is the RESET TRIPS button itself
+// (engine.js's resetTrips calls both) and the presenter's own mental model of
+// "it latches, only a reset clears it" (issue #45).
 //
 // Unlike a controlled stop, this is total and immediate, not a drain: every
 // actuator is commanded to stop in the same tick, wherever its material

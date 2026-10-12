@@ -22,7 +22,8 @@ import { readLiveControl } from "../sim/liveControls";
 import { isSeriesPlotted } from "../sim/plotHistory";
 import { plotColorFor } from "./plotColors";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
-import { interlockSensorMachine } from "../line/interlocks";
+import { lineRules, interlockSensorMachine } from "../line/interlocks";
+import { setpointSliders } from "../line/setpointSliders";
 
 // The golden line is validated on its way in through the import path
 // (goldenLine.js); any errors land here for the LINE DATA INVALID screen.
@@ -50,12 +51,12 @@ function downloadLine(lineToSave, name) {
   URL.revokeObjectURL(url);
 }
 
-// Every machine with an interlock rule, in declaration order — the fixed
+// Every machine an interlock or machine rule reads, in line order: the fixed
 // roster for the combined event panel's per-machine toggles (issue #33).
 // Derived from line data, not from events seen so far, so a toggle exists
 // for a machine even before its first trip.
 function interlockedMachinesOf(line) {
-  const ids = new Set((line.interlocks ?? []).map(interlockSensorMachine));
+  const ids = new Set(lineRules(line).map(interlockSensorMachine));
   return line.machines.filter((m) => ids.has(m.id));
 }
 
@@ -212,7 +213,7 @@ export default function PlantApp() {
         ...prev,
         [machineId]: { ...prev[machineId], [param.id]: value },
       }));
-      if (param.bind) engine.setControl(machineId, param.bind, value);
+      if (param.bind) engine.setControl(machineId, param.bind, value, param.target);
     },
     [engine]
   );
@@ -422,6 +423,10 @@ export default function PlantApp() {
               <MachinePopup
                 key={selected.id}
                 machine={selected}
+                // Issue #85: the machine's own sliders, then a set point
+                // slider for each level switch or condition the sim's rules
+                // read on it, at the value the line gives it.
+                params={[...(selected.params ?? []), ...setpointSliders(simLine, selected.id)]}
                 dynamic={engine.snap.machines.get(selected.id)}
                 levelPlotted={isSeriesPlotted(engine.history, selected.id, "level")}
                 ratePlotted={isSeriesPlotted(engine.history, selected.id, "rate")}

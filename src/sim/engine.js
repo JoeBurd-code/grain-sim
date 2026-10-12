@@ -5,6 +5,7 @@
 import { BEHAVIORS, REGISTERED_KINDS, unregisteredKindMessage } from "./behaviors";
 import { SPEED_DIAL, GATE_DIAL, setDial, releaseDial } from "./dial";
 import { SOURCE_SELECTOR } from "./commandSlots";
+import { setSentenceSetpoint } from "./sentenceInterlock";
 import {
   initControl, stepControl, combineEventLogs, primeInstruments, primeFeedSchedules, resetTrips as resetControlTrips,
   hasLatchedTrip,
@@ -427,17 +428,13 @@ export function setSourceRate(sim, id, rateM3PerSec) {
 
 // Live control (issue #20): the drum feeder's metering rate takes effect on
 // its very next capacityAvailable call, mid run — same immediacy as
-// setSourceRate, no ramp modelled for the feeder itself. Stamps
-// `manualOverride` (issue #42) so the auto-start interlock can tell a
-// presenter has taken the feeder into their own hands, at any rate
-// including 0, and never re-commands it afterwards.
+// setSourceRate, no ramp modelled for the feeder itself.
 export function setFeederRate(sim, id, rateM3PerSec) {
   const state = sim.machines.get(id);
   if (!state || state.kind !== "meteredFeeder") {
     throw new Error(`machine "${id}" is not a metered feeder`);
   }
   BEHAVIORS[state.kind].command(state, rateM3PerSec);
-  state.manualOverride = true;
 }
 
 // Live control (issue #21, the VFD): takes effect on the very next apply(),
@@ -530,11 +527,21 @@ export function setInterlockLowSetpoint(sim, sensorMachineId, fraction) {
 }
 
 // An interlock sentence's "when it clears" delay is part of the same signal
-// delay (issue #83), as the buffer bin's one delay was for every transition
-// of its coded rule.
+// delay (issue #83). Not a Sim mode control (issue #85: a run changes set
+// points only); tests use it to stage a scenario.
 export function setInterlockSignalDelay(sim, sensorMachineId, seconds) {
   setInterlockField(sim, sensorMachineId, "signalDelaySec", seconds);
   setInterlockField(sim, sensorMachineId, "clearDelaySec", seconds);
+}
+
+// Live control (issue #85): the set point of one sentence's level condition
+// that names no level switch, so it belongs to that sentence alone. `part`
+// is "when" or "whenClears".
+export function setInterlockPartSetpoint(sim, interlockId, part, fraction) {
+  const rule = sim.control.find((r) => r.kind === "sentence" && r.id === interlockId);
+  if (!rule || !setSentenceSetpoint(rule, part, fraction)) {
+    throw new Error(`interlock "${interlockId}" has no set point on its "${part}" part`);
+  }
 }
 
 // Live control (issue #60, gradedFeedSchedule's own third instrument): the

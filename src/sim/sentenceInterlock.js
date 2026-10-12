@@ -1,7 +1,7 @@
-// Interlock sentences (issue #80, first built in #82): one interlock shape
-// that a user can read and fill in, beside the coded rule kinds in
-// control.js until every golden line interlock has been converted (#83,
-// #84) and the coded kinds are deleted (#85).
+// Interlock sentences (issue #80, first built in #82): the one interlock
+// shape, which a user can read and fill in. Every interlock on every line is
+// a sentence (issue #85, ADR 0009). Only the line's machine rules
+// (control.js: the graded feed schedules and "hold the next batch") are not.
 //
 //   When <machine> is <condition> for <delaySec> s,
 //   then <steps, in order>.
@@ -252,6 +252,16 @@ function setpointOf(rule, part) {
   return part.setpointKey ? rule[part.setpointKey] : undefined;
 }
 
+// Issue #85: moves the set point of one part ("when" or "whenClears") of a
+// running sentence, for the popup slider of a condition that names no
+// switch. Returns false when that part has no set point.
+export function setSentenceSetpoint(rule, partName, fraction) {
+  const key = (partName === "when" ? rule.when : rule.whenClears)?.setpointKey;
+  if (!key) return false;
+  rule[key] = fraction;
+  return true;
+}
+
 function holds(rule, part, sim) {
   const state = sim.machines.get(rule.sensorId);
   return CONDITIONS[part.condition].holds(state, BEHAVIORS[state.kind], setpointOf(rule, part));
@@ -416,8 +426,8 @@ function initSentence(cfg) {
     // Level switches this sentence publishes (control.js instrumentReadings),
     // by code, to the field holding each one's set point.
     instrumentFields: {},
-    // Named as every coded rule names it, so the live signal delay control
-    // (engine.js setInterlockSignalDelay) reaches a sentence too.
+    // Named as a machine rule names it, so engine.js setInterlockSignalDelay
+    // reaches a sentence too.
     signalDelaySec: cfg.when.delaySec,
     then: cfg.then.map((step) => ({ ...step })),
     whenClears: null,

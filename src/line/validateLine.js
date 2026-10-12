@@ -7,7 +7,10 @@ import { isLiveControlBind, isLiveReadBind } from "../sim/liveControls";
 import { adjustableFieldErrors } from "./adjustableFields";
 import { plantControlErrors } from "./plantControls";
 import { validateSentence } from "../sim/sentenceInterlock";
-import { isSentence, sentenceParts, SWITCH_FIELDS } from "./interlocks";
+import { isSentence, lineRules, interlockSensorMachine, ruleSwitches, SWITCH_FIELDS } from "./interlocks";
+
+// The rules a machine runs that are not interlock sentences (issue #85).
+const MACHINE_RULE_KINDS = new Set(["gradedFeedSchedule", "holdNextBatch"]);
 
 export function validateLine(line) {
   const errors = [];
@@ -86,19 +89,28 @@ export function validateLine(line) {
     }
   }
 
+  // Issue #85: every interlock is a sentence, which checks its own parts,
+  // and a malformed one is refused with a message rather than failing at
+  // run time (issue #82).
   for (const rule of line.interlocks ?? []) {
-    // Issue #82: an interlock sentence checks its own parts, and a malformed
-    // one is refused with a message rather than failing at run time.
     if (isSentence(rule)) {
       errors.push(...validateSentence(rule, byId));
+    } else {
+      errors.push(`interlock "${rule.id}" has kind "${rule.kind}"; every interlock is a sentence`);
+    }
+  }
+
+  for (const rule of line.machineRules ?? []) {
+    if (!MACHINE_RULE_KINDS.has(rule.kind)) {
+      errors.push(`machine rule "${rule.id}" has unknown kind "${rule.kind}" (expected one of ${[...MACHINE_RULE_KINDS].join(", ")})`);
       continue;
     }
-    if (!byId.has(rule.sensor.machine)) {
-      errors.push(`interlock "${rule.id}" references unknown sensor machine "${rule.sensor.machine}"`);
+    if (!byId.has(rule.sensor?.machine)) {
+      errors.push(`machine rule "${rule.id}" references unknown sensor machine "${rule.sensor?.machine}"`);
     }
     // gradedFeedSchedule (issue #58/#60) commands two actuators — an
     // elevator's speed throttle and a feeder's gate throttle — instead of
-    // the single `action.machine` every other rule kind targets, so its own
+    // the single `action.machine` holdNextBatch targets, so its own
     // `action` is `{ elevator: { machine }, feeder: { machine } }` rather
     // than a bare `{ machine }`. `action.feeder` can also be an array of
     // `{ machine }` (issue #61: the Concetti pre-bin's schedule commands
@@ -106,13 +118,38 @@ export function validateLine(line) {
     // either shape validates.
     const feeders = Array.isArray(rule.action?.feeder) ? rule.action.feeder : [rule.action?.feeder];
     const targets =
-      rule.kind === "gradedFeedSchedule" ? [rule.action.elevator, ...feeders] : [rule.action];
+      rule.kind === "gradedFeedSchedule" ? [rule.action?.elevator, ...feeders] : [rule.action];
     for (const target of targets) {
-      const actuator = byId.get(target.machine);
+      const actuator = byId.get(target?.machine);
       if (!actuator) {
-        errors.push(`interlock "${rule.id}" references unknown action machine "${target.machine}"`);
+        errors.push(`machine rule "${rule.id}" references unknown action machine "${target?.machine}"`);
       } else if (!BEHAVIORS[actuator.sim?.kind]?.command) {
-        errors.push(`interlock "${rule.id}" targets machine "${target.machine}", whose sim.kind cannot be commanded`);
+        errors.push(`machine rule "${rule.id}" targets machine "${target.machine}", whose sim.kind cannot be commanded`);
+      }
+    }
+  }
+
+  // Issue #85: the label and limits a bin gives its set point sliders.
+  for (const m of line.machines) {
+    if (m.setpointSliders === undefined) continue;
+    if (!Array.isArray(m.setpointSliders)) {
+      errors.push(`machine "${m.id}" set point sliders are not a list`);
+      continue;
+    }
+    const seen = new Set();
+    for (const slider of m.setpointSliders) {
+      const code = slider?.switch;
+      if (!SWITCH_FIELDS[code]) {
+        errors.push(`machine "${m.id}" has a set point slider for unknown level switch "${code}"`);
+        continue;
+      }
+      if (seen.has(code)) errors.push(`machine "${m.id}" has two set point sliders for "${code}"`);
+      seen.add(code);
+      if (typeof slider.label !== "string" || slider.label === "") {
+        errors.push(`machine "${m.id}" set point slider "${code}" needs a label`);
+      }
+      if (![slider.min, slider.max].every(Number.isFinite) || slider.min < 0 || slider.max > 100 || slider.min >= slider.max) {
+        errors.push(`machine "${m.id}" set point slider "${code}" needs limits from 0 to 100 %, the lower first`);
       }
     }
   }
@@ -130,15 +167,15 @@ export function validateLine(line) {
       } else if (typeof setpoint !== "number" || !(setpoint >= 0 && setpoint <= 1)) {
         errors.push(`machine "${m.id}" needs an ${code} set point from 0 to 100 %`);
       }
-      const rule = (line.interlocks ?? []).find((r) => isSentence(r) && r.when?.machine === m.id
-        && sentenceParts(r).some((part) => part.switch === code));
-      if (rule) errors.push(`machine "${m.id}" level switch "${code}" is also named by interlock "${rule.id}"`);
+      const rule = lineRules(line).find((r) => interlockSensorMachine(r) === m.id && ruleSwitches(r).includes(code));
+      const what = rule && isSentence(rule) ? "interlock" : "machine rule";
+      if (rule) errors.push(`machine "${m.id}" level switch "${code}" is also named by ${what} "${rule.id}"`);
     }
   }
 
   // Issue #60: the always-on speed x gate -> rate derivation's own links,
-  // outside `line.interlocks` (see control.js's initFeedRateDerivations —
-  // this isn't a phase-machine rule kind, so it's not one).
+  // outside `line.interlocks` and `line.machineRules` (see control.js's
+  // initFeedRateDerivations: it is not a phase-machine rule kind).
   for (const link of line.feedRateDerivations ?? []) {
     if (!byId.has(link.elevator.machine)) {
       errors.push(`feed-rate derivation "${link.id}" references unknown elevator machine "${link.elevator.machine}"`);

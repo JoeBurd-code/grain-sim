@@ -9,7 +9,8 @@ import { goldenLine } from "./goldenLine";
 import { createSim, getMachineState, stepSim, resetSim, DT } from "../sim/engine";
 import { setLiveControl } from "../sim/liveControls";
 import { tPerHourToM3PerSec, BULK_DENSITY_T_PER_M3 } from "../sim/units";
-import { interlockSensorMachine, interlockValue } from "./interlocks";
+import { lineRules, interlockSensorMachine, interlockValue } from "./interlocks";
+import { setpointSliders } from "./setpointSliders";
 
 // The table approved on issue #77: [machine, field, unit, min, max, default].
 const APPROVED = [
@@ -168,16 +169,16 @@ describe("plant units in, engine units in the line", () => {
     // The Concetti pre-bin carries two rules with an LSH: the feed schedule
     // and the treater hold sentence (issue #84). The live slider moves both.
     const edited = set(goldenLine, "concettiPreBin", "highSetpoint", 80);
-    const rules = edited.interlocks.filter((r) => interlockSensorMachine(r) === "concettiPreBin"
+    const rules = lineRules(edited).filter((r) => interlockSensorMachine(r) === "concettiPreBin"
       && interlockValue(r, "highSetpoint") !== undefined);
     expect(rules.map((r) => r.id).sort()).toEqual(["concettiFeedSchedule", "concettiHighHighHoldTreater"]);
     for (const r of rules) expect(interlockValue(r, "highSetpoint")).toBeCloseTo(0.8, 12);
-    expect(machine(edited, "concettiPreBin").params.find((p) => p.id === "highSetpoint").value).toBe(80);
+    expect(setpointSliders(edited, "concettiPreBin").find((p) => p.id === "highSetpoint").value).toBe(80);
   });
 
   it("moves the Concetti pre-bin's LSHH on both of its sentences", () => {
     const edited = set(goldenLine, "concettiPreBin", "highHighSetpoint", 90);
-    const rules = edited.interlocks.filter((r) => interlockSensorMachine(r) === "concettiPreBin"
+    const rules = lineRules(edited).filter((r) => interlockSensorMachine(r) === "concettiPreBin"
       && interlockValue(r, "highHighSetpoint") !== undefined);
     expect(rules.map((r) => r.id).sort()).toEqual(["concettiHighHighHoldTreater", "concettiHighHighPauseSequence"]);
     for (const r of rules) expect(interlockValue(r, "highHighSetpoint")).toBeCloseTo(0.9, 12);
@@ -247,7 +248,7 @@ describe("set points stay in order", () => {
     // Test line: the Concetti pre-bin's LSL stays on the feed schedule and
     // its LSH stays only on the pause sequence, so no one rule holds both.
     const line = structuredClone(goldenLine);
-    delete line.interlocks.find((r) => r.id === "concettiFeedSchedule").highSetpoint;
+    delete line.machineRules.find((r) => r.id === "concettiFeedSchedule").highSetpoint;
     const lowered = set(line, "concettiPreBin", "lowSetpoint", 55);
     expect(setAdjustableValue(lowered, "concettiPreBin", "highSetpoint", 50).ok).toBe(false);
   });

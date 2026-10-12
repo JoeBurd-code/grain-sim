@@ -244,15 +244,8 @@ function snapshotAccumulator(state) {
 // (see docs/OPEN_QUESTIONS.md); this behaviour assumes a linear opening ->
 // rate mapping across the confirmed 2-20 t/h range until the engineer's
 // spreadsheet of estimated values arrives.
-// `manualOverride` (issue #42) is stamped only by the engine's own
-// setFeederRate — the presenter-facing live control — never by `command`
-// below, so the auto-start interlock can tell "a presenter has already
-// touched this slider" apart from "still sitting at its own rate, whatever
-// that rate happens to be" (0 is not a safe proxy for "never touched": a
-// presenter deliberately pausing the feeder at 0 also leaves `rate` at 0,
-// and that pause must not look like "never started" to the interlock).
-// `hasGate` (issue #57, opt-in via `m.sim.hasGate`) adds a second, gate-
-// position pair of fields alongside `rate`/`manualOverride` above — the
+// `hasGate` (issue #57, opt-in via `m.sim.hasGate`) adds a gate-position
+// pair of fields alongside `rate`, the
 // drum feeders' own physical actuator, independent of the metering rate
 // this behaviour already models. Opt-in rather than unconditional because
 // meteredFeeder is also reused by machines with no physical gate at all
@@ -269,7 +262,7 @@ function snapshotAccumulator(state) {
 // rate; that rate-derivation step is issue #56's own job.
 function initMeteredFeeder(m) {
   return {
-    kind: "meteredFeeder", rate: m.sim.rateM3PerSec, drawn: 0, manualOverride: false,
+    kind: "meteredFeeder", rate: m.sim.rateM3PerSec, drawn: 0,
     enabled: m.sim.enabled ?? true,
     // `enabled` resolved from one slot per authority (commandSlots.js): the
     // source selector, the controlled stop and the utilities trip each hold
@@ -278,8 +271,8 @@ function initMeteredFeeder(m) {
     // `runPermit` (issue #47 — the packaging conveyor's own "not running"
     // process interlock) is a *second*, independent on/off gate alongside
     // `enabled`: the source selector (setSelection, engine.js) owns `enabled`
-    // exclusively, and the conveyor's auto-stop interlock
-    // (autoStopOnNotRunning, control.js) owns this one exclusively. Keeping
+    // exclusively, and the conveyor-running interlock sentences
+    // (conveyorRunningInterlockFeeder1/2, lineData.js) own this one. Keeping
     // them separate fields means either writer can flip its own gate
     // without fighting the other's — e.g. the presenter switching source
     // away from a feeder the conveyor interlock has independently stopped
@@ -325,9 +318,9 @@ function applyMeteredFeeder(state, dt, inflow, cap) {
   state.drawn += out;
   return out;
 }
-// Commands the feeder's rate directly, no ramp modelled — the control
-// layer's own path (issue #42's auto-start interlock), kept distinct from
-// `manualOverride`, which only the presenter-facing setFeederRate sets.
+// Commands the feeder's rate directly, no ramp modelled: the presenter's
+// rate slider (setFeederRate) and the continuous feed-rate derivation
+// (control.js stepFeedRateDerivation) both write it.
 function commandMeteredFeeder(state, rateM3PerSec) {
   state.rate = rateM3PerSec;
 }
@@ -344,10 +337,10 @@ function commandGateMeteredFeeder(state, targetFraction, rampTimeSec) {
 function isSettledGateMeteredFeeder(state) {
   return state.gateThrottleFraction === state.gateThrottleTarget;
 }
-// `rate` (issue #34) is whichever of the presenter's own dial or the
-// auto-start interlock's direct command last set it — see `manualOverride`
-// above. Published separately from flowRateM3PerSec (issue #28), which also
-// reflects downstream backpressure, not just this commanded rate.
+// `rate` (issue #34) is whichever of the presenter's own dial or the feed-
+// rate derivation last set it. Published separately from flowRateM3PerSec
+// (issue #28), which also reflects downstream backpressure, not just this
+// commanded rate.
 // `gateFraction`/`gateThrottleFraction` (issue #57) are only present on a
 // gated feeder — omitted here entirely for one with none, same convention
 // as every other optional snapshot field on this line (e.g. terminalSink's
@@ -375,13 +368,13 @@ function snapshotMeteredFeeder(state) {
 function setEnabledMeteredFeeder(state, enabled, authority = DEFAULT_AUTHORITY) {
   commandOn(state, "enableCommands", "enabled", authority, enabled);
 }
-// The conveyor's own "not running" interlock command (issue #47,
-// autoStopOnNotRunning in control.js): gates intake on/off exactly like
-// setEnabledMeteredFeeder above, but through the independent `runPermit`
-// field, so this interlock and the source selector never overwrite each
-// other's gate — see `runPermit`'s own comment on initMeteredFeeder.
-// Issue #82: in `authority`'s own slot (commandSlots.js), so the feeder runs
-// only while every interlock that has spoken permits it.
+// The conveyor's own "not running" interlock command (issue #47, now the
+// conveyorRunningInterlockFeeder1/2 sentences' "stop"): gates intake on/off
+// exactly like setEnabledMeteredFeeder above, but through the independent
+// `runPermit` field, so this interlock and the source selector never overwrite
+// each other's gate — see `runPermit`'s own comment on initMeteredFeeder. Issue
+// #82: in `authority`'s own slot (commandSlots.js), so the feeder runs only
+// while every interlock that has spoken permits it.
 function setRunPermitMeteredFeeder(state, permitted, authority = DEFAULT_AUTHORITY) {
   commandOn(state, "runPermitCommands", "runPermit", authority, permitted);
 }

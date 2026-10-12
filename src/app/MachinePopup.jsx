@@ -167,7 +167,8 @@ function LevelReadout({ fill, capacityM3 }) {
 }
 
 export default function MachinePopup({
-  machine: m, dynamic, levelPlotted, ratePlotted, plotColor, onToggleSeries, onClose, paramValues, onParamChange, onParamRead, events,
+  machine: m, params = m.params ?? [], dynamic, levelPlotted, ratePlotted, plotColor, onToggleSeries, onClose,
+  paramValues, onParamChange, onParamRead, events,
 }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -215,10 +216,10 @@ export default function MachinePopup({
         <LevelReadout fill={dynamic?.fill} capacityM3={m.sim.capacityM3} />
       )}
 
-      {(m.params ?? []).length > 0 && (
+      {params.length > 0 && (
         <>
           <div style={sectionTitle}>parameters</div>
-          {m.params.map((p) => (
+          {params.map((p) => (
             <Slider
               key={`${m.id}-${p.id}`}
               param={p}
