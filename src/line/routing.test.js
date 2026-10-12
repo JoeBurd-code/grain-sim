@@ -55,6 +55,13 @@ describe("connectionPoints", () => {
     expect(connectionPoints(goldenLine, c)).toEqual([anchor(goldenLine, c.from), ...c.via, anchor(goldenLine, c.to)]);
   });
 
+  it("draws every golden line connection exactly as written until a machine moves", () => {
+    for (const c of goldenLine.connections) {
+      expect(connectionPoints(goldenLine, c), `${c.from.machine} to ${c.to.machine}`)
+        .toEqual([anchor(goldenLine, c.from), ...(c.via ?? []), anchor(goldenLine, c.to)]);
+    }
+  });
+
   it("draws a straight drop when the two ports line up", () => {
     const c = connectionInto(goldenLine, "concettiScale");
     expect(c.via).toBeUndefined();

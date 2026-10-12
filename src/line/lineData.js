@@ -1526,21 +1526,25 @@ export const line = {
   ],
 
   connections: [
+    // Issue #86: a connection with no `via` is routed by the editor with
+    // right-angle bends (routing.js). The few drawn here as one straight
+    // line that the router would draw another way carry `via: []`, so they
+    // keep this drawing until a machine at either end moves.
     // treating
     // Runs across at the stub's own height and turns down onto the metal
     // remover's centreline, so it drops in from above (see that machine's
     // `anchors` comment) instead of poking into its left face.
     { from: { machine: "upstreamStub", port: "out" }, to: { machine: "treatMetalRemover", port: "in" }, kind: "product", via: [{ x: 185, y: 64 }] },
-    { from: { machine: "treatMetalRemover", port: "waste" }, to: { machine: "metalRejectStub1", port: "in" }, kind: "waste", tbc: true },
+    { from: { machine: "treatMetalRemover", port: "waste" }, to: { machine: "metalRejectStub1", port: "in" }, kind: "waste", tbc: true, via: [] },
     { from: { machine: "treatMetalRemover", port: "out" }, to: { machine: "treaterBufferBin", port: "in" }, kind: "product" },
     { from: { machine: "treaterBufferBin", port: "out" }, to: { machine: "treatDrumFeeder", port: "in" }, kind: "product" },
     // Drops out of the feeder, steps across, and falls into the boot from
     // above — 12 units of clear air under the feeder and 12 over the boot,
     // so the whole run is visible rather than hidden along the two edges.
     { from: { machine: "treatDrumFeeder", port: "out" }, to: { machine: "treatingElevator", port: "in" }, kind: "product", via: [{ x: 225, y: 438 }, { x: 275, y: 438 }] },
-    { from: { machine: "treatingElevator", port: "out" }, to: { machine: "treaterPreBin", port: "in" }, kind: "product" },
+    { from: { machine: "treatingElevator", port: "out" }, to: { machine: "treaterPreBin", port: "in" }, kind: "product", via: [] },
     { from: { machine: "treaterPreBin", port: "out" }, to: { machine: "batchTreater", port: "in" }, kind: "product" },
-    { from: { machine: "batchTreater", port: "out" }, to: { machine: "treaterAfterBin", port: "in" }, kind: "product" },
+    { from: { machine: "batchTreater", port: "out" }, to: { machine: "treaterAfterBin", port: "in" }, kind: "product", via: [] },
     // Issue #73: the after-bin's outlet now passes through its own valve
     // (52.601.V00) on the way into the screen. `coupling` marks the first
     // of these two as a physical bolted joint rather than a run of ducting:
@@ -1550,7 +1554,7 @@ export const line = {
     // The graph edge is real either way — the sim, the stop order and the
     // reachability check all see it exactly like any other connection.
     { from: { machine: "treaterAfterBin", port: "out" }, to: { machine: "afterBinOutletValve", port: "in" }, kind: "product", coupling: true },
-    { from: { machine: "afterBinOutletValve", port: "out" }, to: { machine: "scalpingScreen", port: "in" }, kind: "product" },
+    { from: { machine: "afterBinOutletValve", port: "out" }, to: { machine: "scalpingScreen", port: "in" }, kind: "product", via: [] },
     // Now a right-angle chute off the screen's left-hand corner rather than
     // the long shallow diagonal it used to cut across the gap: drop clear of
     // the screen, run left above the discard bin, then down into its top.
@@ -1565,7 +1569,7 @@ export const line = {
     // inletDrumFeeder2 is levelled with the hopper's own discharge and given
     // a left-side `in` anchor (see its own comment) specifically so this run
     // is a plain straight line into its left side, not a drop from above.
-    { from: { machine: "scalpingDischargeHopper", port: "out" }, to: { machine: "inletDrumFeeder2", port: "in" }, kind: "product" },
+    { from: { machine: "scalpingDischargeHopper", port: "out" }, to: { machine: "inletDrumFeeder2", port: "in" }, kind: "product", via: [] },
     // packaging infeed.
     { from: { machine: "proBoxStation", port: "out" }, to: { machine: "inletDrumFeeder1", port: "in" }, kind: "product" },
     // Issue #70: the pendulum conveyor's own body now draws the floor
@@ -1591,7 +1595,7 @@ export const line = {
     { from: { machine: "flexiconPreBin", port: "out" }, to: { machine: "vibratingConveyor", port: "in" }, kind: "product" },
     { from: { machine: "vibratingConveyor", port: "out" }, to: { machine: "flexiconFillingHead", port: "in" }, kind: "product", via: [{ x: 2630, y: 605 }] },
     { from: { machine: "flexiconFillingHead", port: "out" }, to: { machine: "rollerScale", port: "in" }, kind: "product" },
-    { from: { machine: "rollerScale", port: "out" }, to: { machine: "bigBagStub", port: "in" }, kind: "product" },
+    { from: { machine: "rollerScale", port: "out" }, to: { machine: "bigBagStub", port: "in" }, kind: "product", via: [] },
     // branch A: Concetti
     { from: { machine: "pendulumConveyor", port: "outConcetti" }, to: { machine: "concettiSampler", port: "in" }, kind: "product", via: [{ x: 3190, y: 180 }] },
     { from: { machine: "concettiSampler", port: "out" }, to: { machine: "concettiPreBin", port: "in" }, kind: "product" },

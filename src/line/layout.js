@@ -9,9 +9,11 @@
 
 export const GRID = 10;
 
+// With snapping off a machine still lands on a whole unit, so a position
+// read back from the pointer carries no float noise into the line.
 export function snapPosition(pos, snap = true) {
-  if (!snap) return { x: pos.x, y: pos.y };
-  return { x: Math.round(pos.x / GRID) * GRID, y: Math.round(pos.y / GRID) * GRID };
+  const step = snap ? GRID : 1;
+  return { x: Math.round(pos.x / step) * step, y: Math.round(pos.y / step) * step };
 }
 
 // The rects the machine covers, in world space. A machine with a duct `geom`

@@ -21,8 +21,8 @@ describe("snapPosition", () => {
     expect(snapPosition({ x: -14, y: 5 })).toEqual({ x: -10, y: 10 });
   });
 
-  it("leaves the position exact when snapping is off", () => {
-    expect(snapPosition({ x: 144.5, y: 156 }, false)).toEqual({ x: 144.5, y: 156 });
+  it("places to the whole unit when snapping is off", () => {
+    expect(snapPosition({ x: 144.2, y: 473.00006 }, false)).toEqual({ x: 144, y: 473 });
   });
 });
 
