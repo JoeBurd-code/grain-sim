@@ -3,7 +3,7 @@
 // fabricated sim shell, no real line data, no engine.js involved.
 import { describe, it, expect } from "vitest";
 import {
-  initControl, stepControl, resetTrips, combineEventLogs, instrumentReadings, primeInstruments,
+  initControl, stepControl, resetTrips, hasLatchedTrip, combineEventLogs, instrumentReadings, primeInstruments,
   primeFeedSchedules, initFeedRateDerivations, stepFeedRateDerivation,
 } from "./control";
 import { BEHAVIORS } from "./behaviors";
@@ -597,6 +597,18 @@ describe("resetTrips (thresholdStopTrip) — issue #45", () => {
     resetTrips(sim);
     expect(sim.control[0].phase).toBe("recovering");
     expect(sim.machines.get("conveyor").throttleTarget).toBe(1);
+  });
+
+  // The RESET TRIPS button pulses off hasLatchedTrip. This kind's latched
+  // phase is "stopped", which the latch table once named "tripped", so a
+  // metal bin trip never lit the button.
+  it("reports itself latched while stopped, and not once reset", () => {
+    const sim = makeStopTripSim(0.8);
+    stepConveyor(sim, 0.05, 200);
+    expect(hasLatchedTrip(sim)).toBe(true);
+    sim.machines.get("bin").stored = 0.3 * 10;
+    resetTrips(sim);
+    expect(hasLatchedTrip(sim)).toBe(false);
   });
 });
 

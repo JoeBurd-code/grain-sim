@@ -1450,7 +1450,7 @@ const LATCHED_PHASES = {
   thresholdTrip: new Set(["tripped"]),
   twoStageThrottle: new Set(["slow", "stopped"]),
   holdNextBatch: new Set(["held"]),
-  thresholdStopTrip: new Set(["tripped"]),
+  thresholdStopTrip: new Set(["stopped"]),
   gradedFeedSchedule: new Set(["tripped"]),
   hysteresisValve: new Set(["tripped"]),
   // Issue #73: stagedPauseRestart has no latched phase, deliberately. Its
