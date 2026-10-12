@@ -1297,6 +1297,12 @@ function stopVerb(command) {
 function stopMeteredFeeder(state, stopped, rampTimeSec, authority) {
   setRunPermitMeteredFeeder(state, !stopped, authority);
 }
+// Issue #84: a batch machine stops at the end of the batch it is mixing and
+// starts no new one. It never stops part way through a batch: only a trip
+// does that (`setStopped`). It has no ramp.
+function stopBatchCycle(state, stopped, rampTimeSec, authority) {
+  commandBatchCycle(state, stopped, authority);
+}
 
 export const BEHAVIORS = {
   source: {
@@ -1346,7 +1352,7 @@ export const BEHAVIORS = {
   batchCycle: {
     init: initBatchCycle, capacityAvailable: capacityAvailableBatchCycle, apply: applyBatchCycle,
     conserve: conserveBatchCycle, snapshot: snapshotBatchCycle, command: commandBatchCycle,
-    setStopped: setStoppedBatchCycle, clear: clearBatchCycle,
+    setStopped: setStoppedBatchCycle, clear: clearBatchCycle, stop: stopBatchCycle,
   },
   splitter: {
     init: initSplitter, capacityAvailable: capacityAvailableSplitter, apply: applySplitter,

@@ -15,7 +15,9 @@ export function interlockSensorMachine(rule) {
 // Every machine the interlock commands.
 export function interlockCommandedMachines(rule) {
   if (isSentence(rule)) {
-    return [...(rule.then ?? []), ...(rule.whenClears?.then ?? [])].map((step) => step?.machine);
+    // A wait, an "if still true" or a line trip names no machine.
+    return [...(rule.then ?? []), ...(rule.whenClears?.then ?? [])]
+      .filter((step) => step?.machine !== undefined).map((step) => step.machine);
   }
   const { action } = rule;
   if (!action) return [];

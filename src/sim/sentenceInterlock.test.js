@@ -7,7 +7,7 @@ import { describe, it, expect } from "vitest";
 import {
   createSim, stepSim, DT, getMachineState, getInterlockState, setElevatorSpeed, releaseElevatorSpeed,
   setAccumulatorLevel, resetTrips, hasAnyTripLatched, setSelection, setInterlockHighSetpoint,
-  setInterlockLowSetpoint, setInterlockSignalDelay,
+  setInterlockLowSetpoint, setInterlockSignalDelay, getUtilitiesTripPhase, getCombinedEvents,
 } from "./engine";
 import { exportLine, importLine } from "../line/lineDocument";
 
@@ -423,27 +423,6 @@ describe("interlock sentence: arming on a selector position", () => {
     expect(openness(sim)).toBe(0);
   });
 
-  it("forgets a pending clear delay when the diverter moves away before it ends", () => {
-    const sim = createSim(divertedLine([{
-      ...binBTrip(),
-      reset: "auto",
-      whenClears: { condition: "below", setpoint: 0.3, delaySec: 2, then: [{ action: "open", machine: "grainIn" }] },
-    }]));
-    setSelection(sim, "diverter", "b");
-    setAccumulatorLevel(sim, "binB", 1);
-    run(sim, 2.1);
-    expect(openness(sim)).toBe(0);
-    setAccumulatorLevel(sim, "binB", 0.2);
-    run(sim, 1.5);
-    setSelection(sim, "diverter", "a");
-    run(sim, 5);
-    setSelection(sim, "diverter", "b");
-    run(sim, DT);
-    expect(openness(sim)).toBe(0); // a fresh clear delay, not the stale one
-    run(sim, 2.1);
-    expect(openness(sim)).toBe(1);
-  });
-
   it("forgets a pending delay when the diverter moves away before it fires", () => {
     const sim = createSim(divertedLine([binBTrip()]));
     setSelection(sim, "diverter", "b");
@@ -535,4 +514,193 @@ describe("interlock sentence with every part, in the line document", () => {
     expect(result.errors ?? []).toEqual([]);
     expect(result.line.interlocks).toEqual(line.interlocks);
   });
+});
+
+// Issue #84: the parts the Concetti pre-bin's staged pause needs. Steps run
+// in order, a wait holds the steps after it, "if still true" ends the steps
+// when the "when" condition no longer holds, and "trip the whole line" stops
+// every machine until RESET TRIPS. A "when it clears" part with no condition
+// of its own clears the tick the "when" condition stops holding.
+describe("interlock sentence: wait, if still true, trip the whole line, start, and the when it clears steps", () => {
+  const wait = (seconds) => ({ action: "wait", seconds });
+  const ifStillTrue = { action: "ifStillTrue" };
+  const tripLine = { action: "tripLine" };
+  const startConveyor = { action: "start", machine: "conveyor" };
+  const openGrainIn = { action: "open", machine: "grainIn" };
+
+  it("wait: the steps after a wait run only once it has passed", () => {
+    const sim = createSim(binLine([levelSentence("staged", { condition: "above", setpoint: 0.8, delaySec: 0 },
+      [{ action: "stop", machine: "conveyor" }, wait(3), { action: "close", machine: "grainIn" }])]));
+    setAccumulatorLevel(sim, "bin", 0.9);
+    run(sim, DT);
+    expect(throttle(sim)).toBe(0);
+    expect(openness(sim)).toBe(1);
+    run(sim, 2.9);
+    expect(openness(sim)).toBe(1);
+    run(sim, 0.2);
+    expect(openness(sim)).toBe(0);
+  });
+
+  // Latched, so that clearing does not end the steps by itself: only the
+  // check can.
+  const checked = () => levelSentence("checked", { condition: "above", setpoint: 0.8, delaySec: 0 },
+    [{ action: "stop", machine: "conveyor" }, wait(5), ifStillTrue, { action: "close", machine: "grainIn" }],
+    { reset: "latched" });
+
+  it("if still true: runs the steps after it while the condition holds", () => {
+    const sim = createSim(binLine([checked()]));
+    setAccumulatorLevel(sim, "bin", 0.9);
+    run(sim, 5.2);
+    expect(openness(sim)).toBe(0);
+  });
+
+  it("if still true: ends the steps when the condition has cleared", () => {
+    const sim = createSim(binLine([checked()]));
+    setAccumulatorLevel(sim, "bin", 0.9);
+    run(sim, 2);
+    setAccumulatorLevel(sim, "bin", 0.5);
+    run(sim, 10);
+    expect(openness(sim)).toBe(1);
+    expect(throttle(sim)).toBe(0); // the steps before the check still stand
+  });
+
+  const escalating = () => levelSentence("escalating", { condition: "above", setpoint: 0.8, delaySec: 1 },
+    [{ action: "close", machine: "grainIn" }, wait(4), ifStillTrue, tripLine],
+    { whenClears: { then: [wait(2), openGrainIn] } });
+
+  it("trip the whole line: a condition that stays trips the line", () => {
+    const sim = createSim(binLine([escalating()]));
+    setAccumulatorLevel(sim, "bin", 0.9);
+    run(sim, 4.9);
+    expect(getUtilitiesTripPhase(sim)).toBe("running");
+    run(sim, 0.2);
+    expect(getUtilitiesTripPhase(sim)).toBe("tripped");
+    expect(hasAnyTripLatched(sim)).toBe(true);
+    expect(throttle(sim)).toBe(0); // every machine stops, not only the sentence's own
+  });
+
+  it("trip the whole line: a condition that clears before the check does not trip it", () => {
+    const sim = createSim(binLine([escalating()]));
+    setAccumulatorLevel(sim, "bin", 0.9);
+    run(sim, 3);
+    setAccumulatorLevel(sim, "bin", 0.5);
+    run(sim, 10);
+    expect(getUtilitiesTripPhase(sim)).toBe("running");
+    expect(hasAnyTripLatched(sim)).toBe(false);
+  });
+
+  it("trip the whole line: holds until RESET TRIPS, refuses the reset while the condition holds, then runs the clear steps from the reset", () => {
+    const sim = createSim(binLine([escalating()]));
+    setAccumulatorLevel(sim, "bin", 0.9);
+    run(sim, 6);
+    resetTrips(sim);
+    expect(getUtilitiesTripPhase(sim)).toBe("tripped");
+    expect(getCombinedEvents(sim).at(-1).message).toMatch(/line remains tripped/);
+
+    setAccumulatorLevel(sim, "bin", 0.5);
+    run(sim, 10);
+    expect(getUtilitiesTripPhase(sim)).toBe("tripped"); // never by itself
+
+    resetTrips(sim);
+    expect(getUtilitiesTripPhase(sim)).toBe("running");
+    run(sim, 1.9);
+    expect(openness(sim)).toBe(0); // the sentence still holds it shut
+    run(sim, 0.2);
+    expect(openness(sim)).toBe(1);
+  });
+
+  // Close the source and stop the conveyor; when it clears, start the
+  // conveyor after 2 s, then open the source 1 s after that.
+  const ordered = () => levelSentence("ordered", { condition: "above", setpoint: 0.8, delaySec: 1 },
+    [{ action: "close", machine: "grainIn" }, { action: "stop", machine: "conveyor" }],
+    { whenClears: { then: [wait(2), startConveyor, wait(1), openGrainIn] } });
+
+  it("when it clears with no condition of its own: runs its steps in order from the tick the condition stops", () => {
+    const sim = createSim(binLine([ordered()]));
+    setAccumulatorLevel(sim, "bin", 0.9);
+    run(sim, 1.1);
+    expect(throttle(sim)).toBe(0);
+    expect(openness(sim)).toBe(0);
+
+    setAccumulatorLevel(sim, "bin", 0.5);
+    run(sim, 1.9);
+    expect(throttle(sim)).toBe(0);
+    run(sim, 0.2);
+    expect(throttle(sim)).toBe(1); // start
+    expect(openness(sim)).toBe(0);
+    run(sim, 0.8);
+    expect(openness(sim)).toBe(0);
+    run(sim, 0.3);
+    expect(openness(sim)).toBe(1);
+  });
+
+  it("a condition back for its signal delay part way through the clear steps runs the then steps again", () => {
+    const sim = createSim(binLine([ordered()]));
+    setAccumulatorLevel(sim, "bin", 0.9);
+    run(sim, 1.1);
+    setAccumulatorLevel(sim, "bin", 0.5);
+    run(sim, 2.1); // the conveyor has started, the source is still shut
+    expect(throttle(sim)).toBe(1);
+
+    setAccumulatorLevel(sim, "bin", 0.9);
+    run(sim, 1.1);
+    expect(throttle(sim)).toBe(0);
+    expect(openness(sim)).toBe(0);
+    run(sim, 5);
+    expect(openness(sim)).toBe(0); // the abandoned clear steps never finish
+  });
+
+  it("a condition back for less than its signal delay leaves the clear steps running", () => {
+    const sim = createSim(binLine([ordered()]));
+    setAccumulatorLevel(sim, "bin", 0.9);
+    run(sim, 1.1);
+    setAccumulatorLevel(sim, "bin", 0.5);
+    run(sim, 1);
+    setAccumulatorLevel(sim, "bin", 0.9);
+    run(sim, 0.5);
+    setAccumulatorLevel(sim, "bin", 0.5);
+    run(sim, 2);
+    expect(throttle(sim)).toBe(1);
+    expect(openness(sim)).toBe(1);
+  });
+
+  it("an auto sentence lets go of what it commanded when it is no longer armed", () => {
+    const sim = createSim(divertedLine([{
+      id: "binBPause", kind: "sentence",
+      when: { machine: "binB", condition: "above", setpoint: 0.8, delaySec: 1 },
+      then: [{ action: "close", machine: "grainIn" }],
+      whenClears: { then: [wait(5), openGrainIn] },
+      reset: "auto",
+      armedWhen: [{ machine: "diverter", port: "b" }],
+    }]));
+    setSelection(sim, "diverter", "b");
+    setAccumulatorLevel(sim, "binB", 1);
+    run(sim, 1.1);
+    expect(openness(sim)).toBe(0);
+    setSelection(sim, "diverter", "a");
+    run(sim, DT);
+    expect(openness(sim)).toBe(1);
+  });
+
+  it("round trips every new part through export and import", () => {
+    const line = binLine([escalating(), ordered()]);
+    const result = importLine(exportLine(line, "small"));
+    expect(result.errors ?? []).toEqual([]);
+    expect(result.line.interlocks).toEqual(line.interlocks);
+  });
+
+  const malformed = [
+    ["a wait with no seconds", { then: [{ action: "wait" }] }, /step 1 needs a wait of zero or more seconds/],
+    ["a negative wait", { then: [wait(-1)] }, /step 1 needs a wait of zero or more seconds/],
+    ["if still true in the when it clears steps", { whenClears: { then: [ifStillTrue] } }, /"if still true" only after "then"/],
+    ["trip the whole line in the when it clears steps", { whenClears: { then: [tripLine] } }, /"trip the whole line" only after "then"/],
+    ["a start the machine cannot take", { then: [{ action: "start", machine: "bin" }] }, /cannot start machine "bin"/],
+  ];
+  for (const [what, change, message] of malformed) {
+    it(`refuses a sentence with ${what}, with a message`, () => {
+      const result = importLine(exportLine(smallLine([sentence("broken", "stopped", 1, change)]), "small"));
+      expect(result.ok).toBe(false);
+      expect(result.errors.join("\n")).toMatch(message);
+    });
+  }
 });

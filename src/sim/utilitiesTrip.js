@@ -93,11 +93,11 @@ export function initUtilitiesTrip() {
     // Issue #73: which subsystem put the line in "tripped". Null means the
     // utilities toggle itself (this file's original and, until #73, only
     // cause), and `resetUtilitiesTrip` then gates on `healthy` exactly as
-    // before. A control.js rule escalating to a whole-line trip sets this
-    // instead, carrying the sensor and threshold its own reset gate needs,
-    // so the reset re-reads the live level rather than trusting the press —
-    // the same self-gating shape every latch on this line already has.
-    cause: null, // null | { id, name, sensorId, clearBelow }
+    // before. An interlock escalating to a whole-line trip sets this
+    // instead. Its `holds` re-reads the condition that escalated (issue
+    // #84), so the reset does not simply trust the press: the same
+    // self-gating shape every latch on this line already has.
+    cause: null, // null | { id, name, holds }
     log: [],
   };
 }
@@ -115,9 +115,10 @@ function stopEveryActuator(sim, ut) {
   }
 }
 
-// Issue #73: a control.js rule's escalation path into this file's latch.
-// The Concetti pre-bin's own staged pause (control.js `stagedPauseRestart`)
-// gives the line 30 s to clear LSHH on its own; if it hasn't, the fault is
+// Issue #73: an interlock's escalation path into this file's latch. The
+// Concetti pre-bin's own staged pause (an interlock sentence since issue #84,
+// sentenceInterlock.js) gives the line 30 s to clear LSHH on its own; if it
+// hasn't, the fault is
 // no longer "the bagger is between bags", it is "the bagger has stopped",
 // and the FD's own answer to a condition that will not clear is a trip the
 // operator must reset (§5). Routed through here rather than reimplemented
@@ -128,11 +129,11 @@ function stopEveryActuator(sim, ut) {
 // Idempotent by phase: a rule calling this while the line is already
 // tripped (by either cause) changes nothing, so the escalation needs no
 // "did I already fire" bookkeeping of its own.
-export function tripLineFromInterlock(sim, { causeId, causeName, sensorId, clearBelow, message }) {
+export function tripLineFromInterlock(sim, { causeId, causeName, holds, message }) {
   const ut = sim.utilitiesTrip;
   if (ut.phase === "tripped") return;
   stopEveryActuator(sim, ut);
-  ut.cause = { id: causeId, name: causeName, sensorId, clearBelow };
+  ut.cause = { id: causeId, name: causeName, holds };
   ut.phase = "tripped";
   ut.fireAt = null;
   logEvent(ut, sim.t, message, causeId);
@@ -190,10 +191,8 @@ export function resetUtilitiesTrip(sim) {
   // clears on health. Either way the press never simply wins — see this
   // function's own header.
   if (ut.cause) {
-    const sensor = sim.machines.get(ut.cause.sensorId);
-    const level = sensor?.capacity > 0 ? sensor.stored / sensor.capacity : 0;
-    if (level >= ut.cause.clearBelow) {
-      logEvent(ut, sim.t, `reset commanded — ${ut.cause.name} still above its trip set point at ${(level * 100).toFixed(0)}%, line remains tripped`, ut.cause.id);
+    if (ut.cause.holds()) {
+      logEvent(ut, sim.t, `reset commanded, ${ut.cause.name} has not cleared, line remains tripped`, ut.cause.id);
       return;
     }
   } else if (!ut.healthy) {

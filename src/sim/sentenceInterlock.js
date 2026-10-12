@@ -5,7 +5,7 @@
 //
 //   When <machine> is <condition> for <delaySec> s,
 //   then <steps, in order>.
-//   When it clears (optional): when <machine> is <condition> for <delaySec> s,
+//   When it clears (optional): [when <machine> is <condition> for <delaySec> s,]
 //   then <steps, in order>.
 //   Reset: <auto | latched>.
 //
@@ -14,42 +14,61 @@
 //   {
 //     id, kind: "sentence",
 //     when: { machine, condition, setpoint, switch, delaySec },
-//     then: [{ action, machine, rampTimeSec }, ...],
-//     whenClears: { condition, setpoint, switch, delaySec, then: [...] },  // optional
+//     then: [step, ...],
+//     whenClears: { condition, setpoint, switch, delaySec, then: [step, ...] },  // optional
 //     reset: "auto" | "latched",
 //     armedWhen: [{ machine, port }],  // optional, the same arming every rule has
 //   }
+//
+// A step is one of:
+//   { action: "stop" | "start" | "close" | "open", machine, rampTimeSec }
+//   { action: "wait", seconds }
+//   { action: "ifStillTrue" }  // "then" only: ends the steps if "when" no longer holds
+//   { action: "tripLine" }     // "then" only: trips the whole line
 //
 // `setpoint` (a fraction) is only on the level conditions. `switch` (LSL,
 // LSH or LSHH) is optional: it names the level switch that reads the
 // condition, so that switch's lamp and popup slider follow this sentence.
 // `rampTimeSec` is optional and defaults to 0.
 //
-// Issue #83 chose "when it clears" with its own condition for an auto reset
-// interlock with a high and a low set point (the buffer bin's valve). It
-// reads as one rule, and it is the only form that holds the valve shut
-// between the two set points: a pair of sentences would each own a command
-// slot, and the "close" sentence would let go at the high set point.
+// The "when it clears" part's condition is optional (issue #84). With one,
+// the part clears once that condition has held for its delay: issue #83
+// chose this form for an auto reset interlock with a high and a low set
+// point (the buffer bin's valve). It reads as one rule, and it is the only
+// form that holds the valve shut between the two set points: a pair of
+// sentences would each own a command slot, and the "close" sentence would
+// let go at the high set point. With none, the part clears the tick the
+// "when" condition stops holding (the Concetti pre-bin's ordered restart).
+//
+// Steps run top to bottom. A wait holds the steps after it, so a sequence
+// can run for many ticks. A new sequence replaces the one running: when the
+// "when" condition fires again part way through the "when it clears" steps,
+// those steps stop and the "then" steps run again from the top, and the
+// other way round.
 //
 // Reset:
 // - auto with no "when it clears": the steps are let go the tick the "when"
 //   condition no longer holds.
-// - auto with "when it clears": nothing is let go by itself. Once the clear
-//   condition has held for its delay, its steps run, and they command
-//   through this sentence's own slot, so "open" undoes "close".
+// - auto with "when it clears": nothing is let go by itself. Once the part
+//   clears, its steps run, and they command through this sentence's own
+//   slot, so "open" undoes "close".
 // - latched: held until RESET TRIPS, which acts only once the stopped
 //   machines have settled and the "when" condition no longer holds. Then the
 //   "when it clears" steps run, or with none, the steps are let go.
+// - A sentence that has tripped the whole line is held until RESET TRIPS
+//   too, whatever its reset, because a line trip needs an operator. The same
+//   reset releases it, from the moment of the press.
 //
-// Only the parts the converted interlocks use are built so far. CONDITIONS
-// and ACTIONS below are the vocabulary; each later conversion adds its own
-// entries. A sentence that uses a part not built yet is refused at import
-// (validateSentence), never silently ignored at run time.
+// CONDITIONS, ACTIONS and the flow steps below are the vocabulary; each
+// conversion adds the entries it needs. A sentence that uses a part not
+// built yet is refused at import (validateSentence), never silently ignored
+// at run time.
 //
 // Each sentence commands through its own command slot (commandSlots.js),
 // keyed by its id, so the most restrictive command on a machine still wins
 // and releasing one sentence's stop never releases another authority's.
 import { BEHAVIORS } from "./behaviors";
+import { tripLineFromInterlock } from "./utilitiesTrip";
 import { SWITCH_FIELDS } from "../line/interlocks";
 
 const pct = (fraction) => `${(fraction * 100).toFixed(0)}%`;
@@ -89,11 +108,21 @@ export const CONDITIONS = {
 // What a sentence can do to a machine. `verb` is the behaviour's sentence
 // verb (behaviors.js) and `value` what this action asks of it; letting a
 // step go writes the verb's neutral value (false) to this sentence's slot,
-// which can never override any other authority.
+// which can never override any other authority. So "start" and "open" are
+// the same write as letting a "stop" or a "close" go.
 export const ACTIONS = {
   stop: { verb: "stop", value: true, done: "stopped" },
+  start: { verb: "stop", value: false, done: "started" },
   close: { verb: "close", value: true, done: "closed" },
   open: { verb: "close", value: false, done: "opened" },
+};
+
+// Steps that command no machine. `thenOnly` steps read or act on the "when"
+// condition firing, so they have no meaning after it clears.
+const FLOW_STEPS = {
+  wait: { name: "wait" },
+  ifStillTrue: { name: "if still true", thenOnly: true },
+  tripLine: { name: "trip the whole line", thenOnly: true },
 };
 
 export const RESETS = ["auto", "latched"];
@@ -141,9 +170,18 @@ export function validateSentence(rule, machinesById) {
         say(`${where} is not a step`);
         return;
       }
+      const flow = FLOW_STEPS[step.action];
+      if (flow) {
+        if (flow.thenOnly && after !== "then") say(`${where} can be "${flow.name}" only after "then"`);
+        if (step.action === "wait" && !(isFiniteNumber(step.seconds) && step.seconds >= 0)) {
+          say(`${where} needs a wait of zero or more seconds`);
+        }
+        return;
+      }
       const action = ACTIONS[step.action];
       if (!action) {
-        say(`${where} has unknown action "${step.action}" (expected one of ${quoted(Object.keys(ACTIONS))})`);
+        const expected = [...Object.keys(ACTIONS), ...Object.keys(FLOW_STEPS)];
+        say(`${where} has unknown action "${step.action}" (expected one of ${quoted(expected)})`);
       } else if (!machinesById.has(step.machine)) {
         say(`${where} commands unknown machine "${step.machine}"`);
       } else if (!behaviorOf(step.machine)?.[action.verb]) {
@@ -167,7 +205,7 @@ export function validateSentence(rule, machinesById) {
     if (!isPlainObject(rule.whenClears)) {
       say("has a \"when it clears\" part that is not a part");
     } else {
-      checkCondition(rule.whenClears, when?.machine, "clear delay");
+      if (rule.whenClears.condition !== undefined) checkCondition(rule.whenClears, when?.machine, "clear delay");
       checkSteps(rule.whenClears.then, "when it clears");
     }
   }
@@ -230,43 +268,116 @@ function describe(rule, part, word) {
   return CONDITIONS[part.condition][word](setpointOf(rule, part));
 }
 
-// Commands each step's machine through this sentence's own slot: `value`
-// true is the action, false lets it go.
-function runSteps(rule, sim, steps, value, logText) {
-  for (const step of steps) {
-    const state = sim.machines.get(step.machine);
-    const action = ACTIONS[step.action];
-    BEHAVIORS[state.kind][action.verb](state, value ? action.value : false, step.rampTimeSec ?? 0, rule.id);
-    logEvent(rule, sim.t, logText(step, action));
+// Commands one machine step through this sentence's own slot: `value` true
+// is the action, false lets it go.
+function command(rule, sim, step, value) {
+  const state = sim.machines.get(step.machine);
+  const action = ACTIONS[step.action];
+  BEHAVIORS[state.kind][action.verb](state, value ? action.value : false, step.rampTimeSec ?? 0, rule.id);
+}
+
+const commandSteps = (steps) => steps.filter((step) => ACTIONS[step.action]);
+
+// Every machine step let go at once, with no sequence: an auto sentence
+// with no "when it clears" part clearing, a latched one reset, or any auto
+// sentence disarmed. A machine named by several steps is let go once.
+function letGo(rule, sim, steps, reason) {
+  const done = new Set();
+  for (const step of commandSteps(steps)) {
+    const key = `${step.machine} ${ACTIONS[step.action].verb}`;
+    if (done.has(key)) continue;
+    done.add(key);
+    command(rule, sim, step, false);
+    logEvent(rule, sim.t, `${reason}, ${machineName(sim, step.machine)} released`);
   }
 }
 
+function tripLine(rule, sim, reason) {
+  rule.trippedLine = true;
+  logEvent(rule, sim.t, `${reason}, entire line tripped, operator restart required`);
+  tripLineFromInterlock(sim, {
+    causeId: rule.sensorId,
+    causeName: machineName(sim, rule.sensorId),
+    holds: () => holds(rule, rule.when, sim),
+    message: `${describe(rule, rule.when, "fires")} would not clear, entire line tripped, operator restart required`,
+  });
+}
+
+// Starts `steps` as the running sequence, replacing any other. `start` is
+// when the sequence began: a delay's due time rather than the tick that saw
+// it pass, so a wait in the "then" steps counts from the moment the
+// condition had held for its delay, and the escalation lands as long after
+// the condition first held as the delay and the wait add up to.
+function startSequence(rule, steps, start, reason) {
+  rule.sequence = { steps, next: 0, clock: start, waitUntil: null, reason };
+}
+
+// Runs the sequence's steps until a wait that has not passed yet, or the
+// end. After a wait, the clock moves to the tick that passed it, so the next
+// wait counts from the step it follows.
+function runSequence(rule, sim) {
+  const seq = rule.sequence;
+  while (seq.next < seq.steps.length) {
+    const step = seq.steps[seq.next];
+    if (step.action === "wait") {
+      seq.waitUntil ??= seq.clock + step.seconds;
+      if (sim.t < seq.waitUntil) return;
+      seq.clock = sim.t;
+      seq.waitUntil = null;
+      seq.reason = `${step.seconds}s later`;
+    } else if (step.action === "ifStillTrue") {
+      if (!holds(rule, rule.when, sim)) {
+        logEvent(rule, sim.t, `no longer ${describe(rule, rule.when, "fires")}, the steps end here`);
+        break;
+      }
+      seq.reason = `still ${describe(rule, rule.when, "fires")}`;
+    } else if (step.action === "tripLine") {
+      tripLine(rule, sim, seq.reason);
+    } else {
+      command(rule, sim, step, true);
+      logEvent(rule, sim.t, `${seq.reason}, ${machineName(sim, step.machine)} ${ACTIONS[step.action].done}`);
+    }
+    seq.next += 1;
+  }
+  rule.sequence = null;
+}
+
 function allSettled(rule, sim) {
-  return rule.then.every((step) => {
+  return commandSteps(rule.then).every((step) => {
     const state = sim.machines.get(step.machine);
     return BEHAVIORS[state.kind].isSettled?.(state) ?? true;
   });
 }
 
-// The way out of "active": the clear steps if there are any, else every
-// "then" step let go.
-function release(rule, sim, reason) {
-  if (rule.whenClears) {
-    runSteps(rule, sim, rule.whenClears.then, true, (step, action) => `${reason}, ${machineName(sim, step.machine)} ${action.done}`);
-  } else {
-    runSteps(rule, sim, rule.then, false, (step) => `${reason}, ${machineName(sim, step.machine)} released`);
-  }
+// Back to "clear", with nothing pending and the line trip forgotten. The
+// sequence is the caller's to set.
+function toClear(rule) {
   rule.phase = "clear";
+  rule.clearAt = null;
+  rule.trippedLine = false;
   rule.settled = false;
 }
 
-// clear -> [condition holds] -> arming -> [delay elapses, run the steps]
-// -> active -> [reset] -> clear
-// For an auto sentence with a "when it clears" part, active ->
-// [clear condition holds] -> clearing -> [clear delay elapses, run the clear
-// steps] -> clear. An arming sentence whose condition clears before the
-// delay has commanded nothing yet, so it cancels silently; so does a
-// clearing one.
+// The way out of "active": the clear steps if there are any, else every
+// "then" step let go. `start` is when the clear steps count from.
+function release(rule, sim, start, reason) {
+  toClear(rule);
+  if (rule.whenClears) {
+    startSequence(rule, rule.whenClears.then, start, reason);
+  } else {
+    rule.sequence = null;
+    letGo(rule, sim, rule.then, reason);
+  }
+}
+
+// clear -> [condition holds] -> arming -> [delay elapses, start the steps]
+// -> active -> [clears, or reset] -> clear
+// For an auto sentence whose "when it clears" part has its own condition,
+// active -> [clear condition holds] -> clearing -> [clear delay elapses,
+// start the clear steps] -> clear. An arming sentence whose condition
+// clears before the delay has started nothing yet, so it cancels silently;
+// so does a clearing one. The sequence the last transition started runs on
+// beside these phases.
 function initSentence(cfg) {
   const rule = {
     kind: "sentence",
@@ -284,6 +395,10 @@ function initSentence(cfg) {
     phase: "clear",
     fireAt: null,
     clearAt: null,
+    // The steps running now: { steps, next, clock, waitUntil, reason }.
+    sequence: null,
+    // Whether a "trip the whole line" step has run since the last release.
+    trippedLine: false,
     // Whether every stopped or closed machine has reached its target since
     // the steps ran. A latched sentence counts as latched only from then on,
     // as each coded trip kind's own latched phase is entered only once its
@@ -293,14 +408,38 @@ function initSentence(cfg) {
   };
   rule.when = initPart(rule, cfg.when, "whenSetpoint");
   if (cfg.whenClears) {
-    rule.whenClears = { ...initPart(rule, cfg.whenClears, "clearSetpoint"), then: cfg.whenClears.then.map((step) => ({ ...step })) };
-    // Moved by the same live signal delay control.
-    rule.clearDelaySec = cfg.whenClears.delaySec;
+    const own = cfg.whenClears.condition !== undefined;
+    rule.whenClears = {
+      ...(own ? initPart(rule, cfg.whenClears, "clearSetpoint") : { condition: null }),
+      then: cfg.whenClears.then.map((step) => ({ ...step })),
+    };
+    // Moved by the same live signal delay control. A part with no condition
+    // of its own has no delay of its own either.
+    if (own) rule.clearDelaySec = cfg.whenClears.delaySec;
   }
-  // A latched sentence's switch is its trip: its lamp is red (ADR 0007).
-  rule.alarmCode = cfg.reset === "latched" ? (cfg.when.switch ?? null) : null;
+  // A switch whose sentence can hold the line until an operator resets it
+  // is a trip: its lamp is red (ADR 0007).
+  const trips = cfg.reset === "latched" || cfg.then.some((step) => step.action === "tripLine");
+  rule.alarmCode = trips ? (cfg.when.switch ?? null) : null;
   if (Object.keys(rule.instrumentFields).length === 0) rule.instrumentFields = null;
   return rule;
+}
+
+// Whether this tick ends an active sentence, for an auto one that has not
+// tripped the line. Steps the "clearing" phase for a part with its own
+// condition.
+function clearsNow(rule, sim, whenHolds) {
+  if (!rule.whenClears?.condition) return !whenHolds;
+  const clearHolds = holds(rule, rule.whenClears, sim);
+  if (rule.phase === "active" && clearHolds) {
+    rule.phase = "clearing";
+    rule.clearAt = sim.t + rule.clearDelaySec;
+  }
+  if (rule.phase === "clearing" && !clearHolds) {
+    rule.phase = "active";
+    rule.clearAt = null;
+  }
+  return rule.phase === "clearing" && sim.t >= rule.clearAt;
 }
 
 function stepSentence(rule, sim) {
@@ -317,38 +456,22 @@ function stepSentence(rule, sim) {
   }
   if (rule.phase === "arming") {
     if (!whenHolds) {
+      // Nothing started yet. A clear sequence part way through runs on.
       rule.phase = "clear";
       rule.fireAt = null;
-      return;
-    }
-    if (sim.t >= rule.fireAt) {
-      const fires = `${describe(rule, rule.when, "fires")} for ${rule.signalDelaySec}s`;
-      runSteps(rule, sim, rule.then, true, (step, action) => `${fires}, ${machineName(sim, step.machine)} ${action.done}`);
+    } else if (sim.t >= rule.fireAt) {
+      startSequence(rule, rule.then, rule.fireAt, `${describe(rule, rule.when, "fires")} for ${rule.signalDelaySec}s`);
       rule.phase = "active";
       rule.fireAt = null;
     }
-    return;
-  }
-  if (rule.reset !== "auto") return; // latched: only RESET TRIPS moves it now
-
-  if (!rule.whenClears) {
-    if (rule.phase === "active" && !whenHolds) release(rule, sim, describe(rule, rule.when, "clears"));
-    return;
-  }
-  const clearHolds = holds(rule, rule.whenClears, sim);
-  if (rule.phase === "active" && clearHolds) {
-    rule.phase = "clearing";
-    rule.clearAt = sim.t + rule.clearDelaySec;
-  }
-  if (rule.phase === "clearing") {
-    if (!clearHolds) {
-      rule.phase = "active";
-      rule.clearAt = null;
-    } else if (sim.t >= rule.clearAt) {
-      rule.clearAt = null;
-      release(rule, sim, `${describe(rule, rule.whenClears, "fires")} for ${rule.clearDelaySec}s`);
+  } else if (rule.phase !== "clear" && rule.reset === "auto" && !rule.trippedLine && clearsNow(rule, sim, whenHolds)) {
+    if (rule.whenClears?.condition) {
+      release(rule, sim, rule.clearAt, `${describe(rule, rule.whenClears, "fires")} for ${rule.clearDelaySec}s`);
+    } else {
+      release(rule, sim, sim.t, describe(rule, rule.when, "clears"));
     }
   }
+  if (rule.sequence) runSequence(rule, sim);
 }
 
 function isLatched(rule) {
@@ -358,27 +481,38 @@ function isLatched(rule) {
 // RESET TRIPS. A latched sentence whose machines are still moving is a
 // command in flight and is not touched. One whose condition still holds
 // stays latched, so a reset pressed while the bin is still full does not
-// flap the machine on and straight back off.
+// flap the machine on and straight back off. A sentence that tripped the
+// line is reset by the same press, under the same condition: the line trip
+// itself re-reads the same condition before it lets the line go
+// (utilitiesTrip.js).
 function resetSentence(rule, sim) {
-  if (!isLatched(rule)) return;
+  if (!rule.trippedLine && !isLatched(rule)) return;
   if (holds(rule, rule.when, sim)) {
     logEvent(rule, sim.t, `reset commanded, still ${describe(rule, rule.when, "fires")}, remains latched`);
     return;
   }
-  release(rule, sim, "reset");
+  release(rule, sim, sim.t, "reset");
+  if (rule.sequence) runSequence(rule, sim);
 }
 
-// A disarmed sentence cancels a pending delay, the same as the coded kinds
-// (see control.js disarmThresholdStopTrip): a stale `fireAt` would otherwise
-// fire on the first tick after the sentence is armed again.
-function disarmSentence(rule) {
+// Disarmed. An auto sentence lets go of everything it commanded: the
+// interlock no longer applies, so neither should anything it did, and
+// nothing else would ever undo it while the sentence is not stepped (the
+// Concetti pause leaving the conveyor stopped after the destination moves
+// away). A latched one keeps its commands until RESET TRIPS, as a trip
+// does, and only cancels a pending delay (see control.js
+// disarmThresholdStopTrip): a stale `fireAt` would otherwise fire on the
+// first tick after the sentence is armed again. Called every tick the
+// sentence is disarmed, so both halves do nothing once done.
+function disarmSentence(rule, sim) {
   if (rule.phase === "arming") {
     rule.phase = "clear";
     rule.fireAt = null;
-  } else if (rule.phase === "clearing") {
-    rule.phase = "active";
-    rule.clearAt = null;
   }
+  if (rule.reset !== "auto" || (rule.phase === "clear" && !rule.sequence)) return;
+  letGo(rule, sim, [...rule.then, ...(rule.whenClears?.then ?? [])], "no longer armed");
+  toClear(rule);
+  rule.sequence = null;
 }
 
 export const SENTENCE_KIND = {

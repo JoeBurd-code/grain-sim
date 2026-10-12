@@ -12,6 +12,7 @@ import {
   hasAnyTripLatched,
 } from "./engine";
 import { BEHAVIORS } from "./behaviors";
+import { mergeInstruments } from "./control";
 import { setLiveControl } from "./liveControls";
 import { createPlotHistory, setSeriesPlotted, recordSample } from "./plotHistory";
 
@@ -45,7 +46,7 @@ function publishSnap(sim) {
   for (const rule of sim.control) {
     const prev = machines.get(rule.sensorId);
     const events = prev?.events ? [...prev.events, ...rule.log].sort((a, b) => a.t - b.t) : rule.log;
-    machines.set(rule.sensorId, { ...prev, events, instruments: { ...prev?.instruments, ...rule.instruments } });
+    machines.set(rule.sensorId, { ...prev, events, instruments: mergeInstruments(prev?.instruments, rule.instruments) });
   }
   // Issue #29: the same rule logs, flattened line-wide and tagged with
   // their source machine, for the combined event panel and (later) the

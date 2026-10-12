@@ -9,6 +9,7 @@ import { goldenLine } from "./goldenLine";
 import { createSim, getMachineState, stepSim, resetSim, DT } from "../sim/engine";
 import { setLiveControl } from "../sim/liveControls";
 import { tPerHourToM3PerSec, BULK_DENSITY_T_PER_M3 } from "../sim/units";
+import { interlockSensorMachine, interlockValue } from "./interlocks";
 
 // The table approved on issue #77: [machine, field, unit, min, max, default].
 const APPROVED = [
@@ -165,12 +166,21 @@ describe("plant units in, engine units in the line", () => {
 
   it("converts a set point in % to a fraction on every rule that reads the bin", () => {
     // The Concetti pre-bin carries two rules with an LSH: the feed schedule
-    // and the staged pause sequence. The live slider moves both.
+    // and the treater hold sentence (issue #84). The live slider moves both.
     const edited = set(goldenLine, "concettiPreBin", "highSetpoint", 80);
-    const rules = edited.interlocks.filter((r) => r.sensor?.machine === "concettiPreBin" && r.highSetpoint !== undefined);
-    expect(rules.length).toBe(2);
-    for (const r of rules) expect(r.highSetpoint).toBeCloseTo(0.8, 12);
+    const rules = edited.interlocks.filter((r) => interlockSensorMachine(r) === "concettiPreBin"
+      && interlockValue(r, "highSetpoint") !== undefined);
+    expect(rules.map((r) => r.id).sort()).toEqual(["concettiFeedSchedule", "concettiHighHighHoldTreater"]);
+    for (const r of rules) expect(interlockValue(r, "highSetpoint")).toBeCloseTo(0.8, 12);
     expect(machine(edited, "concettiPreBin").params.find((p) => p.id === "highSetpoint").value).toBe(80);
+  });
+
+  it("moves the Concetti pre-bin's LSHH on both of its sentences", () => {
+    const edited = set(goldenLine, "concettiPreBin", "highHighSetpoint", 90);
+    const rules = edited.interlocks.filter((r) => interlockSensorMachine(r) === "concettiPreBin"
+      && interlockValue(r, "highHighSetpoint") !== undefined);
+    expect(rules.map((r) => r.id).sort()).toEqual(["concettiHighHighHoldTreater", "concettiHighHighPauseSequence"]);
+    for (const r of rules) expect(interlockValue(r, "highHighSetpoint")).toBeCloseTo(0.9, 12);
   });
 
   it("converts a rated capacity in t/h and keeps a chain speed in m/min", () => {

@@ -14,7 +14,7 @@
 import { describe, it, expect } from "vitest";
 import {
   createSim, stepSim, DT, getMachineState, setAccumulatorLevel, resetTrips, hasAnyTripLatched,
-  setElevatorSpeed, releaseElevatorSpeed, controlledStop, resumeLine, setUtilitiesHealthy, getInterlockState,
+  setElevatorSpeed, releaseElevatorSpeed, setBatchCycleSec, controlledStop, resumeLine, setUtilitiesHealthy, getInterlockState,
 } from "./engine";
 import { BEHAVIORS } from "./behaviors";
 import { SOURCE_SELECTOR } from "./commandSlots";
@@ -203,6 +203,35 @@ const SCENARIOS = {
     resetTrips(sim);
     r.run(90);
   },
+  // Issue #84: the scenario above never reaches the escalation, because each
+  // bag drawn from the pre-bin dips it below LSHH and restarts the 30 s
+  // clock. This one slows the scale so that it draws no bag while the level
+  // is held up.
+  "the Concetti pre-bin held above LSHH: a dip restarts the clock, the escalation trips the line, the reset restarts in order": (sim, r) => {
+    const hold = (seconds) => {
+      for (let i = 0; i < Math.round(seconds / DT); i++) {
+        setAccumulatorLevel(sim, "concettiPreBin", 1);
+        r.run(DT);
+      }
+    };
+    r.run(300);
+    r.note("Concetti scale fill time to 600 s");
+    setBatchCycleSec(sim, "concettiScale", 600);
+    r.note("Concetti pre-bin held at 100% for 20 s");
+    hold(20);
+    r.note("Concetti pre-bin to 90% for 1 s");
+    setAccumulatorLevel(sim, "concettiPreBin", 0.9);
+    r.run(1);
+    r.note("Concetti pre-bin held at 100% for 40 s");
+    hold(40);
+    r.note("reset while still full");
+    resetTrips(sim);
+    r.run(5);
+    r.note("Concetti pre-bin to 50%, then reset");
+    setAccumulatorLevel(sim, "concettiPreBin", 0.5);
+    resetTrips(sim);
+    r.run(90);
+  },
   "the conveyor speed dial: a short stop, a long stop, and the return": (sim, r) => {
     r.run(300);
     r.note("conveyor speed to 0 for 0.5 s");
@@ -282,4 +311,28 @@ describe("the golden line's interlock baseline (issue #82)", () => {
     // Guard: the interlock under test is really on the line.
     expect(getInterlockState(createSim(mutated), "pendulumConveyor")).toBeDefined();
   }, 60000);
+
+  // Issue #84: the same for the order of the Concetti pause's steps. Each
+  // mutation swaps two steps of the sentence.
+  const pauseSteps = {
+    "the restart opens the valve before it starts the conveyor": (rule) => {
+      const [wait30, start, wait10, open] = rule.whenClears.then;
+      rule.whenClears.then = [wait30, open, wait10, start];
+    },
+    "the escalation trips the line before its wait": (rule) => {
+      const [close, stop, wait25, check, trip] = rule.then;
+      rule.then = [close, stop, check, trip, wait25];
+    },
+  };
+  for (const [what, mutate] of Object.entries(pauseSteps)) {
+    it(`changes when the Concetti pause's steps are reordered: ${what}`, () => {
+      const name = "the Concetti pre-bin held above LSHH: a dip restarts the clock, the escalation trips the line, the reset restarts in order";
+      const mutated = structuredClone(goldenLine);
+      const rule = mutated.interlocks.find((r) => r.id === "concettiHighHighPauseSequence");
+      // Guard: the mutation reaches the sentence.
+      expect(rule.kind).toBe("sentence");
+      mutate(rule);
+      expect(runScenario(mutated, name).trace).not.toEqual(runScenario(goldenLine, name).trace);
+    }, 60000);
+  }
 });

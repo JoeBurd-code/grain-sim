@@ -155,6 +155,17 @@ export function instrumentReadings(rule, level) {
   return readings;
 }
 
+// Issue #84: one machine's lamps, from the readings of every rule that
+// reads it. Two rules can read the same switch (both Concetti pre-bin LSHH
+// sentences); the trip's reading wins, so the lamp stays red.
+export function mergeInstruments(merged, readings) {
+  const next = { ...merged };
+  for (const [code, reading] of Object.entries(readings ?? {})) {
+    if (!next[code]?.alarm) next[code] = reading;
+  }
+  return next;
+}
+
 // Stateful: folds instrumentReadings into the rule's own `instruments`,
 // stamping a `pulseGen` counter that increments on every false->true edge —
 // the one-time trip-pulse animation's cue, kept here rather than recomputed
@@ -1242,8 +1253,7 @@ function stepStagedPauseRestart(rule, sim) {
     tripLineFromInterlock(sim, {
       causeId: rule.sensorId,
       causeName: "Concetti pre-bin high-high",
-      sensorId: rule.sensorId,
-      clearBelow: rule.highHighSetpoint,
+      holds: () => readLevel(sim.machines, rule.sensorId) >= rule.highHighSetpoint,
       message: `high-high set point would not clear — entire line tripped, operator restart required`,
     });
     // Fall through to the phase machine below: the trip has already stopped

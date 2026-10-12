@@ -1840,7 +1840,7 @@ export const line = {
       //
       // Issue #73: this rule no longer carries a high-high stage at all.
       // The three bands below are unchanged, but LSHH now commands
-      // concettiHighHighPauseSequence (stagedPauseRestart, below) instead
+      // concettiHighHighPauseSequence (a sentence since issue #84, below) instead
       // of this rule's own latched conveyor trip. The engineer's own
       // description of what should happen at LSHH is an ordered pause and
       // self-recovery, not a latch, and two rules on one bin must not both
@@ -1848,7 +1848,9 @@ export const line = {
       // from here rather than left in place and ignored, and this rule's
       // own LSHH dot with them (control.js's instrumentReadings skips a
       // listed code a rule carries no set point for). The bin still shows
-      // one LSHH dot; it belongs to the sequence rule now.
+      // one LSHH dot; it belongs to the sequence rule now. (Since issue #84
+      // the treater hold sentence reads LSHH too; the pause's red reading
+      // wins, control.js mergeInstruments.)
       lowSetpoint: 0.35,
       highSetpoint: 0.85,
       boost: { speedFraction: 0.9401, gateFraction: 0.6432, delaySec: 3, rampTimeSec: 4 }, // ~18 TPH
@@ -1868,47 +1870,60 @@ export const line = {
     },
     {
       id: "concettiHighHighPauseSequence",
-      kind: "stagedPauseRestart",
-      sensor: { machine: "concettiPreBin" },
+      kind: "sentence",
       // Issue #73, and entirely the plant engineer's description
       // (2026-09-11) rather than anything in the FD: on Concetti pre-bin
       // LSHH the treater finishes its current batch and then holds, the
       // valve above the scalping screen closes and the packaging conveyor
       // stops. When LSHH clears, the conveyor restarts after 30 s and the
       // valve opens 10 s after that; the treater is released separately,
-      // when LSH clears. If LSHH will not clear within 30 s the whole line
-      // trips and an operator must restart it.
+      // when LSH clears (concettiHighHighHoldTreater, below). If LSHH will
+      // not clear within 30 s the whole line trips and an operator must
+      // restart it.
       //
-      // Set points are the bin's own existing 85% / 95% pair, shared with
+      // Issue #84: a sentence. "When CONCETTI PRE-BIN is above 95 % (LSHH)
+      // for 5 s, then close the after-bin outlet valve over 6 s, stop the
+      // pendulum conveyor over 6 s, wait 25 s, and if still true, trip the
+      // whole line. When it clears, then wait 30 s, start the pendulum
+      // conveyor over 6 s, wait 10 s, and open the after-bin outlet valve
+      // over 6 s. Reset: auto." The 25 s wait is the engineer's 30 s
+      // escalation less the 5 s signal delay: both count from the moment
+      // LSHH first makes.
+      //
+      // The set points are the bin's own 85% / 95% pair, shared with
       // concettiFeedSchedule above (one physical LSH and one physical
-      // LSHH; engine.js's setInterlockField moves both rules together from
-      // the bin's one dial). None of the four times below has an FD number
+      // LSHH; engine.js's setInterlockField moves every rule together from
+      // the bin's one dial). None of the four times has an FD number
       // behind it — they are the engineer's own figures, given directly,
       // and marked `confirmed` on that basis the same way every other
       // engineer-given value on this line is.
       //
-      // signalDelaySec keeps the FD's own 5 s for this exact sensor (the
+      // The signal delay keeps the FD's own 5 s for this exact sensor (the
       // cause-and-effect matrix's "Concetti pre-bin high 52.705.H00 ->
       // bucket elevator 52.604.E00, 5 s"), which the engineer's
       // description does not contradict: he gave the ordering and the
       // restart dwells, not the signal latency. See docs/OPEN_QUESTIONS.md.
       //
-      // valveRampSec/conveyorRampSec are travel and spin-up time on top of
-      // the commanded dwells, carried over from the ramp figures the
-      // superseded trip stage used (6 s), and assumed exactly as those were.
-      highSetpoint: 0.85,
-      highHighSetpoint: 0.95,
-      signalDelaySec: 5,
-      escalationDelaySec: 30,
-      conveyorStartDelaySec: 30,
-      valveOpenDelaySec: 10,
-      valveRampSec: 6,
-      conveyorRampSec: 6,
-      action: {
-        treater: { machine: "batchTreater" },
-        valve: { machine: "afterBinOutletValve" },
-        conveyor: { machine: "pendulumConveyor" },
+      // The ramp times are travel and spin-up time on top of the commanded
+      // dwells, carried over from the ramp figures the superseded trip
+      // stage used (6 s), and assumed exactly as those were.
+      when: { machine: "concettiPreBin", condition: "above", setpoint: 0.95, switch: "LSHH", delaySec: 5 },
+      then: [
+        { action: "close", machine: "afterBinOutletValve", rampTimeSec: 6 },
+        { action: "stop", machine: "pendulumConveyor", rampTimeSec: 6 },
+        { action: "wait", seconds: 25 },
+        { action: "ifStillTrue" },
+        { action: "tripLine" },
+      ],
+      whenClears: {
+        then: [
+          { action: "wait", seconds: 30 },
+          { action: "start", machine: "pendulumConveyor", rampTimeSec: 6 },
+          { action: "wait", seconds: 10 },
+          { action: "open", machine: "afterBinOutletValve", rampTimeSec: 6 },
+        ],
       },
+      reset: "auto",
       // Same one condition the feed schedule above uses, for the same
       // reason: this branch has a single conveyor outlet, so the conveyor's
       // own selected port alone is "Concetti is the destination". A full
@@ -1916,10 +1931,35 @@ export const line = {
       // running to Flexicon or the outload branch.
       armedWhen: [{ machine: "pendulumConveyor", port: "outConcetti" }],
       provenance: {
-        highSetpoint: "confirmed", highHighSetpoint: "confirmed",
-        signalDelaySec: "confirmed", escalationDelaySec: "confirmed",
-        conveyorStartDelaySec: "confirmed", valveOpenDelaySec: "confirmed",
-        valveRampSec: "assumed", conveyorRampSec: "assumed",
+        "when.setpoint": "confirmed", "when.delaySec": "confirmed",
+        "then.0.rampTimeSec": "assumed", "then.1.rampTimeSec": "assumed", "then.2.seconds": "confirmed",
+        "whenClears.then.0.seconds": "confirmed", "whenClears.then.1.rampTimeSec": "assumed",
+        "whenClears.then.2.seconds": "confirmed", "whenClears.then.3.rampTimeSec": "assumed",
+      },
+    },
+    {
+      id: "concettiHighHighHoldTreater",
+      kind: "sentence",
+      // Issue #84: the treater's part of the engineer's Concetti pre-bin
+      // LSHH description (concettiHighHighPauseSequence, above). It is its
+      // own sentence because it is released on a different switch: LSH,
+      // not LSHH, and independently of how far the ordered restart has got.
+      // One sentence has one "when it clears" part, so the two releases
+      // cannot share one. "When CONCETTI PRE-BIN is above 95 % (LSHH) for
+      // 5 s, then stop the batch treater. When it falls below 85 % (LSH),
+      // then start the batch treater. Reset: auto." A batch treater stops
+      // at the end of the batch it is mixing (behaviors.js stopBatchCycle).
+      when: { machine: "concettiPreBin", condition: "above", setpoint: 0.95, switch: "LSHH", delaySec: 5 },
+      then: [{ action: "stop", machine: "batchTreater" }],
+      whenClears: {
+        condition: "below", setpoint: 0.85, switch: "LSH", delaySec: 0,
+        then: [{ action: "start", machine: "batchTreater" }],
+      },
+      reset: "auto",
+      armedWhen: [{ machine: "pendulumConveyor", port: "outConcetti" }],
+      provenance: {
+        "when.setpoint": "confirmed", "when.delaySec": "confirmed",
+        "whenClears.setpoint": "confirmed", "whenClears.delaySec": "confirmed",
       },
     },
     {
