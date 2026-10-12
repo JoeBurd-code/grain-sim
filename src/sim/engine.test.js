@@ -3,13 +3,13 @@ import {
   createSim, stepSim, resetSim, resetTrips, getMachineState, setSourceRate, setFeederRate, setAccumulatorLevel, DT,
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockHighHighSetpoint, setInterlockSignalDelay, getInterlockState,
   getCombinedEvents, setElevatorSpeed, releaseElevatorSpeed, setGateFraction, releaseGateFraction,
-  setBatchSize, setBatchCycleSec, setSplitterWasteFraction, setSource, getSource,
-  setDestination, getDestination,
+  setBatchSize, setBatchCycleSec, setSplitterWasteFraction,
   controlledStop, resumeLine, getControlledStopPhase,
   hasAnyTripLatched,
   setUtilitiesHealthy, getUtilitiesTripPhase,
   clearPlant, emptyTerminalSink,
 } from "./engine";
+import { setSource, getSource, setDestination, getDestination } from "./goldenLineSelectors";
 import { assertConserved, conservationTotals } from "./conservation";
 import { tPerHourToM3PerSec, m3PerSecToTPerHour } from "./units";
 import { instrumentReadings } from "./control";

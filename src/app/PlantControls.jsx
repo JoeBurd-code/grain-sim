@@ -132,34 +132,18 @@ const dangerSectionStyle = {
   ...sectionStyle(C.red), background: "rgba(248, 81, 73, 0.08)",
 };
 
-const SOURCES = [
-  { id: "treatingLine", label: "TREATING LINE" },
-  { id: "proBox", label: "PRO BOX" },
-];
-
-// Four positions, one control (issue #47): the metal bin choice is part of
-// choosing the destination, per the FD's own sequence pre-check ("select
-// treated outlet metal bin no. when that destination is chosen") — not a
-// separate dial alongside these four.
-const DESTINATIONS = [
-  { id: "concetti", label: "CONCETTI" },
-  { id: "flexicon", label: "FLEXICON" },
-  { id: "metalBin1", label: "METAL BIN 1" },
-  { id: "metalBin2", label: "METAL BIN 2" },
-];
-
-// The two metal-bin destination ids double as their own machine ids
-// (lineData.js), so EMPTY BIN needs only a membership check, not a lookup.
-const METAL_BIN_DESTINATIONS = new Set(["metalBin1", "metalBin2"]);
-
+// `controls` is the line's own plant control model (line/plantControls.js,
+// issue #81): one section per selector, then one per EMPTY button. On the
+// golden line that gives SOURCE, DESTINATION and DISCARD BIN, as the panel
+// was hand-written before #81. An option's own `empty` button (the golden
+// line's EMPTY BIN) shows only while that option is selected.
 export default function PlantControls({
-  onResetTrips, anyTripLatched, source, onSetSource, destination, onSetDestination, onEmptyBin,
-  onEmptyDiscardBin,
+  controls, selections, onSelect, onEmpty,
+  onResetTrips, anyTripLatched,
   controlledStopPhase, onControlledStop, onResumeLine,
   utilitiesHealthy, utilitiesTripPhase, onSetUtilitiesHealthy,
   onClearPlant,
 }) {
-  const emptyableBinId = METAL_BIN_DESTINATIONS.has(destination) ? destination : null;
   // Issue #50: one button, two states — RUN/PAUSE's own toggle shape
   // (TransportControls.jsx), just in this cluster's red rather than wheat,
   // and filled whenever a drain is in progress or has settled ("draining"
@@ -183,49 +167,41 @@ export default function PlantControls({
       : "⚡ TRIP UTILITIES";
   return (
     <div style={rowStyle}>
-      <div style={sectionStyle(C.line)}>
-        <span style={sectionTitleStyle(C.muted)}>SOURCE</span>
-        <div style={sectionRowStyle}>
-          {SOURCES.map((s) => (
-            <button
-              key={s.id}
-              style={source === s.id ? neutralActiveBtnStyle : neutralBtnStyle}
-              onClick={() => onSetSource(s.id)}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      {controls.selectors.map((s) => {
+        const selected = s.options.find((o) => o.id === selections?.[s.id]);
+        return (
+          <div key={`select:${s.id}`} style={sectionStyle(C.line)}>
+            <span style={sectionTitleStyle(C.muted)}>{s.label}</span>
+            <div style={sectionRowStyle}>
+              {s.options.map((o) => (
+                <button
+                  key={o.id}
+                  style={selected === o ? neutralActiveBtnStyle : neutralBtnStyle}
+                  onClick={() => onSelect(s.id, o.id)}
+                >
+                  {o.label}
+                </button>
+              ))}
+              {selected?.empty && (
+                <button style={neutralBtnStyle} onClick={() => onEmpty(selected.empty.machines)}>
+                  {selected.empty.label}
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
 
-      <div style={sectionStyle(C.line)}>
-        <span style={sectionTitleStyle(C.muted)}>DESTINATION</span>
-        <div style={sectionRowStyle}>
-          {DESTINATIONS.map((d) => (
-            <button
-              key={d.id}
-              style={destination === d.id ? neutralActiveBtnStyle : neutralBtnStyle}
-              onClick={() => onSetDestination(d.id)}
-            >
-              {d.label}
+      {controls.emptyButtons.map((b) => (
+        <div key={`empty:${b.id}`} style={sectionStyle(C.line)}>
+          <span style={sectionTitleStyle(C.muted)}>{b.section}</span>
+          <div style={sectionRowStyle}>
+            <button style={neutralBtnStyle} onClick={() => onEmpty(b.machines)}>
+              {b.label}
             </button>
-          ))}
-          {emptyableBinId && (
-            <button style={neutralBtnStyle} onClick={() => onEmptyBin(emptyableBinId)}>
-              EMPTY BIN
-            </button>
-          )}
+          </div>
         </div>
-      </div>
-
-      <div style={sectionStyle(C.line)}>
-        <span style={sectionTitleStyle(C.muted)}>DISCARD BIN</span>
-        <div style={sectionRowStyle}>
-          <button style={neutralBtnStyle} onClick={onEmptyDiscardBin}>
-            EMPTY DISCARD BIN
-          </button>
-        </div>
-      </div>
+      ))}
 
       <div style={sectionStyle(C.red)}>
         <span style={sectionTitleStyle(C.red)}>SAFETY</span>

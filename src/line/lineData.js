@@ -66,6 +66,57 @@ export const line = {
     { id: "bagging", name: "BAGGING" },
   ],
 
+  // The plant control panel's declared controls (issue #81, see
+  // src/line/plantControls.js). Before #81 these mappings lived in
+  // engine.js and PlantControls.jsx.
+  plantControls: {
+    selectors: [
+      // Issue #46: only one packaging drum feeder runs at a time; they never
+      // run together [CONFIRMED 2026-06-30]. The starting position is each
+      // feeder's own `sim.enabled`.
+      {
+        id: "source",
+        label: "SOURCE",
+        options: [
+          { id: "treatingLine", label: "TREATING LINE", commands: [{ machine: "inletDrumFeeder2", enabled: true }, { machine: "inletDrumFeeder1", enabled: false }] },
+          { id: "proBox", label: "PRO BOX", commands: [{ machine: "inletDrumFeeder2", enabled: false }, { machine: "inletDrumFeeder1", enabled: true }] },
+        ],
+      },
+      // Issue #47: four positions, one control, matching the FD's sequence
+      // pre-check ("select treated outlet metal bin no. when that destination
+      // is chosen"). It sets the pendulum conveyor's outlet and, for a metal
+      // bin, the outload diverter behind it. EMPTY BIN shows only while a
+      // metal bin is the destination: the bins never discharge on their own
+      // (see metalBin1's comment).
+      {
+        id: "destination",
+        label: "DESTINATION",
+        options: [
+          { id: "concetti", label: "CONCETTI", commands: [{ machine: "pendulumConveyor", port: "outConcetti" }] },
+          { id: "flexicon", label: "FLEXICON", commands: [{ machine: "pendulumConveyor", port: "outBinSeg" }] },
+          {
+            id: "metalBin1", label: "METAL BIN 1",
+            commands: [{ machine: "pendulumConveyor", port: "outBuffer" }, { machine: "outloadDiverter", port: "out1" }],
+            empty: { label: "EMPTY BIN", machines: ["metalBin1"] },
+          },
+          {
+            id: "metalBin2", label: "METAL BIN 2",
+            commands: [{ machine: "pendulumConveyor", port: "outBuffer" }, { machine: "outloadDiverter", port: "out2" }],
+            empty: { label: "EMPTY BIN", machines: ["metalBin2"] },
+          },
+        ],
+      },
+    ],
+    // Issue #57: the discard bin's truck-emptying event. The same click also
+    // empties both metal bins, which never discharge on their own, so one
+    // button clears the downstream clutter. The two plant-edge stubs
+    // (bigBagStub, palletStub) stand for product leaving the plant and get
+    // no button.
+    emptyButtons: [
+      { id: "discardBin", section: "DISCARD BIN", label: "EMPTY DISCARD BIN", machines: ["discardBin", "metalBin1", "metalBin2"] },
+    ],
+  },
+
   machines: [
     // ================= TREATING (sheet 52-12) =================
     {
@@ -644,7 +695,7 @@ export const line = {
       // duty-cycle fact, not a rate; no engineer figure exists for the rate
       // itself, so this reuses the drum feeders' own confirmed 2-20 t/h
       // range as a plausible demo default. Whether it actually feeds
-      // anything is gated by the source selector (setSource, engine.js),
+      // anything is gated by the source selector (plantControls above),
       // which enables/disables inletDrumFeeder1 downstream — this valve can
       // sit open with nothing flowing.
       params: [{ id: "rate", label: "source rate", min: 0, max: 20, value: 12, unit: "t/h", bind: "sourceRate", readBind: "sourceRateActual" }],
@@ -678,7 +729,7 @@ export const line = {
       label: { side: "below", align: "center", nudge: { y: 30 } },
       // Issue #46: the Pro Box's own feeder. Reuses meteredFeeder unchanged
       // (issue #20), same confirmed 2-20 t/h range as the treating-side
-      // feeder. Starts disabled: the source selector (setSource, engine.js)
+      // feeder. Starts disabled: the source selector (plantControls above)
       // defaults to the treating line, per the FD's "only one drum feeder
       // runs at a time; they never run together" [CONFIRMED 2026-06-30,
       // REAL_LINE_SPECS.md §6 flow item 3] — `enabled: false` is the
@@ -741,7 +792,7 @@ export const line = {
       // Issue #46: the treating line's own feeder, downstream of the
       // scalping screen. `enabled` defaults true — the source selector
       // starts on the treating line — so selecting the Pro Box instead
-      // (setSource, engine.js) is what leaves the whole treating zone idle:
+      // (plantControls above) is what leaves the whole treating zone idle:
       // this feeder's intake goes to zero, the scalping screen backs up
       // into the treater after-bin exactly like any other full downstream,
       // and the cascade runs backward through the zone on its own, with no
@@ -806,7 +857,7 @@ export const line = {
       // Issue #47: now `routedTransportDelay` (behaviors.js) — the router
       // concept combined with real transport lag, so material discharges
       // through whichever of the three outlets the destination selector
-      // (setDestination, engine.js) currently has open, with everything
+      // (plantControls above) currently has open, with everything
       // already on the chain still travelling to whichever outlet it was
       // accepted for. All three outlets are genuinely wired now (see the
       // connections below) — issue #46's own "only outBuffer is sim-enabled
@@ -973,7 +1024,7 @@ export const line = {
       label: { side: "below", align: "center" },
       // Issue #47: a `router` (behaviors.js) — holds no material, sends the
       // whole of its inflow to whichever metal bin the destination selector
-      // currently has chosen (setDestination, engine.js), never both at
+      // currently has chosen (plantControls above), never both at
       // once. Defaults to `out1`/metal bin 1, its own first declared output
       // port — only reachable once the conveyor's own destination is
       // switched to the outload branch at all (its default is Concetti,
@@ -1012,7 +1063,7 @@ export const line = {
       // (PlantControls.jsx's DESTINATION-section EMPTY BIN while this is the
       // selected destination, reusing the same setLevel(0) the level-jump
       // slider itself calls). Also emptied unconditionally by EMPTY DISCARD
-      // BIN (PlantApp.jsx's onEmptyDiscardBin) — added directly on request
+      // BIN (plantControls.emptyButtons above) — added directly on request
       // rather than a second dedicated button, since neither metal bin ever
       // drains on its own and a presenter may not have either one currently
       // selected as the destination. Starts empty (issue #55).
@@ -1098,7 +1149,7 @@ export const line = {
       // of the pneumatic outlet the parent issue names "52.604.V01" — that
       // valve is pendulumConveyor's own `outBinSeg` port (routedTransportDelay,
       // its own sim block above), already opened by the destination selector
-      // (setDestination(sim, "flexicon"), engine.js) since issue #47; there
+      // (the DESTINATION selector's FLEXICON option, plantControls above) since issue #47; there
       // is no separate valve machine to model, the same way the outload
       // branch's own selected outlet is a port, not a standalone machine.
       sim: { kind: "passThrough" },

@@ -5,6 +5,7 @@ import { REGISTERED_KINDS, BEHAVIORS, unregisteredKindMessage } from "../sim/beh
 import { isSimExempt } from "./simExempt";
 import { isLiveControlBind, isLiveReadBind } from "../sim/liveControls";
 import { adjustableFieldErrors } from "./adjustableFields";
+import { plantControlErrors } from "./plantControls";
 
 export function validateLine(line) {
   const errors = [];
@@ -32,6 +33,9 @@ export function validateLine(line) {
   // Issue #77: a Build mode field must name a real slider or bind, and its
   // default must sit inside its own limits.
   errors.push(...adjustableFieldErrors(line));
+
+  // Issue #81: a declared plant control must name real machines and ports.
+  errors.push(...plantControlErrors(line));
 
   // Issue #52: the census (behaviorCensus.js) is only honest if "not yet
   // engined" is a fact the validator itself enforces, not just a number the

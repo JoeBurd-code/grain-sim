@@ -3,7 +3,8 @@
 // itself uses — a fabricated snapshot risks silently drifting from what
 // publishSnap (useSimEngine.js) actually hands the scene.
 import { describe, it, expect } from "vitest";
-import { createSim, stepSim, setFeederRate, setAccumulatorLevel, setSourceRate, setBatchCycleSec, setDestination, getMachineState, DT } from "../sim/engine";
+import { createSim, stepSim, setFeederRate, setAccumulatorLevel, setSourceRate, setBatchCycleSec, getMachineState, DT } from "../sim/engine";
+import { setDestination } from "../sim/goldenLineSelectors";
 import { BEHAVIORS } from "../sim/behaviors";
 import { line } from "../line/lineData";
 import { tPerHourToM3PerSec } from "../sim/units";

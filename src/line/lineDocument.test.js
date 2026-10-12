@@ -5,7 +5,8 @@ import { describe, it, expect } from "vitest";
 import { exportLine, importLine, importLineFile, LINE_FORMAT, LINE_FORMAT_VERSION } from "./lineDocument";
 import { goldenLine, GOLDEN_LINE_NAME } from "./goldenLine";
 import { line } from "./lineData";
-import { createSim, stepSim, resetSim, getMachineState, setDestination, DT } from "../sim/engine";
+import { createSim, stepSim, resetSim, getMachineState, DT } from "../sim/engine";
+import { setDestination } from "../sim/goldenLineSelectors";
 
 function hasKeyDeep(value, key) {
   if (Array.isArray(value)) return value.some((v) => hasKeyDeep(v, key));

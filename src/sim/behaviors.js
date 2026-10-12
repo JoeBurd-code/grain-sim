@@ -277,7 +277,7 @@ function initMeteredFeeder(m) {
     enableCommands: { [SOURCE_SELECTOR]: m.sim.enabled ?? true },
     // `runPermit` (issue #47 — the packaging conveyor's own "not running"
     // process interlock) is a *second*, independent on/off gate alongside
-    // `enabled`: the source selector (setSource, engine.js) owns `enabled`
+    // `enabled`: the source selector (setSelection, engine.js) owns `enabled`
     // exclusively, and the conveyor's auto-stop interlock
     // (autoStopOnNotRunning, control.js) owns this one exclusively. Keeping
     // them separate fields means either writer can flip its own gate
@@ -365,7 +365,7 @@ function snapshotMeteredFeeder(state) {
 }
 // Gates intake on/off without touching `rate`, so the presenter's own dial
 // survives being switched off and on again. Written by the source selector
-// (issue #46, setSource in engine.js), the controlled stop and the utilities
+// (issue #46, setSelection in engine.js), the controlled stop and the utilities
 // trip, each in its own slot (commandSlots.js): intake runs only while all
 // of them say on.
 function setEnabledMeteredFeeder(state, enabled, authority = DEFAULT_AUTHORITY) {
@@ -1192,7 +1192,7 @@ function snapshotRouter(state) {
 // Destination selection: which single port the whole of this tick's inflow
 // routes to from the next tick onward. Shares its name and shape with
 // `selectPortRoutedTransportDelay` above so the engine's own destination
-// setter (setDestination, engine.js) can call either kind uniformly.
+// setter (setSelection, engine.js) can call either kind uniformly.
 function selectPortRouter(state, port) {
   state.selected = port;
 }

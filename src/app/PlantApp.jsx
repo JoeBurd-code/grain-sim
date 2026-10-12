@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { goldenLine, goldenLineErrors, GOLDEN_LINE_NAME } from "../line/goldenLine";
 import { exportLine, importLineFile, setAdjustableValue } from "../line/lineDocument";
 import { lineBounds, zoneBounds } from "../line/bounds";
+import { plantControlsFor } from "../line/plantControls";
 import Scene from "../scene/Scene";
 import MachinePopup, { THUMB_PX, TRACK_PX } from "./MachinePopup";
 import TransportControls from "./TransportControls";
@@ -196,19 +197,9 @@ export default function PlantApp() {
     if (id) setSettingsOpen(false);
   }, []);
 
-  // Metal bin 1/2 (lineData.js) never discharge on their own — no document
-  // covers truck loadout gate logic, so they only ever fill — and unlike the
-  // discard bin they have no DESTINATION-section EMPTY BIN affordance of
-  // their own unless they're the currently selected destination. Rather than
-  // add a second dedicated button, EMPTY DISCARD BIN's own housekeeping
-  // click also jumps both back to empty (engine.setLevel(id, 0), the same
-  // call PlantControls' own EMPTY BIN uses) — a presenter's one "clear the
-  // downstream clutter" action.
-  const onEmptyDiscardBin = useCallback(() => {
-    engine.emptySink("discardBin");
-    engine.setLevel("metalBin1", 0);
-    engine.setLevel("metalBin2", 0);
-  }, [engine]);
+  // Issue #81: the plant control panel is generated from the line the sim
+  // runs, so its buttons always name machines that sim has.
+  const plantControls = useMemo(() => plantControlsFor(simLine), [simLine]);
 
   const closePopup = useCallback(() => setSelectedId(null), []);
   // Slider values reach the sim through sim/liveControls.js. A drag that
@@ -395,12 +386,10 @@ export default function PlantApp() {
         {!building && <PlantControls
           onResetTrips={engine.resetTrips}
           anyTripLatched={engine.snap.anyTripLatched}
-          source={engine.snap.source}
-          onSetSource={engine.setSource}
-          destination={engine.snap.destination}
-          onSetDestination={engine.setDestination}
-          onEmptyBin={(binId) => engine.setLevel(binId, 0)}
-          onEmptyDiscardBin={onEmptyDiscardBin}
+          controls={plantControls}
+          selections={engine.snap.selections}
+          onSelect={engine.select}
+          onEmpty={engine.empty}
           controlledStopPhase={engine.snap.controlledStopPhase}
           onControlledStop={engine.controlledStop}
           onResumeLine={engine.resumeLine}

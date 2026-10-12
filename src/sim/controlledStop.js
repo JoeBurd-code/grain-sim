@@ -224,31 +224,31 @@ export function initControlledStop(line) {
     index: 0,
     commanded: new Set(),
     log: [],
-    // Issue #46/#50: which packaging feeder was selected right before this
-    // walk began, captured (as a plain value handed in by the caller, never
-    // read off `sim` here — see beginControlledStop below) because the walk
-    // itself disables *every* meteredFeeder it reaches, including whichever
-    // one the source selector had chosen, and there'd otherwise be nothing
-    // left recording which one to restore on resume. Declared here, not
-    // assigned from outside afterward, so this object's own shape is
-    // complete the moment it's created.
-    preStopSource: null,
+    // Issue #46/#50/#81: the option each on/off selector (the golden line's
+    // SOURCE) had right before this walk began, as { selectorId: optionId },
+    // captured (as a plain value handed in by the caller, never read off
+    // `sim` here — see beginControlledStop below) because the walk itself
+    // disables *every* meteredFeeder it reaches, including whichever one the
+    // selector had chosen, and there'd otherwise be nothing left recording
+    // which one to restore on resume. Declared here, not assigned from
+    // outside afterward, so this object's own shape is complete the moment
+    // it's created.
+    preStopSelections: null,
   };
 }
 
 // Begins the walk. Idempotent: calling this again mid-drain, or once fully
 // stopped, does nothing — there's exactly one active drain at a time, and
-// resumeControlledStop below is the only way back to "running". `source` is
-// whatever engine.js's own getSource(sim) read just before calling this —
-// passed in rather than read here so this file stays free of the
-// source-selection business logic that belongs to engine.js alone (see
-// PACKAGING_FEEDERS there); only stored, on this object's own field, when a
-// drain is actually starting.
-export function beginControlledStop(sim, source) {
+// resumeControlledStop below is the only way back to "running".
+// `selections` is what engine.js's own selectors read just before calling
+// this — passed in rather than read here so this file stays free of the
+// selection logic that belongs to engine.js alone; only stored, on this
+// object's own field, when a drain is actually starting.
+export function beginControlledStop(sim, selections) {
   const cs = sim.controlledStop;
   if (cs.phase !== "running") return;
   cs.phase = "draining";
-  cs.preStopSource = source;
+  cs.preStopSelections = selections;
   logEvent(cs, sim.t, cs.order[0], `controlled stop initiated — draining upstream-first`);
 }
 
@@ -291,7 +291,7 @@ export function stepControlledStop(sim) {
 // added to `commanded`, has nothing to restore): nothing here claims to
 // "resume" a machine the drain never actually reached. Deliberately generic
 // (no source/destination-selection business logic) — engine.js's own
-// resumeLine wraps this to also restore which packaging feeder was running
+// resumeLine wraps this to also restore the on/off selections made
 // before the stop, since disabling *both* feeders here would otherwise lose
 // that fact (see engine.js).
 export function resumeControlledStop(sim) {
@@ -306,5 +306,5 @@ export function resumeControlledStop(sim) {
   cs.phase = "running";
   cs.index = 0;
   cs.commanded = new Set();
-  cs.preStopSource = null;
+  cs.preStopSelections = null;
 }

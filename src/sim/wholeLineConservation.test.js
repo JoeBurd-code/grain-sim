@@ -12,8 +12,9 @@
 import { describe, it, expect } from "vitest";
 import {
   createSim, stepSim, resetTrips, getMachineState, setSourceRate, setAccumulatorLevel, DT,
-  setSource, setDestination, controlledStop, resumeLine, setUtilitiesHealthy, getUtilitiesTripPhase,
+  controlledStop, resumeLine, setUtilitiesHealthy, getUtilitiesTripPhase,
 } from "./engine";
+import { setSource, setDestination } from "./goldenLineSelectors";
 import { assertConserved } from "./conservation";
 import { tPerHourToM3PerSec } from "./units";
 import { line } from "../line/lineData";

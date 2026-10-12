@@ -16,7 +16,8 @@
 // batchCycle stores `held`), so a trace reading `state.fill` gets undefined
 // and silently passes while proving nothing.
 import { describe, it, expect } from "vitest";
-import { createSim, stepSim, getMachineState, setSourceRate, setSource, setDestination, DT } from "../sim/engine";
+import { createSim, stepSim, getMachineState, setSourceRate, DT } from "../sim/engine";
+import { setSource, setDestination } from "../sim/goldenLineSelectors";
 import { BEHAVIORS } from "../sim/behaviors";
 import { tPerHourToM3PerSec } from "../sim/units";
 import { line } from "../line/lineData";

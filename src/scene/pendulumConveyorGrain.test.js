@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { createSim, stepSim, DT, setSourceRate, setSource, setDestination, getMachineState } from "../sim/engine";
+import { createSim, stepSim, DT, setSourceRate, getMachineState } from "../sim/engine";
+import { setSource, setDestination } from "../sim/goldenLineSelectors";
 import { BEHAVIORS } from "../sim/behaviors";
 import { line } from "../line/lineData";
 import { bucketFrame, chainSceneSpeed, elevatorChain, outletPathFraction } from "./elevatorMotion";

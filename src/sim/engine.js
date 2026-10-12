@@ -18,6 +18,7 @@ import {
   initUtilitiesTrip, stepUtilitiesTrip, setUtilitiesHealthy as setUtilitiesHealthySim,
   resetUtilitiesTrip,
 } from "./utilitiesTrip";
+import { plantControlsFor, switchesMachines } from "../line/plantControls";
 
 export const DT = 0.05; // s, fixed sim timestep (matches the proven mock)
 
@@ -121,6 +122,9 @@ export function createSim(line) {
   return {
     t: 0, line, machines, downstream, multiOutputPorts, order, control, controlledStop, utilitiesTrip,
     feedRateDerivations,
+    // Issue #81: the line's plant control selectors (line/plantControls.js),
+    // which setSelection and getSelection below act on.
+    selectors: plantControlsFor(line).selectors,
     // Issue #55: running total of every unit CLEAR PLANT has ever discarded
     // — internal-only, never published to the UI (see useSimEngine.js's
     // publishSnap, which doesn't read it) — folded into assertConserved
@@ -326,29 +330,31 @@ export function clearPlant(sim) {
 // Plant control (issue #50): the counterpart to resetTrips above, and
 // deliberately independent of it — a controlled stop is not a trip, latches
 // nothing, and needs no SCADA reset to undo (see controlledStop.js's own
-// header). Passes which packaging feeder is currently selected into
-// controlledStop.js's own beginControlledStop, which stores it on its own
-// state (only if a drain is actually starting) — this file never writes
-// into `sim.controlledStop` directly, the same read/command-only boundary
-// every other module here keeps with `sim.control`.
+// header). Passes the current option of every selector that switches
+// machines on and off (the golden line's SOURCE) into controlledStop.js's
+// own beginControlledStop, which stores it on its own state (only if a
+// drain is actually starting) — this file never writes into
+// `sim.controlledStop` directly, the same read/command-only boundary every
+// other module here keeps with `sim.control`.
 export function controlledStop(sim) {
-  beginControlledStopRun(sim, getSource(sim));
+  const selections = Object.fromEntries(
+    sim.selectors.filter(switchesMachines).map((s) => [s.id, getSelection(sim, s.id)])
+  );
+  beginControlledStopRun(sim, selections);
 }
 
 // Restores every actuator the drain touched back to its normal running
-// command, then re-selects whichever packaging feeder controlledStop above
-// captured — resumeControlledStop itself re-enables *every* meteredFeeder it
-// commanded (it has no notion of "the selected one"), so this setSource call
-// is what leaves exactly one running again rather than both. Reads
-// `preStopSource` before calling resumeControlledStop, which clears it as
-// part of resetting its own state back to "running". A no-op source
-// selection (fabricated test lines with neither packaging feeder, or a
-// resume called with nothing ever stopped) is harmless: setSource simply has
-// nothing to select.
+// command, then puts back the on/off selections controlledStop above
+// captured, so a feeder chosen before the stop is the one running after it.
+// Reads `preStopSelections` before calling resumeControlledStop, which
+// clears it as part of resetting its own state back to "running". A
+// selection that read as none (null) is left as it is.
 export function resumeLine(sim) {
-  const preStopSource = sim.controlledStop.preStopSource;
+  const preStopSelections = sim.controlledStop.preStopSelections;
   resumeControlledStop(sim);
-  if (preStopSource) setSource(sim, preStopSource);
+  for (const [selectorId, optionId] of Object.entries(preStopSelections ?? {})) {
+    if (optionId) setSelection(sim, selectorId, optionId);
+  }
 }
 
 // Read access: which phase the controlled stop is in, for the plant-control
@@ -587,100 +593,67 @@ export function setSplitterWasteFraction(sim, id, fraction) {
   state.wasteFraction = Math.max(0, Math.min(1, fraction));
 }
 
-// Plant control (issue #46 — the source selector): which drum feeder is
-// allowed to run, since only one ever does. The single place both setSource
-// and getSource below name the two machines, so the mapping is authored
-// once. Which position is the *default* is not decided here at all — it's
-// whichever feeder's own `sim.enabled` the line data authors as true
-// (lineData.js), the same convention every other machine's t=0 state
-// already uses; a fabricated line missing one or both packaging feeders
-// (most existing engine tests) is unaffected, since neither function
-// requires them to exist.
-const PACKAGING_FEEDERS = { treatingLine: "inletDrumFeeder2", proBox: "inletDrumFeeder1" };
+// Plant control selectors (issues #46, #47, #81). Which selectors a line has,
+// and which machines each option commands, come from the line document
+// (line/plantControls.js): one per Diverter, plus any the line declares to
+// command several machines in lockstep, such as the golden line's SOURCE
+// and DESTINATION. This file names no machine of any particular line.
+//
+// A port command selects a Diverter's output. Switching a destination
+// mid-run is a deliberate presenter affordance, off-spec (the real plant
+// only selects at sequence start, docs/OPEN_QUESTIONS.md): a
+// `routedTransportDelay` tags each packet with the port selected when it was
+// accepted, so a new selection changes only where newly accepted material
+// goes, never anything already in transit.
+//
+// An on/off command switches a drum feeder's intake through the selector's
+// own command slot, never its `rate`, so a presenter's dial on a feeder
+// survives being deselected and reselected. Deselecting the feeder a zone
+// feeds leaves that zone idle: it backs up like behind any other full
+// downstream, with no special case.
+function selectorOf(sim, selectorId) {
+  const selector = sim.selectors.find((s) => s.id === selectorId);
+  if (!selector) throw new Error(`unknown plant control selector "${selectorId}"`);
+  return selector;
+}
 
-// Commands the selected feeder's intake open and the other one shut, via
-// each feeder's own `enabled` gate (behaviors.js) rather than its `rate` —
-// so a presenter's own feed-rate dial on either feeder survives being
-// deselected and reselected, instead of being zeroed and forgotten.
-// Deselecting the treating-side feeder is what leaves the treating zone
-// idle (see inletDrumFeeder2's own lineData.js comment): the scalping
-// screen backs up into the treater after-bin exactly like any other full
-// downstream, with no special-cased "idle" state anywhere in this function.
-export function setSource(sim, source) {
-  if (!(source in PACKAGING_FEEDERS)) {
-    throw new Error(`unknown source "${source}"`);
-  }
-  for (const [key, id] of Object.entries(PACKAGING_FEEDERS)) {
-    const state = sim.machines.get(id);
-    if (state?.kind === "meteredFeeder") {
-      BEHAVIORS.meteredFeeder.setEnabled(state, key === source, SOURCE_SELECTOR);
-    }
+export function setSelection(sim, selectorId, optionId) {
+  const option = selectorOf(sim, selectorId).options.find((o) => o.id === optionId);
+  if (!option) throw new Error(`unknown ${selectorId} "${optionId}"`);
+  for (const c of option.commands) {
+    const state = sim.machines.get(c.machine);
+    if (!state) continue;
+    if (c.port !== undefined) BEHAVIORS[state.kind].selectPort(state, c.port);
+    else BEHAVIORS[state.kind].setEnabled(state, c.enabled, SOURCE_SELECTOR);
   }
 }
 
-// Read access (issue #46): which source is currently selected, derived from
-// which packaging feeder is enabled rather than tracked as separate state —
-// there is exactly one fact here, and the feeders' own `enabled` flags
-// already carry it. Returns null for a fabricated line with neither
-// packaging feeder, or the unreachable case of both/neither enabled.
-export function getSource(sim) {
-  const enabled = Object.entries(PACKAGING_FEEDERS).filter(
-    ([, id]) => sim.machines.get(id)?.enableCommands?.[SOURCE_SELECTOR] === true
-  );
-  return enabled.length === 1 ? enabled[0][0] : null;
+function commandHolds(sim, c) {
+  const state = sim.machines.get(c.machine);
+  if (!state) return false;
+  if (c.port !== undefined) return state.selected === c.port;
+  return state.enableCommands?.[SOURCE_SELECTOR] === c.enabled;
 }
 
-// Plant control (issue #47 — the destination selector): four positions, one
-// control, matching the Functional Description's own sequence pre-check
-// ("select treated outlet metal bin no. when that destination is chosen") —
-// the metal bin choice is part of choosing the destination, not a separate
-// dial. Two machines carry the actual selection: the packaging conveyor's
-// own outlet port (which of the three real destinations — outload, Flexicon,
-// Concetti), and the outload diverter's own port (which of the two metal
-// bins, only meaningful when the conveyor's own selection is the outload
-// port at all). Both machine ids are hardcoded here, the same convention
-// PACKAGING_FEEDERS above already uses for the source selector.
-const CONVEYOR_ID = "pendulumConveyor";
-const OUTLOAD_DIVERTER_ID = "outloadDiverter";
-const DESTINATIONS = {
-  concetti: { conveyorPort: "outConcetti" },
-  flexicon: { conveyorPort: "outBinSeg" },
-  metalBin1: { conveyorPort: "outBuffer", diverterPort: "out1" },
-  metalBin2: { conveyorPort: "outBuffer", diverterPort: "out2" },
-};
-
-// Switching destination mid-run is a deliberate presenter affordance, off-
-// spec (the real plant only selects at sequence start, docs/OPEN_QUESTIONS.md)
-// — and it's the strongest transport-lag demonstration on the line, since
-// the conveyor's own `routedTransportDelay` behaviour (behaviors.js) tags
-// each packet with the port selected at the moment it was accepted:
-// commanding a new `selectPort` here only changes what *newly* accepted
-// material is tagged with, never anything already in transit.
-export function setDestination(sim, destination) {
-  const cfg = DESTINATIONS[destination];
-  if (!cfg) throw new Error(`unknown destination "${destination}"`);
-  const conveyor = sim.machines.get(CONVEYOR_ID);
-  if (conveyor) BEHAVIORS[conveyor.kind].selectPort(conveyor, cfg.conveyorPort);
-  if (cfg.diverterPort) {
-    const diverter = sim.machines.get(OUTLOAD_DIVERTER_ID);
-    if (diverter) BEHAVIORS[diverter.kind].selectPort(diverter, cfg.diverterPort);
-  }
+// Read access: the option whose commands all hold right now, derived from
+// the machines themselves rather than tracked separately, so it can never
+// drift from what is actually running. Null when no option fully holds.
+export function getSelection(sim, selectorId) {
+  const option = selectorOf(sim, selectorId).options.find((o) => o.commands.every((c) => commandHolds(sim, c)));
+  return option ? option.id : null;
 }
 
-// Read access, derived the same way getSource is: the two routers' own
-// `selected` ports already carry the one fact this needs, so there's
-// nothing separate to track. A conveyor selection of the shared outload
-// port resolves to whichever metal bin the diverter itself currently
-// points at; any other conveyor selection maps straight back to its own
-// destination. Returns null for a fabricated line missing either machine.
-export function getDestination(sim) {
-  const conveyor = sim.machines.get(CONVEYOR_ID);
-  if (!conveyor) return null;
-  if (conveyor.selected === "outConcetti") return "concetti";
-  if (conveyor.selected === "outBinSeg") return "flexicon";
-  if (conveyor.selected === "outBuffer") {
-    const diverter = sim.machines.get(OUTLOAD_DIVERTER_ID);
-    return diverter?.selected === "out2" ? "metalBin2" : "metalBin1";
-  }
-  return null;
+// Every selector's current option, keyed by selector id, for the panel.
+export function getSelections(sim) {
+  return Object.fromEntries(sim.selectors.map((s) => [s.id, getSelection(sim, s.id)]));
+}
+
+// Presenter control: an EMPTY button (issue #81). Takes a bin back to empty
+// or zeroes a terminal sink's total, the same as the fill-level slider at
+// 0 % and the discard bin's truck event before this issue.
+export function emptyMachine(sim, id) {
+  const state = sim.machines.get(id);
+  if (state?.kind === "accumulator") setAccumulatorLevel(sim, id, 0);
+  else if (state?.kind === "terminalSink") emptyTerminalSink(sim, id);
+  else throw new Error(`machine "${id}" holds no grain to empty`);
 }

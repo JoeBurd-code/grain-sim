@@ -818,7 +818,7 @@ function resetThresholdStopTrip(rule, sim) {
 // toggles the feeder's run permit back on the instant the conveyor is
 // confirmed running again, exactly the way the real PI would, with no
 // operator reset in between. Commands `runPermit` (behaviors.js), never
-// `enabled` — the source selector (setSource, engine.js) owns `enabled`
+// `enabled` — the source selector (setSelection, engine.js) owns `enabled`
 // exclusively, and layering this rule onto the same field would have the
 // two silently fight over which feeder is actually meant to run.
 //   running -> [conveyor not confirmedRunning] -> armed -> [delay elapses,

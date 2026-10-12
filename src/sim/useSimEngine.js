@@ -4,10 +4,9 @@
 // per wall-clock second, never the fixed timestep itself.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
-  createSim, stepSim, resetSim, resetTrips as resetTripsSim, clearPlant as clearPlantSim, setAccumulatorLevel, emptyTerminalSink, DT,
+  createSim, stepSim, resetSim, resetTrips as resetTripsSim, clearPlant as clearPlantSim, emptyMachine, DT,
   getCombinedEvents,
-  setSource as setSourceSim, getSource,
-  setDestination as setDestinationSim, getDestination,
+  setSelection, getSelections,
   controlledStop as controlledStopSim, resumeLine as resumeLineSim, getControlledStopPhase,
   setUtilitiesHealthy as setUtilitiesHealthySim, getUtilitiesHealthy, getUtilitiesTripPhase,
   hasAnyTripLatched,
@@ -52,15 +51,14 @@ function publishSnap(sim) {
   // their source machine, for the combined event panel and (later) the
   // graph's event markers, from the single source of truth in engine.js's
   // getCombinedEvents / control.js's combineEventLogs.
-  // `source` (issue #46): which packaging feeder the plant-control cluster's
-  // selector currently has open, derived fresh off the machines themselves
-  // (engine.js's getSource) rather than tracked separately, so it can never
-  // drift from what's actually running. `destination` (issue #47) is the
-  // same pattern for the two routers the destination selector commands.
+  // `selections` (issues #46, #47, #81): each plant control selector's
+  // current option, keyed by selector id, derived fresh off the machines
+  // themselves (engine.js's getSelections) rather than tracked separately,
+  // so it can never drift from what's actually running.
   // `controlledStopPhase` (issue #50) is the same pattern again, for the
   // controlled-stop button's own active/inactive state.
   return {
-    t: sim.t, machines, events: getCombinedEvents(sim), source: getSource(sim), destination: getDestination(sim),
+    t: sim.t, machines, events: getCombinedEvents(sim), selections: getSelections(sim),
     controlledStopPhase: getControlledStopPhase(sim),
     // Issue #51: same derived-off-the-sim pattern as controlledStopPhase
     // above — the toggle's own position and the trip's own latch phase are
@@ -215,37 +213,22 @@ export function useSimEngine(line) {
     publish();
   }, [sim, publish]);
 
-  // Jumps take effect immediately even while paused, so publish right away
-  // rather than waiting for the next throttled tick (which may never come
-  // if the sim isn't running).
-  const setLevel = useCallback((machineId, fraction) => {
-    setAccumulatorLevel(sim, machineId, fraction);
+  // Plant control EMPTY buttons (issues #57, #81): empties each machine the
+  // button names. Takes effect immediately even while paused, so publish
+  // right away rather than waiting for the next throttled tick (which may
+  // never come if the sim isn't running).
+  const empty = useCallback((machineIds) => {
+    for (const id of machineIds) emptyMachine(sim, id);
     publish();
   }, [sim, publish]);
 
-  // Issue #57: the discard-scalpings bin's own EMPTY BIN affordance —
-  // terminalSink's counterpart to setLevel above, same immediate-publish
-  // shape since this too takes effect while paused.
-  const emptySink = useCallback((machineId) => {
-    emptyTerminalSink(sim, machineId);
-    publish();
-  }, [sim, publish]);
-
-  // Plant control (issue #46): the source selector, one click in the header
+  // Plant control selectors (issues #46, #47, #81): one click in the header
   // like resetTrips above — takes effect immediately, whether paused or
   // running, and publishes right away so the selector's own highlighted
-  // button never lags a throttled tick.
-  const setSource = useCallback((source) => {
-    setSourceSim(sim, source);
-    publish();
-  }, [sim, publish]);
-
-  // Plant control (issue #47): the destination selector, same shape as
-  // setSource above. Switching mid-run is a deliberate presenter
-  // affordance — the engine itself (setDestination, engine.js) is what
-  // makes it conserve, not anything here.
-  const setDestination = useCallback((destination) => {
-    setDestinationSim(sim, destination);
+  // button never lags a throttled tick. Switching mid-run is a deliberate
+  // presenter affordance; the engine is what makes it conserve.
+  const select = useCallback((selectorId, optionId) => {
+    setSelection(sim, selectorId, optionId);
     publish();
   }, [sim, publish]);
 
@@ -265,7 +248,7 @@ export function useSimEngine(line) {
   }, [sim, publish]);
 
   // Plant control (issue #51): the utilities health toggle, same one-click
-  // immediate-effect shape as setSource/setDestination above.
+  // immediate-effect shape as select above.
   const setUtilitiesHealthy = useCallback((healthy) => {
     setUtilitiesHealthySim(sim, healthy);
     publish();
@@ -284,8 +267,8 @@ export function useSimEngine(line) {
   useEffect(() => () => cancelAnimationFrame(rafRef.current), []);
 
   return {
-    snap, running, start, pause, stepOnce, restart, resetTrips, clearPlant, speed, setSpeed, setControl, setLevel, emptySink,
-    setSource, setDestination,
+    snap, running, start, pause, stepOnce, restart, resetTrips, clearPlant, speed, setSpeed, setControl, empty,
+    select,
     controlledStop, resumeLine, setUtilitiesHealthy,
     history, togglePlotSeries,
   };
