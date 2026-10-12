@@ -36,6 +36,7 @@ const goldenValidation = { ok: goldenLineErrors.length === 0, errors: goldenLine
 const GOLDEN_LINE_DOC = { line: goldenLine, name: GOLDEN_LINE_NAME, fromFile: false };
 // NEW LINE (issue #87). Like an opened file, a new line is stored whole.
 const NEW_LINE_NAME = "new line";
+const CATALOGUE_OPEN_KEY = "grain-sim:catalogue-open";
 
 // Typing in a box never deletes a machine.
 function isTyping(target) {
@@ -133,6 +134,25 @@ export default function PlantApp() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // NEW LINE's confirmation, shown when there is work to lose.
   const [confirmingNewLine, setConfirmingNewLine] = useState(false);
+  // Whether the catalogue panel is shown. Remembered in this browser only,
+  // as a convenience: blocked storage just means it starts shown.
+  const [catalogueOpen, setCatalogueOpen] = useState(() => {
+    try {
+      return window.localStorage.getItem(CATALOGUE_OPEN_KEY) !== "false";
+    } catch {
+      return true;
+    }
+  });
+  const onToggleCatalogue = useCallback(() => {
+    setCatalogueOpen((open) => {
+      try {
+        window.localStorage.setItem(CATALOGUE_OPEN_KEY, String(!open));
+      } catch {
+        // Not remembered; the panel still hides.
+      }
+      return !open;
+    });
+  }, []);
   // OPEN's last refusal, shown until the next OPEN, START OVER or mode switch.
   const [openError, setOpenError] = useState(null);
   // Bumped on every mode switch. A file read that finishes after a switch is
@@ -343,6 +363,23 @@ export default function PlantApp() {
         .catalogue-item:hover { border-color: ${C.line} !important; background: ${C.panel2}; }
         /* A thumbnail is drawn small; its lines keep their width (issue #87). */
         .catalogue-thumb * { vector-effect: non-scaling-stroke; }
+        .catalogue-handle:hover { color: ${C.wheat} !important; background: ${C.panel2} !important; }
+        /* A thin scroll bar in the app's colours, on trial in the catalogue
+           panel. Chrome, Edge and Safari read the -webkit- rules, which give
+           a rounded thumb. Firefox reads only scrollbar-width and
+           scrollbar-color; those also switch the -webkit- rules off in
+           Chrome, so they are set for Firefox alone. */
+        .thin-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+        .thin-scroll::-webkit-scrollbar-track { background: transparent; }
+        .thin-scroll::-webkit-scrollbar-thumb {
+          background: ${C.line}; border-radius: 4px;
+          border: 2px solid transparent; background-clip: padding-box;
+        }
+        .thin-scroll::-webkit-scrollbar-thumb:hover { background-color: #3d4447; }
+        .thin-scroll::-webkit-scrollbar-corner { background: transparent; }
+        @supports (-moz-appearance: none) {
+          .thin-scroll { scrollbar-width: thin; scrollbar-color: ${C.line} transparent; }
+        }
         /* Pinned to MachinePopup.jsx's own THUMB_PX/TRACK_PX so the cap
            tick's own thumb-center math there matches what actually renders
            here. Both the track and the thumb are styled explicitly on both
@@ -526,7 +563,7 @@ export default function PlantApp() {
 
       {validation.ok ? (
         <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-          {building && <CataloguePanel />}
+          {building && <CataloguePanel open={catalogueOpen} onToggle={onToggleCatalogue} />}
           <main
             ref={containerRef}
             style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden", position: "relative" }}

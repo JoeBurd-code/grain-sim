@@ -64,7 +64,45 @@ function CatalogueItem({ item }) {
   );
 }
 
-export default function CataloguePanel() {
+// The strip on the panel's right edge that hides and shows it. It stays on
+// screen when the panel is hidden, so the panel can always come back.
+const HANDLE_WIDTH = 14;
+const SLIDE = "width 0.2s ease";
+
+function HideHandle({ open, onToggle }) {
+  return (
+    <button
+      className="catalogue-handle"
+      onClick={onToggle}
+      aria-expanded={open}
+      aria-label={open ? "hide the catalogue" : "show the catalogue"}
+      title={open ? "Hide the catalogue" : "Show the catalogue"}
+      style={{
+        width: HANDLE_WIDTH, flex: "none", alignSelf: "stretch", padding: 0, cursor: "pointer",
+        background: C.panel, border: "none", borderRight: `1px solid ${C.line}`,
+        color: C.muted, fontFamily: FONT_MONO, fontSize: 11,
+      }}
+    >
+      {open ? "‹" : "›"}
+    </button>
+  );
+}
+
+// `open` and `onToggle` belong to PlantApp, so the panel stays hidden or
+// shown across a switch to Sim mode and back.
+export default function CataloguePanel({ open, onToggle }) {
+  return (
+    <div style={{ display: "flex", flex: "none", minHeight: 0 }}>
+      {/* Hidden, the list keeps its search and open groups, but Tab skips it. */}
+      <div inert={!open} style={{ width: open ? CATALOGUE_PANEL_WIDTH : 0, overflow: "hidden", transition: SLIDE, display: "flex" }}>
+        <CatalogueList />
+      </div>
+      <HideHandle open={open} onToggle={onToggle} />
+    </div>
+  );
+}
+
+function CatalogueList() {
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsed] = useState(() => new Set());
   const items = searchCatalogue(query, CATALOGUE);
@@ -77,8 +115,8 @@ export default function CataloguePanel() {
   });
 
   return (
-    <aside style={{
-      width: CATALOGUE_PANEL_WIDTH, flex: "none", borderRight: `1px solid ${C.line}`,
+    <aside className="thin-scroll" style={{
+      width: CATALOGUE_PANEL_WIDTH, flex: "none", boxSizing: "border-box",
       background: C.panel, padding: "14px 12px", overflowY: "auto", fontFamily: FONT_MONO,
     }}>
       <div style={{ fontFamily: FONT_DISP, fontSize: 16, color: C.wheat, letterSpacing: "0.04em" }}>CATALOGUE</div>
