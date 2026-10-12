@@ -64,26 +64,29 @@ function CatalogueItem({ item }) {
   );
 }
 
-// The strip on the panel's right edge that hides and shows it. It stays on
-// screen when the panel is hidden, so the panel can always come back.
-const HANDLE_WIDTH = 14;
+// The pull tab that hides and shows the panel, the same shape as the chart
+// dock's tab (ChartDock.jsx) turned on its side. It hangs off the panel's
+// right edge, halfway down, and stays on screen when the panel is hidden.
 const SLIDE = "width 0.2s ease";
 
-function HideHandle({ open, onToggle }) {
+function PullTab({ open, onToggle }) {
   return (
     <button
       className="catalogue-handle"
       onClick={onToggle}
       aria-expanded={open}
       aria-label={open ? "hide the catalogue" : "show the catalogue"}
-      title={open ? "Hide the catalogue" : "Show the catalogue"}
+      title={open ? "hide the catalogue" : "show the catalogue"}
       style={{
-        width: HANDLE_WIDTH, flex: "none", alignSelf: "stretch", padding: 0, cursor: "pointer",
-        background: C.panel, border: "none", borderRight: `1px solid ${C.line}`,
-        color: C.muted, fontFamily: FONT_MONO, fontSize: 11,
+        position: "absolute", left: "100%", top: "50%", transform: "translateY(-50%)", zIndex: 5,
+        width: 18, height: 48, padding: 0,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        background: C.bg, border: `1px solid ${C.line}`, borderLeft: "none",
+        borderRadius: "0 5px 5px 0", color: C.muted, cursor: "pointer",
+        fontFamily: FONT_MONO, fontSize: 10, lineHeight: 1, userSelect: "none",
       }}
     >
-      {open ? "‹" : "›"}
+      {open ? "◀" : "▶"}
     </button>
   );
 }
@@ -92,12 +95,12 @@ function HideHandle({ open, onToggle }) {
 // shown across a switch to Sim mode and back.
 export default function CataloguePanel({ open, onToggle }) {
   return (
-    <div style={{ display: "flex", flex: "none", minHeight: 0 }}>
+    <div style={{ position: "relative", display: "flex", flex: "none", minHeight: 0, borderRight: `1px solid ${C.line}` }}>
       {/* Hidden, the list keeps its search and open groups, but Tab skips it. */}
       <div inert={!open} style={{ width: open ? CATALOGUE_PANEL_WIDTH : 0, overflow: "hidden", transition: SLIDE, display: "flex" }}>
         <CatalogueList />
       </div>
-      <HideHandle open={open} onToggle={onToggle} />
+      <PullTab open={open} onToggle={onToggle} />
     </div>
   );
 }
@@ -115,7 +118,7 @@ function CatalogueList() {
   });
 
   return (
-    <aside className="thin-scroll" style={{
+    <aside style={{
       width: CATALOGUE_PANEL_WIDTH, flex: "none", boxSizing: "border-box",
       background: C.panel, padding: "14px 12px", overflowY: "auto", fontFamily: FONT_MONO,
     }}>
