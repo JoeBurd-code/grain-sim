@@ -16,6 +16,7 @@
 import { tripLineFromInterlock } from "./utilitiesTrip";
 import { BEHAVIORS } from "./behaviors";
 import { SENTENCE_KIND } from "./sentenceInterlock";
+import { SWITCH_FIELDS } from "../line/interlocks";
 import { SPEED_DIAL, GATE_DIAL, dialEffective } from "./dial";
 import { m3PerSecToTPerHour, simatekFeedRateTph, tPerHourToM3PerSec } from "./units";
 
@@ -132,9 +133,13 @@ const ALARM_CODE = {
 // `alarm` says whether this code is the rule's latched trip (ALARM_CODE
 // above). It is carried on the reading rather than recomputed by the render
 // layer because only this layer knows the rule kind. See docs/adr/0007.
+//
+// Issue #83: a rule that lists its own `instrumentFields` (an interlock
+// sentence, or a bin's display-only level switches) carries its own
+// `alarmCode` too, since its role comes from its reset, not its kind.
 export function instrumentReadings(rule, level) {
-  const fields = INSTRUMENT_FIELDS[rule.kind] ?? {};
-  const alarmCode = ALARM_CODE[rule.kind];
+  const fields = rule.instrumentFields ?? INSTRUMENT_FIELDS[rule.kind] ?? {};
+  const alarmCode = rule.instrumentFields ? rule.alarmCode : ALARM_CODE[rule.kind];
   const readings = {};
   for (const [code, field] of Object.entries(fields)) {
     const setpoint = rule[field];
@@ -209,7 +214,7 @@ function stepRuleInstruments(rule, level, sim) {
 // the initial condition, not a live trip the audience should see animate.
 export function primeInstruments(control, machines) {
   for (const rule of control) {
-    if (!INSTRUMENT_FIELDS[rule.kind]) continue;
+    if (!rule.instrumentFields && !INSTRUMENT_FIELDS[rule.kind]) continue;
     const level = readLevel(machines, rule.sensorId);
     const readings = instrumentReadings(rule, level);
     rule.instruments = Object.fromEntries(
@@ -1489,9 +1494,37 @@ const CONTROL_KINDS = {
     disarm: disarmStagedPauseRestart,
   },
   // Issue #82: the interlock sentence (sentenceInterlock.js), the one shape
-  // that replaces every kind above as each is converted.
-  sentence: SENTENCE_KIND,
+  // that replaces every kind above as each is converted. Its level switches
+  // (issue #83) are read here, with every other kind's, before it steps.
+  sentence: {
+    ...SENTENCE_KIND,
+    step: (rule, sim) => {
+      if (rule.instrumentFields) stepRuleInstruments(rule, readLevel(sim.machines, rule.sensorId), sim);
+      SENTENCE_KIND.step(rule, sim);
+    },
+  },
+  levelSwitches: { init: initLevelSwitches, step: stepLevelSwitches, reset: () => {} },
 };
+
+// Issue #83: a bin's level switches that no interlock reads, declared on the
+// machine as `sim.levelSwitches: { LSL: 0.35 }`. The Flexicon pre-bin's LSL
+// is one: the FD names the switch, but no interlock uses it. It still lights
+// and logs like every other switch, and its popup slider still moves it, so
+// it runs as a rule that only reads its switches and commands nothing.
+function initLevelSwitches(machine) {
+  const rule = {
+    kind: "levelSwitches", id: `${machine.id}.levelSwitches`, sensorId: machine.id,
+    instrumentFields: {}, alarmCode: null, phase: "clear", log: [],
+  };
+  for (const [code, setpoint] of Object.entries(machine.sim.levelSwitches)) {
+    rule.instrumentFields[code] = SWITCH_FIELDS[code];
+    rule[SWITCH_FIELDS[code]] = setpoint;
+  }
+  return rule;
+}
+function stepLevelSwitches(rule, sim) {
+  stepRuleInstruments(rule, readLevel(sim.machines, rule.sensorId), sim);
+}
 
 // Arming (issue #47): the FD qualifies four of the packaging conveyor's own
 // destination interlocks "if selected" (§5) — a full Concetti pre-bin must
@@ -1532,7 +1565,7 @@ export function combineEventLogs(control, machineNames) {
 }
 
 export function initControl(line) {
-  return (line.interlocks ?? []).map((cfg) => {
+  const rules = (line.interlocks ?? []).map((cfg) => {
     const rule = CONTROL_KINDS[cfg.kind ?? "thresholdTrip"].init(cfg);
     // Carried onto the runtime rule unchanged (issue #47) rather than read
     // fresh off `cfg` each tick, matching every other config field this
@@ -1540,6 +1573,8 @@ export function initControl(line) {
     if (cfg.armedWhen) rule.armedWhen = cfg.armedWhen;
     return rule;
   });
+  const switches = (line.machines ?? []).filter((m) => m.sim?.levelSwitches).map(initLevelSwitches);
+  return [...rules, ...switches];
 }
 
 // A disarmed rule neither trips nor logs (issue #47's own acceptance
@@ -1590,6 +1625,7 @@ export function resetTrips(sim) {
 // indicator (drives the RESET TRIPS button's own pulse); resetTrips itself
 // never consults this, since each kind's own `reset` already re-checks the
 // live condition regardless.
+// A kind may instead answer for itself (`latched`, the interlock sentence).
 export function hasLatchedTrip(sim) {
-  return sim.control.some((rule) => LATCHED_PHASES[rule.kind]?.has(rule.phase));
+  return sim.control.some((rule) => CONTROL_KINDS[rule.kind].latched?.(rule) ?? LATCHED_PHASES[rule.kind]?.has(rule.phase));
 }

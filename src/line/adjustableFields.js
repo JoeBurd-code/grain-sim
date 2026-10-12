@@ -13,7 +13,7 @@
 // to the engine unit the line holds. This module never changes a line it is
 // given: setAdjustableValue returns a new one.
 import { tPerHourToM3PerSec, m3PerSecToTPerHour, kgToM3, m3ToKg } from "../sim/units";
-import { interlockSensorMachine } from "./interlocks";
+import { interlockSensorMachine, interlockValue, putInterlockValue, SWITCH_FIELDS } from "./interlocks";
 
 // Plant unit <-> line (engine) unit.
 const SAME = { toLine: (v) => v, fromLine: (v) => v };
@@ -30,18 +30,29 @@ function simValue(key, unit, convert) {
   };
 }
 
-function rulesReading(line, machineId, key) {
-  return (line.interlocks ?? []).filter((r) => interlockSensorMachine(r) === machineId && r[key] !== undefined);
+// Every place on the line that holds this machine's value for `key`: each
+// interlock that reads the machine and carries it, coded rule or sentence,
+// and (issue #83) the machine's own display-only level switch.
+function holdersOf(line, machine, key) {
+  const holders = (line.interlocks ?? [])
+    .filter((r) => interlockSensorMachine(r) === machine.id && interlockValue(r, key) !== undefined)
+    .map((r) => ({ get: () => interlockValue(r, key), put: (value) => putInterlockValue(r, key, value) }));
+  const code = Object.keys(SWITCH_FIELDS).find((c) => SWITCH_FIELDS[c] === key);
+  const switches = machine.sim?.levelSwitches;
+  if (code && switches?.[code] !== undefined) {
+    holders.push({ get: () => switches[code], put: (value) => { switches[code] = value; } });
+  }
+  return holders;
 }
 
-// A value on every interlock rule that reads this machine, the same rules the
-// live slider moves (setInterlockField, engine.js).
-function interlockValue(key, unit, convert) {
+// A value held for this machine by its interlocks, the same places the live
+// slider moves (setInterlockField, engine.js).
+function interlockField(key, unit, convert) {
   return {
     unit, convert,
-    get: (line, m) => rulesReading(line, m.id, key)[0]?.[key],
+    get: (line, m) => holdersOf(line, m, key)[0]?.get(),
     put: (line, m, value) => {
-      for (const r of rulesReading(line, m.id, key)) r[key] = value;
+      for (const holder of holdersOf(line, m, key)) holder.put(value);
     },
   };
 }
@@ -71,10 +82,10 @@ const SETPOINT_BINDS = new Set(["interlockLowSetpoint", "interlockHighSetpoint",
 const BINDS = {
   sourceRate: simValue("rateM3PerSec", "t/h", T_PER_H),
   feederRate: simValue("rateM3PerSec", "t/h", T_PER_H),
-  interlockHighSetpoint: interlockValue("highSetpoint", "%", PERCENT),
-  interlockLowSetpoint: interlockValue("lowSetpoint", "%", PERCENT),
-  interlockHighHighSetpoint: interlockValue("highHighSetpoint", "%", PERCENT),
-  interlockSignalDelay: interlockValue("signalDelaySec", "s", SAME),
+  interlockHighSetpoint: interlockField("highSetpoint", "%", PERCENT),
+  interlockLowSetpoint: interlockField("lowSetpoint", "%", PERCENT),
+  interlockHighHighSetpoint: interlockField("highHighSetpoint", "%", PERCENT),
+  interlockSignalDelay: interlockField("signalDelaySec", "s", SAME),
   // A bag size change also moves the bag counter below the machine, which
   // holds its own copy of the bag size.
   batchSize: {
@@ -159,8 +170,8 @@ function valueError(field, value) {
 // LSL below LSH, LSH below LSHH. Compared across every rule that reads the
 // bin, since one bin's set points can sit on different rules.
 function setpointOrderError(line, machineId) {
-  const rules = (line.interlocks ?? []).filter((r) => interlockSensorMachine(r) === machineId);
-  const values = (key) => rules.map((r) => r[key]).filter((v) => v !== undefined);
+  const machine = findMachine(line, machineId);
+  const values = (key) => holdersOf(line, machine, key).map((h) => h.get());
   const [lows, highs, highHighs] = [values("lowSetpoint"), values("highSetpoint"), values("highHighSetpoint")];
   const below = (a, b) => a.length === 0 || b.length === 0 || Math.max(...a) < Math.min(...b);
   if (below(lows, highs) && below(highs, highHighs) && below(lows, highHighs)) return null;

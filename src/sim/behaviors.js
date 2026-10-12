@@ -233,7 +233,7 @@ function clearAccumulator(state) {
   return discarded;
 }
 function snapshotAccumulator(state) {
-  return { fill: state.capacity > 0 ? state.stored / state.capacity : 0 };
+  return { fill: levelAccumulator(state) };
 }
 
 // Metered feeder (issue #20): draws from whatever accumulator feeds it, at
@@ -1278,10 +1278,31 @@ function clearTerminalSink(state) {
   return 0;
 }
 
+// Interlock sentence verbs (issue #83, sentenceInterlock.js): what a sentence
+// can read or command on a machine, in the sentence's own words, so that a
+// sentence never needs to know which command shape a kind has. `level` is
+// the fill fraction a level condition reads. `close` and `stop` take the
+// commanding authority, which writes only its own slot (commandSlots.js).
+function levelAccumulator(state) {
+  return state.capacity > 0 ? state.stored / state.capacity : 0;
+}
+function closeVerb(command) {
+  return (state, closed, rampTimeSec, authority) => command(state, closed ? "close" : "open", rampTimeSec, authority);
+}
+function stopVerb(command) {
+  return (state, stopped, rampTimeSec, authority) => command(state, stopped ? 0 : 1, rampTimeSec, authority);
+}
+// A drum feeder stops through its run permit, never `enabled`, which the
+// source selector owns (see `runPermit` on initMeteredFeeder). It has no ramp.
+function stopMeteredFeeder(state, stopped, rampTimeSec, authority) {
+  setRunPermitMeteredFeeder(state, !stopped, authority);
+}
+
 export const BEHAVIORS = {
   source: {
     init: initSource, capacityAvailable: forwardDownstreamCapacity, apply: applySource,
     conserve: conserveSource, snapshot: snapshotSource, command: commandSource, isSettled: isSettledSource,
+    close: closeVerb(commandSource),
   },
   passThrough: {
     init: initPassThrough, capacityAvailable: forwardDownstreamCapacity, apply: applyPassThrough,
@@ -1290,16 +1311,17 @@ export const BEHAVIORS = {
     init: initGateValve, capacityAvailable: capacityAvailableGateValve, apply: applyGateValve,
     conserve: conserveGateValve, snapshot: snapshotGateValve,
     command: commandGateValve, isSettled: isSettledGateValve,
-    confirmedRunning: isConfirmedRunningGateValve,
+    confirmedRunning: isConfirmedRunningGateValve, close: closeVerb(commandGateValve),
   },
   accumulator: {
     init: initAccumulator, capacityAvailable: capacityAvailableAccumulator, apply: applyAccumulator,
     conserve: conserveAccumulator, snapshot: snapshotAccumulator, clear: clearAccumulator,
+    level: levelAccumulator,
   },
   meteredFeeder: {
     init: initMeteredFeeder, capacityAvailable: capacityAvailableMeteredFeeder, apply: applyMeteredFeeder,
     conserve: conserveMeteredFeeder, snapshot: snapshotMeteredFeeder, command: commandMeteredFeeder,
-    setEnabled: setEnabledMeteredFeeder, setRunPermit: setRunPermitMeteredFeeder,
+    setEnabled: setEnabledMeteredFeeder, setRunPermit: setRunPermitMeteredFeeder, stop: stopMeteredFeeder,
     // Issue #57: only meaningful on a gated feeder (`hasGate` at init) —
     // harmless no-ops on any other meteredFeeder, since gateThrottleTarget/
     // gateThrottleRampPerSec are just plain fields with nothing reading them
@@ -1311,13 +1333,14 @@ export const BEHAVIORS = {
     init: initTransportDelay, capacityAvailable: capacityAvailableTransportDelay, apply: applyTransportDelay,
     conserve: conserveTransportDelay, snapshot: snapshotTransportDelay, clear: clearTransportDelay,
     command: commandTransportDelay, isSettled: isSettledTransportDelay,
-    confirmedRunning: isConfirmedRunningTransportDelay,
+    confirmedRunning: isConfirmedRunningTransportDelay, stop: stopVerb(commandTransportDelay),
   },
   routedTransportDelay: {
     init: initRoutedTransportDelay, capacityAvailable: capacityAvailableRoutedTransportDelay, apply: applyRoutedTransportDelay,
     conserve: conserveRoutedTransportDelay, snapshot: snapshotRoutedTransportDelay, clear: clearRoutedTransportDelay,
     command: commandRoutedTransportDelay, isSettled: isSettledRoutedTransportDelay,
     confirmedRunning: isConfirmedRunningRoutedTransportDelay, selectPort: selectPortRoutedTransportDelay,
+    stop: stopVerb(commandRoutedTransportDelay),
     multiOutput: true,
   },
   batchCycle: {

@@ -186,6 +186,36 @@ describe("plant units in, engine units in the line", () => {
   });
 });
 
+// Issue #83: the buffer bin's interlocks are sentences, and the Flexicon
+// pre-bin's LSL is a display-only level switch on the bin.
+describe("fields on sentences and level switches", () => {
+  const sentence = (line, id) => line.interlocks.find((r) => r.id === id);
+
+  it("writes each set point into the sentence part that names its switch", () => {
+    let edited = set(goldenLine, "treaterBufferBin", "highSetpoint", 80);
+    edited = set(edited, "treaterBufferBin", "lowSetpoint", 30);
+    edited = set(edited, "treaterBufferBin", "highHighSetpoint", 90);
+    expect(sentence(edited, "bufferBinValve").when.setpoint).toBeCloseTo(0.8, 12);
+    expect(sentence(edited, "bufferBinValve").whenClears.setpoint).toBeCloseTo(0.3, 12);
+    expect(sentence(edited, "bufferBinHighTrip").when.setpoint).toBeCloseTo(0.9, 12);
+  });
+
+  it("writes the signal delay into both parts of every sentence on the bin", () => {
+    const edited = set(goldenLine, "treaterBufferBin", "signalDelay", 4);
+    expect(sentence(edited, "bufferBinValve").when.delaySec).toBe(4);
+    expect(sentence(edited, "bufferBinValve").whenClears.delaySec).toBe(4);
+    expect(sentence(edited, "bufferBinHighTrip").when.delaySec).toBe(4);
+  });
+
+  it("writes the Flexicon pre-bin's LSL into its level switch, and its LSH into its trip", () => {
+    let edited = set(goldenLine, "flexiconPreBin", "lowSetpoint", 20);
+    edited = set(edited, "flexiconPreBin", "highSetpoint", 70);
+    expect(machine(edited, "flexiconPreBin").sim.levelSwitches.LSL).toBeCloseTo(0.2, 12);
+    expect(sentence(edited, "flexiconPreBinHighTrip").when.setpoint).toBeCloseTo(0.7, 12);
+    expect(setAdjustableValue(edited, "flexiconPreBin", "lowSetpoint", 75).ok).toBe(false); // LSL above LSH
+  });
+});
+
 describe("set points stay in order", () => {
   it("refuses an LSL at or above the LSH", () => {
     expect(setAdjustableValue(goldenLine, "treaterBufferBin", "lowSetpoint", 55).ok).toBe(true);

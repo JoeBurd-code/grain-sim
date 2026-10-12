@@ -460,10 +460,10 @@ exports[`the golden line's interlock baseline (issue #82) > the treater buffer b
   "90.00 >> reset while still full",
   "90.05 sample | treaterBufferBin=0.9789 treaterPreBin=0.0963 treaterAfterBin=0 metalBin1=0 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
   "95.00 >> buffer bin to 20%, then reset",
-  "95.05 upstreamStub: opennessTarget=1 | treaterBufferBin=0.2 treaterPreBin=0.1128 treaterAfterBin=0 metalBin1=0 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
   "95.05 trip latched=false",
-  "120.05 sample | treaterBufferBin=0.199 treaterPreBin=0.0593 treaterAfterBin=0 metalBin1=0 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
-  "150.05 sample | treaterBufferBin=0.2005 treaterPreBin=0.1587 treaterAfterBin=0 metalBin1=0 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
+  "102.10 upstreamStub: opennessTarget=1 | treaterBufferBin=0.195 treaterPreBin=0.1362 treaterAfterBin=0 metalBin1=0 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
+  "120.05 sample | treaterBufferBin=0.1937 treaterPreBin=0.0593 treaterAfterBin=0 metalBin1=0 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
+  "150.05 sample | treaterBufferBin=0.1952 treaterPreBin=0.1587 treaterAfterBin=0 metalBin1=0 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
 ]
 `;
 

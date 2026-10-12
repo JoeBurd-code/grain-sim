@@ -1199,7 +1199,11 @@ export const line = {
       sim: {
         kind: "accumulator",
         capacityM3: 2.5,
-        provenance: { capacityM3: "assumed" },
+        // Issue #83: the FD's LSL0 on this bin drives no interlock, so it
+        // is a display-only level switch here rather than part of
+        // flexiconPreBinHighTrip. Its lamp and LSL slider work as before.
+        levelSwitches: { LSL: 0.35 },
+        provenance: { capacityM3: "assumed", "levelSwitches.LSL": "assumed" },
       },
     },
     {
@@ -1582,49 +1586,63 @@ export const line = {
   // turns each entry into one runtime rule.
   interlocks: [
     {
-      id: "bufferBinHighTrip",
-      kind: "hysteresisValve",
-      sensor: { machine: "treaterBufferBin" },
+      id: "bufferBinValve",
+      kind: "sentence",
       // Engineer confirmed the interlock itself (buffer bin full -> close
       // the source valve). Set points and ramp time remain assumed: the
       // FD (2026-08-05) shows these are operator-adjustable SCADA
       // configuration, not fixed plant values, so there is nothing
-      // further to absorb for them. signalDelaySec is CONFIRMED from the
-      // FD's own cause-and-effect matrix: LSH0 -> 5s -> elevator 52.414.E00
-      // trips -> 1s -> vibratory feeders trip -> 1s -> bin outlet valves
-      // close (~7s total). See docs/PLC_FUNCTIONAL_DESCRIPTION.md §5.
+      // further to absorb for them. The 7 s signal delay is CONFIRMED from
+      // the FD's own cause-and-effect matrix: LSH0 -> 5s -> elevator
+      // 52.414.E00 trips -> 1s -> vibratory feeders trip -> 1s -> bin outlet
+      // valves close (~7s total). See docs/PLC_FUNCTIONAL_DESCRIPTION.md §5.
       //
-      // On request, this rule is no longer a single latched trip
-      // (thresholdTrip's own issue #19/#45 shape, which this used to be —
-      // see control.js's own resetThresholdTrip for that history). LSH/LSL
-      // now drive a live, non-latching hysteresis (control.js's own
-      // hysteresisValve): the valve closes at LSH and reopens on its own the
-      // instant the level clears LSL, ordinary bang-bang float-valve
-      // behaviour, with no operator action needed in between. highHighSetpoint
-      // (LSHH) is the one thing that still latches — the FD's own "no
-      // automatic reopen" trip finding (docs/OPEN_QUESTIONS.md) now applies
-      // to LSHH specifically, not LSH: crossing it commands the valve closed
-      // exactly like the old trip did, and only the plant control's RESET
-      // TRIPS command reopens it, gated on the level having actually
-      // cleared LSHH. This is a deliberate departure from the FD's own
-      // reading of this tag — its cause-and-effect matrix ties the ~7s trip
-      // chain above directly to 52.502.H00's LSH0, naming no LSHH and no
-      // live regulation beneath it — kept at 95%, the same figure the
-      // treater/Concetti pre-bins use (issue #58), so every bin on the line
-      // shares one trip-set-point convention. signalDelaySec/rampTimeSec are
-      // shared across all three transitions (open, close, trip) rather than
-      // split into a separate pair per transition — a simplification, not a
-      // claim that the live regulation's own delay is FD-confirmed the way
-      // the trip chain's is.
-      highSetpoint: 0.85,
-      lowSetpoint: 0.35,
-      highHighSetpoint: 0.95,
-      signalDelaySec: 7,
-      action: { machine: "upstreamStub", rampTimeSec: 6 },
-      provenance: {
-        highSetpoint: "assumed", lowSetpoint: "assumed", highHighSetpoint: "assumed",
-        signalDelaySec: "confirmed", rampTimeSec: "assumed",
+      // On request, this is no longer a single latched trip. LSH/LSL drive
+      // a live, non-latching hysteresis: the valve closes at LSH and reopens
+      // on its own once the level clears LSL, ordinary bang-bang float-valve
+      // behaviour, with no operator action needed in between. LSHH is the
+      // one thing that still latches (bufferBinHighTrip below). This is a
+      // deliberate departure from the FD's own reading of this tag: its
+      // cause-and-effect matrix ties the ~7s trip chain above directly to
+      // 52.502.H00's LSH0, naming no LSHH and no live regulation beneath it.
+      // The one 7 s delay and one 6 s ramp serve every transition (close,
+      // reopen, trip), a simplification, not a claim that the live
+      // regulation's own delay is FD-confirmed the way the trip chain's is.
+      //
+      // Issue #83: a sentence. "When TREATER BUFFER BIN is above 85 % (LSH)
+      // for 7 s, then close FROM UPSTREAM over 6 s. When it falls below 35 %
+      // (LSL) for 7 s, then open FROM UPSTREAM over 6 s. Reset: auto." The
+      // "when it clears" part is what holds the valve shut between LSL and
+      // LSH. Until #83 the reset of the LSHH trip below reopened the valve
+      // at once when the level was already under LSL; it now reopens after
+      // this sentence's own 7 s clear delay (docs/OPEN_QUESTIONS.md).
+      when: { machine: "treaterBufferBin", condition: "above", setpoint: 0.85, switch: "LSH", delaySec: 7 },
+      then: [{ action: "close", machine: "upstreamStub", rampTimeSec: 6 }],
+      whenClears: {
+        condition: "below", setpoint: 0.35, switch: "LSL", delaySec: 7,
+        then: [{ action: "open", machine: "upstreamStub", rampTimeSec: 6 }],
       },
+      reset: "auto",
+      provenance: {
+        "when.setpoint": "assumed", "when.delaySec": "confirmed", "then.0.rampTimeSec": "assumed",
+        "whenClears.setpoint": "assumed", "whenClears.delaySec": "assumed", "whenClears.then.0.rampTimeSec": "assumed",
+      },
+    },
+    {
+      id: "bufferBinHighTrip",
+      kind: "sentence",
+      // The latched LSHH trip on the same valve (see bufferBinValve above).
+      // The FD's own "no automatic reopen" trip finding
+      // (docs/OPEN_QUESTIONS.md) applies to LSHH here: crossing it closes
+      // the valve, and only RESET TRIPS reopens it, once the level has
+      // cleared LSHH. Kept at 95 %, the same figure the treater and Concetti
+      // pre-bins use (issue #58), so every bin on the line shares one trip
+      // set point convention. While bufferBinValve still holds the valve
+      // (the level is above LSL), a reset leaves it shut.
+      when: { machine: "treaterBufferBin", condition: "above", setpoint: 0.95, switch: "LSHH", delaySec: 7 },
+      then: [{ action: "close", machine: "upstreamStub", rampTimeSec: 6 }],
+      reset: "latched",
+      provenance: { "when.setpoint": "assumed", "when.delaySec": "confirmed", "then.0.rampTimeSec": "assumed" },
     },
     {
       id: "preBinFeedSchedule",
@@ -1716,76 +1734,71 @@ export const line = {
     // completing the cascade the parent spec names as its central argument.
     {
       id: "metalBin1HighTrip",
-      kind: "thresholdStopTrip",
-      sensor: { machine: "metalBin1" },
+      kind: "sentence",
       // "Metal bins high `52.613.H00/H01.LT0` -> Bucket elevator
       // `52.604.E00` 'if selected' ... 5 s -> drum feeders" (PLC_FD §5).
       // Classified a genuine **Trip** ("stops the device immediately, no
       // shutdown procedure" — FD §5's own severity table), unlike the
       // treater pre-bin's own engineer-described graduated VFD ramp — so
-      // rampTimeSec is near-zero rather than multi-second. highSetpoint/
-      // lowSetpoint follow the same assumed 85%/35% every other bin on the
-      // line uses (no FD number given, working volume itself unconfirmed —
-      // see metalBin1's own comment and docs/OPEN_QUESTIONS.md).
+      // the stop's ramp time is near-zero rather than multi-second. The
+      // 85 % set point is the same assumed figure every other bin's LSH
+      // uses (no FD number given, working volume itself unconfirmed — see
+      // metalBin1's own comment and docs/OPEN_QUESTIONS.md).
       // `armedWhen` (issue #47's own arming mechanism, control.js) requires
       // both routers: the conveyor's own selected outlet must be the shared
       // outload port, *and* the diverter downstream of it must point at
       // this specific bin — either alone is not "this bin is the selected
       // destination".
-      highSetpoint: 0.85,
-      lowSetpoint: 0.35,
-      signalDelaySec: 5,
-      action: { machine: "pendulumConveyor", rampTimeSec: 0.5 },
+      //
+      // Issue #83: a sentence. "When TREATED OUTLOAD METAL BIN 1 is above
+      // 85 % (LSH) for 5 s, then stop the pendulum conveyor over 0.5 s.
+      // Reset: latched. Armed while the destination is this bin." The coded
+      // rule's 35 % low set point drove nothing and drew no lamp (this bin
+      // has no LSL), so it is gone.
+      when: { machine: "metalBin1", condition: "above", setpoint: 0.85, switch: "LSH", delaySec: 5 },
+      then: [{ action: "stop", machine: "pendulumConveyor", rampTimeSec: 0.5 }],
+      reset: "latched",
       armedWhen: [
         { machine: "pendulumConveyor", port: "outBuffer" },
         { machine: "outloadDiverter", port: "out1" },
       ],
-      provenance: {
-        highSetpoint: "assumed", lowSetpoint: "assumed",
-        signalDelaySec: "confirmed", rampTimeSec: "assumed",
-      },
+      provenance: { "when.setpoint": "assumed", "when.delaySec": "confirmed", "then.0.rampTimeSec": "assumed" },
     },
     {
       id: "metalBin2HighTrip",
-      kind: "thresholdStopTrip",
-      sensor: { machine: "metalBin2" },
-      // Same rule as metalBin1HighTrip above, mirrored onto the other bin —
-      // see its own comment for the full reasoning.
-      highSetpoint: 0.85,
-      lowSetpoint: 0.35,
-      signalDelaySec: 5,
-      action: { machine: "pendulumConveyor", rampTimeSec: 0.5 },
+      kind: "sentence",
+      // Same interlock as metalBin1HighTrip above, mirrored onto the other
+      // bin. See its own comment for the full reasoning.
+      when: { machine: "metalBin2", condition: "above", setpoint: 0.85, switch: "LSH", delaySec: 5 },
+      then: [{ action: "stop", machine: "pendulumConveyor", rampTimeSec: 0.5 }],
+      reset: "latched",
       armedWhen: [
         { machine: "pendulumConveyor", port: "outBuffer" },
         { machine: "outloadDiverter", port: "out2" },
       ],
-      provenance: {
-        highSetpoint: "assumed", lowSetpoint: "assumed",
-        signalDelaySec: "confirmed", rampTimeSec: "assumed",
-      },
+      provenance: { "when.setpoint": "assumed", "when.delaySec": "confirmed", "then.0.rampTimeSec": "assumed" },
     },
     {
       id: "flexiconPreBinHighTrip",
-      kind: "thresholdStopTrip",
-      sensor: { machine: "flexiconPreBin" },
+      kind: "sentence",
       // Issue #48, the FD's third destination-interlock row: "Flexicon
       // pre-bin high `52.701.H00.LSH0` -> Bucket elevator `52.604.E00` 'if
       // selected' ... 5 s -> drum feeders" (PLC_FUNCTIONAL_DESCRIPTION.md
       // §5) — same shape and same actuator as the two metal bins' own
-      // trips (metalBin1HighTrip/metalBin2HighTrip above), reused
-      // unchanged. `armedWhen` here needs only one condition, not two: this
-      // branch has no diverter downstream of the conveyor the way the
-      // outload branch does (one outlet, `outBinSeg`, one destination), so
-      // the conveyor's own selected port alone is "Flexicon is selected".
-      highSetpoint: 0.85,
-      lowSetpoint: 0.35,
-      signalDelaySec: 5,
-      action: { machine: "pendulumConveyor", rampTimeSec: 0.5 },
+      // trips (metalBin1HighTrip/metalBin2HighTrip above). `armedWhen` here
+      // needs only one condition, not two: this branch has no diverter
+      // downstream of the conveyor the way the outload branch does (one
+      // outlet, `outBinSeg`, one destination), so the conveyor's own
+      // selected port alone is "Flexicon is selected".
+      //
+      // Issue #83: a sentence, as the metal bins' are. The FD's LSL0 on
+      // this bin drives no interlock; it is now a display-only level switch
+      // on the machine itself (flexiconPreBin's `sim.levelSwitches`).
+      when: { machine: "flexiconPreBin", condition: "above", setpoint: 0.85, switch: "LSH", delaySec: 5 },
+      then: [{ action: "stop", machine: "pendulumConveyor", rampTimeSec: 0.5 }],
+      reset: "latched",
       armedWhen: [{ machine: "pendulumConveyor", port: "outBinSeg" }],
-      provenance: {
-        highSetpoint: "assumed", lowSetpoint: "assumed",
-        signalDelaySec: "confirmed", rampTimeSec: "assumed",
-      },
+      provenance: { "when.setpoint": "assumed", "when.delaySec": "confirmed", "then.0.rampTimeSec": "assumed" },
     },
     {
       id: "concettiFeedSchedule",

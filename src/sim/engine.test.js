@@ -14,7 +14,7 @@ import { assertConserved, conservationTotals } from "./conservation";
 import { tPerHourToM3PerSec, m3PerSecToTPerHour } from "./units";
 import { instrumentReadings } from "./control";
 import { line } from "../line/lineData";
-import { interlockCommandedMachines } from "../line/interlocks";
+import { interlockCommandedMachines, interlockSensorMachine } from "../line/interlocks";
 import { BEHAVIORS } from "./behaviors";
 
 const SOURCE_ID = "upstreamStub";
@@ -32,6 +32,14 @@ const DISCARD_BIN_ID = "discardBin";
 function interlockRule(sim) {
   return getInterlockState(sim, BUFFER_BIN_ID);
 }
+
+// Issue #83: the buffer bin's interlocks are sentences, so these tests read
+// what the plant shows rather than a rule's phase names.
+const valveCommandedClosed = (sim) => getMachineState(sim, SOURCE_ID).opennessTarget === 0;
+const bufferBinLevel = (sim) => {
+  const bin = getMachineState(sim, BUFFER_BIN_ID);
+  return bin.stored / bin.capacity;
+};
 
 // Issue #46: the scalping screen's product output now carries on into a
 // real, live packaging chain (inletDrumFeeder2 -> pendulumConveyor ->
@@ -122,7 +130,8 @@ describe("createSim / stepSim (real Treater Line 2 data)", () => {
 
   it("reads an interlock's current state back by its sensor machine", () => {
     const sim = createSim(lineWithoutFeedSchedule);
-    expect(getInterlockState(sim, BUFFER_BIN_ID).phase).toBe("open");
+    expect(getInterlockState(sim, BUFFER_BIN_ID).sensorId).toBe(BUFFER_BIN_ID);
+    expect(getInterlockState(sim, BUFFER_BIN_ID).log).toEqual([]);
     expect(getInterlockState(sim, "notAMachine")).toBeUndefined();
   });
 
@@ -266,17 +275,18 @@ describe("buffer bin's LSH/LSL live valve regulation, late (issue #19; re-shaped
     setInterlockHighSetpoint(sim, BUFFER_BIN_ID, 0.6); // just above the 55% start level
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 5);
 
-    let armed = false;
+    let crossed = false;
     for (let i = 0; i < 2000; i++) {
       stepSim(sim, DT);
-      if (interlockRule(sim).phase !== "open") { armed = true; break; }
+      if (bufferBinLevel(sim) >= 0.6) { crossed = true; break; }
     }
-    expect(armed).toBe(true);
-    expect(interlockRule(sim).phase).toBe("armingClose");
+    expect(crossed).toBe(true);
+    for (let i = 0; i < 90; i++) stepSim(sim, DT); // 4.5 s, inside the 5 s delay
+    expect(valveCommandedClosed(sim)).toBe(false);
     expect(getMachineState(sim, SOURCE_ID).openness).toBe(1); // still fully open mid-delay
 
-    for (let i = 0; i < 120; i++) stepSim(sim, DT); // consume the remaining ~6s of the 5s delay, with margin
-    expect(interlockRule(sim).phase).not.toBe("armingClose");
+    for (let i = 0; i < 30; i++) stepSim(sim, DT); // past the 5 s delay, with margin
+    expect(valveCommandedClosed(sim)).toBe(true);
     expect(getMachineState(sim, SOURCE_ID).openness).toBeLessThan(1); // now ramping shut
   });
 
@@ -292,7 +302,7 @@ describe("buffer bin's LSH/LSL live valve regulation, late (issue #19; re-shaped
     for (let i = 0; i < 3000; i++) {
       stepSim(sim, DT);
       assertConserved(sim);
-      if (storedAtArm === null && interlockRule(sim).phase !== "open") {
+      if (storedAtArm === null && bufferBinLevel(sim) >= 0.6) {
         storedAtArm = getMachineState(sim, BUFFER_BIN_ID).stored;
       }
     }
@@ -353,7 +363,7 @@ describe("buffer bin's LSH/LSL live valve regulation, late (issue #19; re-shaped
     setInterlockLowSetpoint(sim, BUFFER_BIN_ID, 0.3);
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 1);
     for (let i = 0; i < 2000; i++) stepSim(sim, DT);
-    expect(interlockRule(sim).phase).toBe("closed");
+    expect(valveCommandedClosed(sim)).toBe(true);
     expect(getMachineState(sim, SOURCE_ID).openness).toBe(0);
 
     // presenter drags the level down past the low set point, same control
@@ -362,7 +372,8 @@ describe("buffer bin's LSH/LSL live valve regulation, late (issue #19; re-shaped
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.2);
     for (let i = 0; i < 2000; i++) stepSim(sim, DT);
 
-    expect(interlockRule(sim).phase).toBe("open");
+    expect(valveCommandedClosed(sim)).toBe(false);
+    expect(hasAnyTripLatched(sim)).toBe(false);
     expect(getMachineState(sim, SOURCE_ID).openness).toBe(1);
     expect(() => assertConserved(sim)).not.toThrow();
   });
@@ -378,12 +389,15 @@ describe("buffer bin's LSH/LSL live valve regulation, late (issue #19; re-shaped
     setInterlockLowSetpoint(sim, BUFFER_BIN_ID, 0.3);
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 1);
 
-    let armed = false;
-    for (let i = 0; i < 2000; i++) {
+    // At the line's own 85 % the valve would not close yet: the bin is
+    // still under 85 % when it does.
+    let closed = false;
+    for (let i = 0; i < 2000 && !closed; i++) {
       stepSim(sim, DT);
-      if (interlockRule(sim).phase !== "open") { armed = true; break; }
+      closed = valveCommandedClosed(sim);
     }
-    expect(armed).toBe(true); // the mid-run parameter changes were honoured
+    expect(closed).toBe(true); // the mid-run parameter changes were honoured
+    expect(bufferBinLevel(sim)).toBeLessThan(0.85);
   });
 });
 
@@ -398,7 +412,7 @@ describe("buffer bin's LSHH latched trip (re-sensored from LSH to a new LSHH, on
     setInterlockLowSetpoint(sim, BUFFER_BIN_ID, 0.3);
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 1);
     for (let i = 0; i < 2000; i++) stepSim(sim, DT);
-    expect(interlockRule(sim).phase).toBe("tripped");
+    expect(hasAnyTripLatched(sim)).toBe(true);
     expect(getMachineState(sim, SOURCE_ID).openness).toBe(0);
 
     // presenter drags the level down well past the low set point, same
@@ -407,7 +421,7 @@ describe("buffer bin's LSHH latched trip (re-sensored from LSH to a new LSHH, on
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.2);
     for (let i = 0; i < 2000; i++) stepSim(sim, DT);
 
-    expect(interlockRule(sim).phase).toBe("tripped");
+    expect(hasAnyTripLatched(sim)).toBe(true);
     expect(getMachineState(sim, SOURCE_ID).openness).toBe(0);
     expect(() => assertConserved(sim)).not.toThrow();
   });
@@ -422,17 +436,18 @@ describe("buffer bin's LSHH latched trip (re-sensored from LSH to a new LSHH, on
     setInterlockLowSetpoint(sim, BUFFER_BIN_ID, 0.3);
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 1);
     for (let i = 0; i < 2000; i++) stepSim(sim, DT);
-    expect(interlockRule(sim).phase).toBe("tripped");
+    expect(hasAnyTripLatched(sim)).toBe(true);
 
     resetTrips(sim); // still above the high-high set point: re-latches, no flapping
-    expect(interlockRule(sim).phase).toBe("tripped");
+    for (let i = 0; i < 10; i++) stepSim(sim, DT);
+    expect(hasAnyTripLatched(sim)).toBe(true);
     expect(getMachineState(sim, SOURCE_ID).openness).toBe(0);
 
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.2); // presenter drains it below the low set point too
     resetTrips(sim);
     for (let i = 0; i < 2000; i++) stepSim(sim, DT);
 
-    expect(interlockRule(sim).phase).toBe("open");
+    expect(hasAnyTripLatched(sim)).toBe(false);
     expect(getMachineState(sim, SOURCE_ID).openness).toBe(1);
     expect(() => assertConserved(sim)).not.toThrow();
   });
@@ -451,8 +466,9 @@ describe("buffer bin's LSHH latched trip (re-sensored from LSH to a new LSHH, on
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.2);
     resetTrips(sim); // now clears: logs the reset
 
-    const log = interlockRule(sim).log;
-    expect(log.length).toBeGreaterThanOrEqual(4); // high-high trip armed, close commanded, re-latch attempt, reset commanded
+    const log = getCombinedEvents(sim).filter((e) => e.machineId === BUFFER_BIN_ID);
+    expect(log.length).toBeGreaterThanOrEqual(4); // LSHH ON, close commanded, re-latch attempt, reset commanded
+    expect(log.map((e) => e.message).join(" / ")).toMatch(/LSHH ON.*closed.*remains latched.*reset/);
     for (const entry of log) {
       expect(typeof entry.t).toBe("number");
       expect(typeof entry.message).toBe("string");
@@ -471,9 +487,12 @@ describe("buffer bin's LSHH latched trip (re-sensored from LSH to a new LSHH, on
     setInterlockSignalDelay(sim, BUFFER_BIN_ID, 1);
     for (let i = 0; i < 2000; i++) stepSim(sim, DT);
 
-    const log = interlockRule(sim).log;
+    // Every buffer bin interlock's own log, merged: the LSH/LSL valve and the
+    // LSHH trip both read this bin.
+    const log = sim.control.filter((r) => r.sensorId === BUFFER_BIN_ID).flatMap((r) => r.log);
     const combined = getCombinedEvents(sim);
     const fromBufferBin = combined.filter((e) => e.machineId === BUFFER_BIN_ID);
+    expect(log.length).toBeGreaterThan(0);
     expect(fromBufferBin).toHaveLength(log.length);
     expect(fromBufferBin[0].machineName).toBe(line.machines.find((m) => m.id === BUFFER_BIN_ID).name);
     for (let i = 1; i < combined.length; i++) {
@@ -1884,7 +1903,8 @@ describe("resetSim (presenter reset, no page reload needed)", () => {
     const bin = getMachineState(sim, BUFFER_BIN_ID);
     expect(bin.stored / bin.capacity).toBe(0); // line default fill level (issue #55: starts empty)
     expect(interlockRule(sim).highSetpoint).toBeCloseTo(0.85); // line default, not the 0.6 set mid-run
-    expect(interlockRule(sim).phase).toBe("open");
+    expect(valveCommandedClosed(sim)).toBe(false);
+    expect(hasAnyTripLatched(sim)).toBe(false);
     expect(() => assertConserved(sim)).not.toThrow();
   });
 
@@ -2113,7 +2133,7 @@ describe("the packaging conveyor carries product to the outload buffer bin (issu
     const bin1 = getMachineState(sim, METAL_BIN_1_ID);
     expect(bin1.spill).toBeCloseTo(0); // backpressure/trip, not spill — same convention every other bin uses
     expect(bin1.stored).toBeLessThan(bin1.capacity); // trips before hard capacity, doesn't need to reach it
-    expect(getInterlockState(sim, METAL_BIN_1_ID).phase).toBe("stopped");
+    expect(hasAnyTripLatched(sim)).toBe(true);
     expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0); // the conveyor genuinely stopped
     expect(() => assertConserved(sim)).not.toThrow();
   }, 10000);
@@ -2287,7 +2307,7 @@ describe("arming: a full pre-bin does not trip anything while routed elsewhere (
     setDestination(sim, "concetti"); // but not the selected destination
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
 
-    expect(getInterlockState(sim, METAL_BIN_1_ID).phase).toBe("running"); // never even armed
+    expect(getInterlockState(sim, METAL_BIN_1_ID).log).toEqual([]); // never even armed
     expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(1); // never touched
   });
 
@@ -2296,11 +2316,11 @@ describe("arming: a full pre-bin does not trip anything while routed elsewhere (
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 1);
     setDestination(sim, "concetti");
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
-    expect(getInterlockState(sim, METAL_BIN_1_ID).phase).toBe("running");
+    expect(getInterlockState(sim, METAL_BIN_1_ID).log).toEqual([]);
 
     setDestination(sim, "metalBin1"); // now selected
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // past the 5s signal delay
-    expect(getInterlockState(sim, METAL_BIN_1_ID).phase).toBe("stopped");
+    expect(hasAnyTripLatched(sim)).toBe(true);
     expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
   });
 });
@@ -2344,14 +2364,14 @@ describe("the full outload cascade: a full metal bin stops the conveyor, then bo
     expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
 
     resetTrips(sim);
-    expect(getInterlockState(sim, METAL_BIN_1_ID).phase).toBe("stopped"); // still full, re-latches
+    expect(hasAnyTripLatched(sim)).toBe(true); // still full, re-latches
     expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(0);
 
     // The presenter's own bin-empty affordance (PlantControls.jsx): the
     // same setAccumulatorLevel the level-jump slider already uses.
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
     resetTrips(sim);
-    expect(getInterlockState(sim, METAL_BIN_1_ID).phase).toBe("recovering");
+    expect(hasAnyTripLatched(sim)).toBe(false);
     expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(1);
   });
 
@@ -2427,7 +2447,7 @@ describe("the Flexicon big-bag branch completes (issue #48)", () => {
     const preBin = getMachineState(sim, FLEXICON_PRE_BIN_ID);
     expect(preBin.spill).toBeCloseTo(0); // backpressure/trip, not spill
     expect(preBin.stored).toBeLessThan(preBin.capacity); // trips before hard capacity, doesn't need to reach it
-    expect(getInterlockState(sim, FLEXICON_PRE_BIN_ID).phase).toBe("stopped");
+    expect(hasAnyTripLatched(sim)).toBe(true);
     expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
     expect(() => assertConserved(sim)).not.toThrow();
   }, 15000);
@@ -2505,7 +2525,7 @@ describe("arming: a full Flexicon pre-bin does not trip anything while routed el
     setDestination(sim, "metalBin1");
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
 
-    expect(getInterlockState(sim, FLEXICON_PRE_BIN_ID).phase).toBe("running"); // never even armed
+    expect(getInterlockState(sim, FLEXICON_PRE_BIN_ID).log).toEqual([]); // never even armed
     expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(1); // never touched
   });
 
@@ -2513,11 +2533,11 @@ describe("arming: a full Flexicon pre-bin does not trip anything while routed el
     const sim = createSim(lineWithoutFeedSchedule);
     setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 1);
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT);
-    expect(getInterlockState(sim, FLEXICON_PRE_BIN_ID).phase).toBe("running");
+    expect(getInterlockState(sim, FLEXICON_PRE_BIN_ID).log).toEqual([]);
 
     setDestination(sim, "flexicon"); // now selected
     for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // past the 5s signal delay
-    expect(getInterlockState(sim, FLEXICON_PRE_BIN_ID).phase).toBe("stopped");
+    expect(hasAnyTripLatched(sim)).toBe(true);
     expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
   });
 });
@@ -2550,14 +2570,14 @@ describe("the Flexicon pre-bin's own high-level trip cascades and latches like t
     expect(getMachineState(sim, CONVEYOR_ID).throttleFraction).toBe(0);
 
     resetTrips(sim);
-    expect(getInterlockState(sim, FLEXICON_PRE_BIN_ID).phase).toBe("stopped"); // still full, re-latches
+    expect(hasAnyTripLatched(sim)).toBe(true); // still full, re-latches
     expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(0);
 
     // The presenter's own bin-empty affordance (PlantControls.jsx): the
     // same setAccumulatorLevel the level-jump slider already uses.
     setAccumulatorLevel(sim, FLEXICON_PRE_BIN_ID, 0);
     resetTrips(sim);
-    expect(getInterlockState(sim, FLEXICON_PRE_BIN_ID).phase).toBe("recovering");
+    expect(hasAnyTripLatched(sim)).toBe(false);
     expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(1);
   });
 
@@ -3964,6 +3984,20 @@ describe("instrument alarm roles on the real line (issue #72)", () => {
       if (!expected || !rule.instruments?.LSH) continue;
       expect(rule.instruments.LSH.alarm).toBe(expected === "LSH");
     }
+  });
+
+  // Issue #83: a drawn lamp with no reading behind it stays dark forever.
+  // The Flexicon pre-bin's LSL drives no interlock, so it reads from the
+  // bin's own display-only level switch. (Bins that no interlock reads have
+  // never had lamp readings, and are not checked here.)
+  it("publishes a reading for every level switch lamp drawn on a bin an interlock reads", () => {
+    const sim = createSim(line);
+    const sensed = new Set(line.interlocks.map(interlockSensorMachine));
+    const published = new Set(sim.control.flatMap((r) => Object.keys(r.instruments ?? {}).map((code) => `${r.sensorId} ${code}`)));
+    const drawn = line.machines.filter((m) => sensed.has(m.id) && BEHAVIORS[m.sim?.kind]?.level)
+      .flatMap((m) => (m.instruments ?? []).filter((c) => c.startsWith("LS")).map((c) => `${m.id} ${c}`));
+    expect(drawn).toContain("flexiconPreBin LSL");
+    expect(drawn.filter((d) => !published.has(d))).toEqual([]);
   });
 
   it("opens with every switch silent, because the line starts empty (issue #55)", () => {

@@ -294,4 +294,46 @@ describe("validateLine", () => {
     ];
     expect(validateLine(line).errors).toEqual([]);
   });
+
+  // Issue #83: a bin's display-only level switches (control.js initLevelSwitches).
+  it("accepts a bin's display-only level switch", () => {
+    const line = makeValidLine();
+    line.machines[1].sim.levelSwitches = { LSL: 0.35 };
+    expect(validateLine(line).errors).toEqual([]);
+  });
+
+  const badSwitches = [
+    ["an unknown switch code", { LXX: 0.35 }, /level switch "LXX"/],
+    ["a set point over 100 %", { LSL: 1.2 }, /LSL set point/],
+  ];
+  for (const [what, levelSwitches, message] of badSwitches) {
+    it(`rejects a display-only level switch with ${what}`, () => {
+      const line = makeValidLine();
+      line.machines[1].sim.levelSwitches = levelSwitches;
+      const result = validateLine(line);
+      expect(result.ok).toBe(false);
+      expect(result.errors.join("\n")).toMatch(message);
+    });
+  }
+
+  it("rejects display-only level switches on a machine with no level", () => {
+    const line = makeValidLine();
+    line.machines[1].sim = { kind: "passThrough", levelSwitches: { LSL: 0.35 } };
+    expect(validateLine(line).errors.join("\n")).toMatch(/bufferBin" has level switches but no level/);
+  });
+
+  it("rejects a display-only level switch that an interlock on the same bin also names", () => {
+    const line = makeValidLine();
+    line.machines[1].sim.levelSwitches = { LSH: 0.85 };
+    line.machines.push({
+      id: "valve", type: "box", name: "VALVE", tag: "V", status: "new", zone: "packaging", x: 0, y: 0,
+      ports: { inputs: [], outputs: [] }, anchors: {}, sim: { kind: "source", rateM3PerSec: 0 },
+    });
+    line.interlocks = [{
+      id: "high", kind: "sentence",
+      when: { machine: "bufferBin", condition: "above", setpoint: 0.85, switch: "LSH", delaySec: 1 },
+      then: [{ action: "close", machine: "valve" }], reset: "auto",
+    }];
+    expect(validateLine(line).errors.join("\n")).toMatch(/bufferBin" level switch "LSH" is also named by interlock "high"/);
+  });
 });

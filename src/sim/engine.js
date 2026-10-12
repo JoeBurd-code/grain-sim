@@ -529,8 +529,12 @@ export function setInterlockLowSetpoint(sim, sensorMachineId, fraction) {
   setInterlockField(sim, sensorMachineId, "lowSetpoint", fraction);
 }
 
+// An interlock sentence's "when it clears" delay is part of the same signal
+// delay (issue #83), as the buffer bin's one delay was for every transition
+// of its coded rule.
 export function setInterlockSignalDelay(sim, sensorMachineId, seconds) {
   setInterlockField(sim, sensorMachineId, "signalDelaySec", seconds);
+  setInterlockField(sim, sensorMachineId, "clearDelaySec", seconds);
 }
 
 // Live control (issue #60, gradedFeedSchedule's own third instrument): the

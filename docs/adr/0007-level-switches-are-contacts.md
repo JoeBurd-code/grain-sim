@@ -27,6 +27,13 @@ otherwise. The role comes from the rule kind, via `ALARM_CODE` in
 `sim/control.js`, and rides on each reading as `alarm` so the render layer
 never has to know about rule kinds.
 
+Since issue #83 an interlock sentence gives the role by its reset, not its kind.
+A latched sentence's level switch is its trip, so it is red. The switches of an
+auto sentence, and a bin's display-only level switches, are green. The table
+below names the rule kinds as they were when this was decided. The buffer bin,
+the Flexicon pre-bin and the two metal bins are now sentences, and their
+colours are the same.
+
 This means the same `LSH` is drawn in two different colours in two places on
 screen, which looks wrong until you know why. `LSH` genuinely means two things
 on this line:

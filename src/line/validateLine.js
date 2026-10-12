@@ -7,7 +7,7 @@ import { isLiveControlBind, isLiveReadBind } from "../sim/liveControls";
 import { adjustableFieldErrors } from "./adjustableFields";
 import { plantControlErrors } from "./plantControls";
 import { validateSentence } from "../sim/sentenceInterlock";
-import { isSentence } from "./interlocks";
+import { isSentence, sentenceParts, SWITCH_FIELDS } from "./interlocks";
 
 export function validateLine(line) {
   const errors = [];
@@ -122,6 +122,25 @@ export function validateLine(line) {
       } else if (!BEHAVIORS[actuator.sim?.kind]?.command) {
         errors.push(`interlock "${rule.id}" targets machine "${target.machine}", whose sim.kind cannot be commanded`);
       }
+    }
+  }
+
+  // Issue #83: a bin's display-only level switches (control.js
+  // initLevelSwitches). A code an interlock on the same bin also names would
+  // draw two set points for one lamp.
+  for (const m of line.machines) {
+    const switches = m.sim?.levelSwitches;
+    if (switches === undefined) continue;
+    if (!BEHAVIORS[m.sim.kind]?.level) errors.push(`machine "${m.id}" has level switches but no level`);
+    for (const [code, setpoint] of Object.entries(switches)) {
+      if (!SWITCH_FIELDS[code]) {
+        errors.push(`machine "${m.id}" has unknown level switch "${code}" (expected one of ${Object.keys(SWITCH_FIELDS).join(", ")})`);
+      } else if (typeof setpoint !== "number" || !(setpoint >= 0 && setpoint <= 1)) {
+        errors.push(`machine "${m.id}" needs an ${code} set point from 0 to 100 %`);
+      }
+      const rule = (line.interlocks ?? []).find((r) => isSentence(r) && r.when?.machine === m.id
+        && sentenceParts(r).some((part) => part.switch === code));
+      if (rule) errors.push(`machine "${m.id}" level switch "${code}" is also named by interlock "${rule.id}"`);
     }
   }
 
