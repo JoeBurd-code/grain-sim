@@ -22,6 +22,7 @@ import { readLiveControl } from "../sim/liveControls";
 import { isSeriesPlotted } from "../sim/plotHistory";
 import { plotColorFor } from "./plotColors";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
+import { interlockSensorMachine } from "../line/interlocks";
 
 // The golden line is validated on its way in through the import path
 // (goldenLine.js); any errors land here for the LINE DATA INVALID screen.
@@ -54,7 +55,7 @@ function downloadLine(lineToSave, name) {
 // Derived from line data, not from events seen so far, so a toggle exists
 // for a machine even before its first trip.
 function interlockedMachinesOf(line) {
-  const ids = new Set((line.interlocks ?? []).map((i) => i.sensor.machine));
+  const ids = new Set((line.interlocks ?? []).map(interlockSensorMachine));
   return line.machines.filter((m) => ids.has(m.id));
 }
 

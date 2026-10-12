@@ -1911,27 +1911,30 @@ export const line = {
     },
     {
       id: "conveyorRunningInterlockFeeder1",
-      kind: "autoStopOnNotRunning",
-      sensor: { machine: "pendulumConveyor" },
+      kind: "sentence",
       // "Inlet drum feeders `52.603.L00/L01` | `52.604.E00` running"
       // (PLC_FD §5's reverse-direction interlock table) — a plain Process
-      // Interlock, not a Trip, so it is not latched (see
-      // autoStopOnNotRunning's own control.js comment): it releases the
-      // instant the conveyor is confirmed running again, no reset needed.
+      // Interlock, not a Trip, so it is not latched (reset "auto" below):
+      // it releases the instant the conveyor is confirmed running again, no reset needed.
       // 1 s delay is the FD's own figure for this exact interlock.
-      signalDelaySec: 1,
-      action: { machine: "inletDrumFeeder1" },
-      provenance: { signalDelaySec: "confirmed" },
+      // Issue #82: the first interlock written as a sentence ("when the
+      // pendulum conveyor is stopped for 1 s, then stop inlet drum feeder
+      // 1; reset auto"). Auto reset is what makes it a plain PI: the stop
+      // releases the tick the conveyor runs again.
+      when: { machine: "pendulumConveyor", condition: "stopped", delaySec: 1 },
+      then: [{ action: "stop", machine: "inletDrumFeeder1" }],
+      reset: "auto",
+      provenance: { "when.delaySec": "confirmed" },
     },
     {
       id: "conveyorRunningInterlockFeeder2",
-      kind: "autoStopOnNotRunning",
-      sensor: { machine: "pendulumConveyor" },
+      kind: "sentence",
       // Same interlock, mirrored onto the other packaging drum feeder — see
       // conveyorRunningInterlockFeeder1's own comment.
-      signalDelaySec: 1,
-      action: { machine: "inletDrumFeeder2" },
-      provenance: { signalDelaySec: "confirmed" },
+      when: { machine: "pendulumConveyor", condition: "stopped", delaySec: 1 },
+      then: [{ action: "stop", machine: "inletDrumFeeder2" }],
+      reset: "auto",
+      provenance: { "when.delaySec": "confirmed" },
     },
   ],
   // The always-on speed x gate -> rate derivation (issue #59), wired onto

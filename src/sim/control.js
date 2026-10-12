@@ -15,6 +15,7 @@
 // existed (issue #19) needs no `lineData.js` change.
 import { tripLineFromInterlock } from "./utilitiesTrip";
 import { BEHAVIORS } from "./behaviors";
+import { SENTENCE_KIND } from "./sentenceInterlock";
 import { SPEED_DIAL, GATE_DIAL, dialEffective } from "./dial";
 import { m3PerSecToTPerHour, simatekFeedRateTph, tPerHourToM3PerSec } from "./units";
 
@@ -1119,7 +1120,7 @@ function disarmGradedFeedSchedule(rule) {
 // after-bin outlet valve above the scalping screen is closed, and the
 // packaging conveyor is stopped. The two inlet drum feeders are
 // deliberately *not* commanded here — conveyorRunningInterlockFeeder1/2
-// (autoStopOnNotRunning, the FD's own 1 s reverse-direction interlock)
+// (sentences since issue #82, the FD's own 1 s reverse-direction interlock)
 // already follow the conveyor down and, being a plain PI rather than a
 // trip, release on their own when it comes back up. Commanding them from
 // here as well would be a second, redundant authority over the same two
@@ -1487,6 +1488,9 @@ const CONTROL_KINDS = {
     init: initStagedPauseRestart, step: stepStagedPauseRestart, reset: resetStagedPauseRestart,
     disarm: disarmStagedPauseRestart,
   },
+  // Issue #82: the interlock sentence (sentenceInterlock.js), the one shape
+  // that replaces every kind above as each is converted.
+  sentence: SENTENCE_KIND,
 };
 
 // Arming (issue #47): the FD qualifies four of the packaging conveyor's own

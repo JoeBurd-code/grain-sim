@@ -14,6 +14,7 @@ import { assertConserved, conservationTotals } from "./conservation";
 import { tPerHourToM3PerSec, m3PerSecToTPerHour } from "./units";
 import { instrumentReadings } from "./control";
 import { line } from "../line/lineData";
+import { interlockCommandedMachines } from "../line/interlocks";
 import { BEHAVIORS } from "./behaviors";
 
 const SOURCE_ID = "upstreamStub";
@@ -100,7 +101,7 @@ const lineWithoutPackaging = {
   machines: lineWithoutFeedSchedule.machines.map((m) =>
     m.id === "inletDrumFeeder2" || m.id === "scalpingDischargeHopper" ? { ...m, sim: undefined } : m
   ),
-  interlocks: lineWithoutFeedSchedule.interlocks.filter((i) => i.action.machine !== "inletDrumFeeder2"),
+  interlocks: lineWithoutFeedSchedule.interlocks.filter((i) => !interlockCommandedMachines(i).includes("inletDrumFeeder2")),
 };
 
 describe("createSim / stepSim (real Treater Line 2 data)", () => {
@@ -640,7 +641,7 @@ function feedElevator(sim, tPerHour = 12) {
 const lineWithoutBatchTreater = {
   ...lineWithoutFeedSchedule,
   machines: lineWithoutFeedSchedule.machines.map((m) => (m.id === "batchTreater" ? { ...m, sim: undefined } : m)),
-  interlocks: lineWithoutFeedSchedule.interlocks.filter((r) => r.action.machine !== "batchTreater"),
+  interlocks: lineWithoutFeedSchedule.interlocks.filter((r) => r.action?.machine !== "batchTreater"),
 };
 
 describe("treating elevator carries grain with a real transport delay (issue #21)", () => {
@@ -806,7 +807,7 @@ function preBinInterlock(sim) {
 const lineWithScheduleWithoutBatchTreater = {
   ...line,
   machines: line.machines.map((m) => (m.id === "batchTreater" ? { ...m, sim: undefined } : m)),
-  interlocks: line.interlocks.filter((r) => r.action.machine !== "batchTreater"),
+  interlocks: line.interlocks.filter((r) => r.action?.machine !== "batchTreater"),
 };
 
 // Bands per issue #56/#58: boost (14 TPH), normal (12 TPH), throttle (6

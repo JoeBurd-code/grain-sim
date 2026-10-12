@@ -167,7 +167,7 @@ describe("plant units in, engine units in the line", () => {
     // The Concetti pre-bin carries two rules with an LSH: the feed schedule
     // and the staged pause sequence. The live slider moves both.
     const edited = set(goldenLine, "concettiPreBin", "highSetpoint", 80);
-    const rules = edited.interlocks.filter((r) => r.sensor.machine === "concettiPreBin" && r.highSetpoint !== undefined);
+    const rules = edited.interlocks.filter((r) => r.sensor?.machine === "concettiPreBin" && r.highSetpoint !== undefined);
     expect(rules.length).toBe(2);
     for (const r of rules) expect(r.highSetpoint).toBeCloseTo(0.8, 12);
     expect(machine(edited, "concettiPreBin").params.find((p) => p.id === "highSetpoint").value).toBe(80);

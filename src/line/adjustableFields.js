@@ -13,6 +13,7 @@
 // to the engine unit the line holds. This module never changes a line it is
 // given: setAdjustableValue returns a new one.
 import { tPerHourToM3PerSec, m3PerSecToTPerHour, kgToM3, m3ToKg } from "../sim/units";
+import { interlockSensorMachine } from "./interlocks";
 
 // Plant unit <-> line (engine) unit.
 const SAME = { toLine: (v) => v, fromLine: (v) => v };
@@ -30,7 +31,7 @@ function simValue(key, unit, convert) {
 }
 
 function rulesReading(line, machineId, key) {
-  return (line.interlocks ?? []).filter((r) => r.sensor.machine === machineId && r[key] !== undefined);
+  return (line.interlocks ?? []).filter((r) => interlockSensorMachine(r) === machineId && r[key] !== undefined);
 }
 
 // A value on every interlock rule that reads this machine, the same rules the
@@ -158,7 +159,7 @@ function valueError(field, value) {
 // LSL below LSH, LSH below LSHH. Compared across every rule that reads the
 // bin, since one bin's set points can sit on different rules.
 function setpointOrderError(line, machineId) {
-  const rules = (line.interlocks ?? []).filter((r) => r.sensor.machine === machineId);
+  const rules = (line.interlocks ?? []).filter((r) => interlockSensorMachine(r) === machineId);
   const values = (key) => rules.map((r) => r[key]).filter((v) => v !== undefined);
   const [lows, highs, highHighs] = [values("lowSetpoint"), values("highSetpoint"), values("highHighSetpoint")];
   const below = (a, b) => a.length === 0 || b.length === 0 || Math.max(...a) < Math.min(...b);

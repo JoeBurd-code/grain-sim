@@ -6,6 +6,8 @@ import { isSimExempt } from "./simExempt";
 import { isLiveControlBind, isLiveReadBind } from "../sim/liveControls";
 import { adjustableFieldErrors } from "./adjustableFields";
 import { plantControlErrors } from "./plantControls";
+import { validateSentence } from "../sim/sentenceInterlock";
+import { isSentence } from "./interlocks";
 
 export function validateLine(line) {
   const errors = [];
@@ -85,6 +87,12 @@ export function validateLine(line) {
   }
 
   for (const rule of line.interlocks ?? []) {
+    // Issue #82: an interlock sentence checks its own parts, and a malformed
+    // one is refused with a message rather than failing at run time.
+    if (isSentence(rule)) {
+      errors.push(...validateSentence(rule, byId));
+      continue;
+    }
     if (!byId.has(rule.sensor.machine)) {
       errors.push(`interlock "${rule.id}" references unknown sensor machine "${rule.sensor.machine}"`);
     }

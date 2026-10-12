@@ -285,6 +285,10 @@ function initMeteredFeeder(m) {
     // away from a feeder the conveyor interlock has independently stopped
     // never has one write silently clobber the other's intent.
     runPermit: true,
+    // Issue #82: `runPermit` resolved from one slot per authority, like
+    // `enabled` above, so two interlocks that stop the same feeder never
+    // release each other's stop.
+    runPermitCommands: {},
     ...(m.sim.hasGate ? {
       gateFraction: 1,
       // Issue #63: stamped by setGateFraction (engine.js) the first time the
@@ -376,8 +380,10 @@ function setEnabledMeteredFeeder(state, enabled, authority = DEFAULT_AUTHORITY) 
 // setEnabledMeteredFeeder above, but through the independent `runPermit`
 // field, so this interlock and the source selector never overwrite each
 // other's gate — see `runPermit`'s own comment on initMeteredFeeder.
-function setRunPermitMeteredFeeder(state, permitted) {
-  state.runPermit = permitted;
+// Issue #82: in `authority`'s own slot (commandSlots.js), so the feeder runs
+// only while every interlock that has spoken permits it.
+function setRunPermitMeteredFeeder(state, permitted, authority = DEFAULT_AUTHORITY) {
+  commandOn(state, "runPermitCommands", "runPermit", authority, permitted);
 }
 
 const EPS = 1e-9;
