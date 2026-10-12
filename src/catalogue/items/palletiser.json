@@ -1,0 +1,38 @@
+{
+  "id": "palletiser",
+  "version": 1,
+  "name": "Palletiser",
+  "group": "packaging",
+  "maker": "Concetti",
+  "model": "",
+  "machine": {
+    "type": "palletiser",
+    "w": 140,
+    "h": 80,
+    "ports": {
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ]
+    },
+    "anchors": {
+      "in": {
+        "x": 70,
+        "y": 0
+      },
+      "out": {
+        "x": 70,
+        "y": 80
+      }
+    },
+    "label": {
+      "side": "left",
+      "align": "center"
+    },
+    "sim": {
+      "kind": "passThrough"
+    }
+  }
+}

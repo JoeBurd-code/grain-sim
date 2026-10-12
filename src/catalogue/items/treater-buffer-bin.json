@@ -1,0 +1,89 @@
+{
+  "id": "treater-buffer-bin",
+  "version": 1,
+  "name": "Treater buffer bin",
+  "group": "storage",
+  "maker": "",
+  "model": "",
+  "machine": {
+    "type": "bin",
+    "w": 170,
+    "h": 190,
+    "ports": {
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ]
+    },
+    "anchors": {
+      "in": {
+        "x": 45,
+        "y": 0
+      },
+      "out": {
+        "x": 85,
+        "y": 190
+      }
+    },
+    "fill": 0,
+    "instruments": [
+      "LT",
+      "LSHH",
+      "LSH",
+      "LSL"
+    ],
+    "label": {
+      "side": "left",
+      "align": "center"
+    },
+    "params": [
+      {
+        "id": "level",
+        "label": "fill level",
+        "min": 0,
+        "max": 100,
+        "value": 0,
+        "unit": "%",
+        "bind": "levelJump"
+      }
+    ],
+    "setpointSliders": [
+      {
+        "switch": "LSH",
+        "label": "LSH set point",
+        "min": 35,
+        "max": 90
+      },
+      {
+        "switch": "LSL",
+        "label": "LSL set point",
+        "min": 0,
+        "max": 55
+      },
+      {
+        "switch": "LSHH",
+        "label": "LSHH trip set point",
+        "min": 55,
+        "max": 100
+      }
+    ],
+    "adjustable": [
+      {
+        "id": "capacity",
+        "label": "capacity",
+        "unit": "m³",
+        "kind": "number",
+        "min": 2,
+        "max": 20,
+        "default": 7.7,
+        "bind": "capacity"
+      }
+    ],
+    "sim": {
+      "kind": "accumulator",
+      "capacityM3": 7.7
+    }
+  }
+}

@@ -1,0 +1,125 @@
+// Build mode's catalogue panel on the left (issue #87): every machine a
+// user can add, in collapsible groups by job, with a search box that filters
+// by name. Each item shows its real scene symbol, its name and its maker,
+// and is dragged onto the canvas to add it (PlantApp's drop handler).
+import { useState } from "react";
+import { CATALOGUE, CATALOGUE_GROUPS, searchCatalogue } from "../catalogue/catalogue";
+import { SYMBOLS } from "../scene/symbolMap";
+import { FallbackSymbol } from "../scene/symbols";
+import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
+
+export const CATALOGUE_PANEL_WIDTH = 230;
+// The drag data type that carries a catalogue item id.
+export const CATALOGUE_DRAG_TYPE = "application/x-grain-sim-item";
+
+const THUMB_W = 46;
+const THUMB_H = 36;
+
+// A symbol drawn outside the scene: nothing moves, so the motion clock only
+// answers "phase 0" and keeps no frames.
+const STILL = { setRate: () => {}, getPhase: () => 0, frameRef: () => () => {} };
+
+function Thumbnail({ item }) {
+  // A thumbnail id of its own, so a symbol's clip path never shares an id
+  // with a machine on the canvas.
+  const machine = { ...item.machine, id: `catalogue-${item.id}`, name: item.name };
+  const Symbol = SYMBOLS[machine.type] ?? FallbackSymbol;
+  const pad = Math.max(machine.w, machine.h) * 0.08;
+  return (
+    <svg
+      className="catalogue-thumb" width={THUMB_W} height={THUMB_H} aria-hidden="true" style={{ flex: "none", overflow: "hidden" }}
+      viewBox={`${-pad} ${-pad} ${machine.w + 2 * pad} ${machine.h + 2 * pad}`}
+      preserveAspectRatio="xMidYMid meet"
+    >
+      <Symbol machine={machine} dynamic={{ fill: machine.fill }} motion={STILL} simTime={0} />
+    </svg>
+  );
+}
+
+function maker(item) {
+  return [item.maker, item.model].filter(Boolean).join(" ");
+}
+
+function CatalogueItem({ item }) {
+  return (
+    <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData(CATALOGUE_DRAG_TYPE, item.id);
+        e.dataTransfer.effectAllowed = "copy";
+      }}
+      title={`Drag ${item.name} onto the canvas`}
+      className="catalogue-item"
+      style={{
+        display: "flex", alignItems: "center", gap: 8, padding: "5px 6px", borderRadius: 4,
+        cursor: "grab", border: `1px solid transparent`,
+      }}
+    >
+      <Thumbnail item={item} />
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 10, color: C.text }}>{item.name}</div>
+        <div style={{ fontSize: 9, color: C.muted, marginTop: 1 }}>{maker(item) || "no maker"}</div>
+      </div>
+    </div>
+  );
+}
+
+export default function CataloguePanel() {
+  const [query, setQuery] = useState("");
+  const [collapsed, setCollapsed] = useState(() => new Set());
+  const items = searchCatalogue(query, CATALOGUE);
+  const searching = query.trim() !== "";
+  const toggle = (id) => setCollapsed((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
+
+  return (
+    <aside style={{
+      width: CATALOGUE_PANEL_WIDTH, flex: "none", borderRight: `1px solid ${C.line}`,
+      background: C.panel, padding: "14px 12px", overflowY: "auto", fontFamily: FONT_MONO,
+    }}>
+      <div style={{ fontFamily: FONT_DISP, fontSize: 16, color: C.wheat, letterSpacing: "0.04em" }}>CATALOGUE</div>
+      <input
+        type="search"
+        placeholder="search by name"
+        aria-label="search the catalogue"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        style={{
+          width: "100%", boxSizing: "border-box", marginTop: 10, background: C.bg, color: C.text,
+          border: `1px solid ${C.line}`, borderRadius: 4, padding: "4px 6px", fontFamily: FONT_MONO, fontSize: 11,
+        }}
+      />
+      {items.length === 0 && (
+        <div style={{ fontSize: 10, color: C.muted, marginTop: 14 }}>No machine has that name.</div>
+      )}
+      {CATALOGUE_GROUPS.map((group) => {
+        const inGroup = items.filter((item) => item.group === group.id);
+        if (inGroup.length === 0) return null;
+        // A search shows every match, collapsed group or not.
+        const open = searching || !collapsed.has(group.id);
+        return (
+          <div key={group.id} style={{ marginTop: 14 }}>
+            <button
+              className="zonebtn"
+              aria-expanded={open}
+              onClick={() => toggle(group.id)}
+              style={{
+                display: "flex", width: "100%", justifyContent: "space-between", background: "transparent",
+                border: "none", borderBottom: `1px solid ${C.line}`, padding: "2px 0 4px", cursor: "pointer",
+                color: C.muted, fontFamily: FONT_MONO, fontSize: 9, letterSpacing: "0.08em",
+              }}
+            >
+              <span>{group.name.toUpperCase()}</span>
+              <span>{open ? "−" : "+"} {inGroup.length}</span>
+            </button>
+            {open && inGroup.map((item) => <CatalogueItem key={item.id} item={item} />)}
+          </div>
+        );
+      })}
+    </aside>
+  );
+}

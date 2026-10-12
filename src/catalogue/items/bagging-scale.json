@@ -1,0 +1,75 @@
+{
+  "id": "bagging-scale",
+  "version": 1,
+  "name": "Bagging scale",
+  "group": "packaging",
+  "maker": "Concetti",
+  "model": "",
+  "machine": {
+    "type": "scale",
+    "w": 80,
+    "h": 46,
+    "ports": {
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ]
+    },
+    "anchors": {
+      "in": {
+        "x": 40,
+        "y": 0
+      },
+      "out": {
+        "x": 40,
+        "y": 46
+      }
+    },
+    "label": {
+      "side": "left",
+      "align": "center"
+    },
+    "params": [
+      {
+        "id": "batchSize",
+        "label": "bag size",
+        "min": 10,
+        "max": 100,
+        "value": 50,
+        "unit": "kg",
+        "bind": "batchSize"
+      },
+      {
+        "id": "cycleTime",
+        "label": "fill time",
+        "min": 5,
+        "max": 60,
+        "value": 15,
+        "unit": "s",
+        "bind": "batchCycleTime"
+      }
+    ],
+    "adjustable": [
+      {
+        "param": "batchSize",
+        "default": 50
+      },
+      {
+        "param": "cycleTime",
+        "default": 15
+      }
+    ],
+    "sim": {
+      "kind": "batchCycle",
+      "chargeM3": 0.06944444444444445,
+      "phases": [
+        {
+          "name": "fill",
+          "durationSec": 15
+        }
+      ]
+    }
+  }
+}

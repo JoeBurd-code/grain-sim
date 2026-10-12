@@ -20,6 +20,7 @@ import {
   resetUtilitiesTrip,
 } from "./utilitiesTrip";
 import { plantControlsFor, switchesMachines } from "../line/plantControls";
+import { withoutOffRules } from "../line/interlocks";
 
 export const DT = 0.05; // s, fixed sim timestep (matches the proven mock)
 
@@ -88,7 +89,9 @@ export function createSim(line) {
   const simEnabledIds = new Set(machines.keys());
   const downstream = buildDownstreamMap(line, simEnabledIds, machinesById);
   const order = topoOrder(simEnabledIds, downstream);
-  const control = initControl(line);
+  // A rule that names a deleted machine is off and does not run (issue #87).
+  const running = withoutOffRules(line);
+  const control = initControl(running);
   // Issue #30: seed every rule's instrument state (setpoint, tripped) from
   // the sensor's initial level right away, so the very first published
   // snapshot — before the sim has ever ticked — already shows real values.
@@ -109,7 +112,7 @@ export function createSim(line) {
   // derivation, empty on the real line for now (see control.js's own
   // comment on initFeedRateDerivations) but stepped unconditionally below
   // regardless — a rule-free list, unlike `control` above.
-  const feedRateDerivations = initFeedRateDerivations(line);
+  const feedRateDerivations = initFeedRateDerivations(running);
   // The declared output ports of every multi-output (splitter, and later
   // router) machine, so the passes below know the full port set to build
   // downstreamCap/hasDownstream objects over — including a port with

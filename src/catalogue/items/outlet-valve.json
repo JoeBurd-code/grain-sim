@@ -1,0 +1,51 @@
+{
+  "id": "outlet-valve",
+  "version": 1,
+  "name": "Outlet valve",
+  "group": "conveying",
+  "maker": "",
+  "model": "",
+  "machine": {
+    "type": "valve",
+    "w": 40,
+    "h": 18,
+    "ports": {
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ]
+    },
+    "anchors": {
+      "in": {
+        "x": 20,
+        "y": 0
+      },
+      "out": {
+        "x": 20,
+        "y": 18
+      }
+    },
+    "label": {
+      "side": "left",
+      "align": "center"
+    },
+    "adjustable": [
+      {
+        "id": "ratedCapacity",
+        "label": "maximum flow",
+        "unit": "t/h",
+        "kind": "number",
+        "min": 5,
+        "max": 40,
+        "default": 19.2,
+        "bind": "ratedCapacity"
+      }
+    ],
+    "sim": {
+      "kind": "gateValve",
+      "ceilingM3PerSec": 0.007407407407407408
+    }
+  }
+}

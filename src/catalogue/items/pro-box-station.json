@@ -1,0 +1,51 @@
+{
+  "id": "pro-box-station",
+  "version": 1,
+  "name": "Pro box unloading station",
+  "group": "edges",
+  "maker": "",
+  "model": "",
+  "machine": {
+    "type": "proBox",
+    "w": 120,
+    "h": 80,
+    "ports": {
+      "inputs": [],
+      "outputs": [
+        "out"
+      ]
+    },
+    "anchors": {
+      "out": {
+        "x": 60,
+        "y": 80
+      }
+    },
+    "label": {
+      "side": "above",
+      "align": "center"
+    },
+    "params": [
+      {
+        "id": "rate",
+        "label": "source rate",
+        "min": 0,
+        "max": 20,
+        "value": 12,
+        "unit": "t/h",
+        "bind": "sourceRate",
+        "readBind": "sourceRateActual"
+      }
+    ],
+    "adjustable": [
+      {
+        "param": "rate",
+        "default": 12
+      }
+    ],
+    "sim": {
+      "kind": "source",
+      "rateM3PerSec": 0.00462962962962963
+    }
+  }
+}

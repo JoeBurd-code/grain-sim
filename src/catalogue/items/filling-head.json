@@ -1,0 +1,75 @@
+{
+  "id": "filling-head",
+  "version": 1,
+  "name": "Big bag filling head",
+  "group": "packaging",
+  "maker": "Flexicon",
+  "model": "",
+  "machine": {
+    "type": "fillingHead",
+    "w": 90,
+    "h": 70,
+    "ports": {
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ]
+    },
+    "anchors": {
+      "in": {
+        "x": 45,
+        "y": 0
+      },
+      "out": {
+        "x": 45,
+        "y": 70
+      }
+    },
+    "label": {
+      "side": "left",
+      "align": "center"
+    },
+    "params": [
+      {
+        "id": "batchSize",
+        "label": "bag size",
+        "min": 500,
+        "max": 1500,
+        "value": 1000,
+        "unit": "kg",
+        "bind": "batchSize"
+      },
+      {
+        "id": "cycleTime",
+        "label": "fill time",
+        "min": 15,
+        "max": 120,
+        "value": 45,
+        "unit": "s",
+        "bind": "batchCycleTime"
+      }
+    ],
+    "adjustable": [
+      {
+        "param": "batchSize",
+        "default": 1000
+      },
+      {
+        "param": "cycleTime",
+        "default": 45
+      }
+    ],
+    "sim": {
+      "kind": "batchCycle",
+      "chargeM3": 1.3888888888888888,
+      "phases": [
+        {
+          "name": "fill",
+          "durationSec": 45
+        }
+      ]
+    }
+  }
+}

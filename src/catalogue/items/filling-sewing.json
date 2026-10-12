@@ -1,0 +1,38 @@
+{
+  "id": "filling-sewing",
+  "version": 1,
+  "name": "Filling and sewing",
+  "group": "packaging",
+  "maker": "Concetti",
+  "model": "",
+  "machine": {
+    "type": "filler",
+    "w": 100,
+    "h": 70,
+    "ports": {
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ]
+    },
+    "anchors": {
+      "in": {
+        "x": 50,
+        "y": 0
+      },
+      "out": {
+        "x": 50,
+        "y": 70
+      }
+    },
+    "label": {
+      "side": "left",
+      "align": "center"
+    },
+    "sim": {
+      "kind": "passThrough"
+    }
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "id": "grain-break",
+  "version": 1,
+  "name": "Grain break",
+  "group": "conveying",
+  "maker": "",
+  "model": "",
+  "machine": {
+    "type": "grainBreak",
+    "w": 48,
+    "h": 36,
+    "ports": {
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ]
+    },
+    "anchors": {
+      "in": {
+        "x": 24,
+        "y": 0
+      },
+      "out": {
+        "x": 24,
+        "y": 36
+      }
+    },
+    "label": {
+      "side": "left",
+      "align": "center"
+    },
+    "sim": {
+      "kind": "passThrough"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "id": "grain-out",
+  "version": 1,
+  "name": "Grain out",
+  "group": "edges",
+  "maker": "",
+  "model": "",
+  "machine": {
+    "type": "grainOut",
+    "w": 60,
+    "h": 34,
+    "ports": { "inputs": ["in"], "outputs": [] },
+    "anchors": { "in": { "x": 30, "y": 0 } },
+    "label": { "side": "right", "align": "center" },
+    "sim": { "kind": "terminalSink" }
+  }
+}

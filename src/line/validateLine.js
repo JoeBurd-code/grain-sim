@@ -7,7 +7,7 @@ import { isLiveControlBind, isLiveReadBind } from "../sim/liveControls";
 import { adjustableFieldErrors } from "./adjustableFields";
 import { plantControlErrors } from "./plantControls";
 import { validateSentence } from "../sim/sentenceInterlock";
-import { isSentence, lineRules, interlockSensorMachine, ruleSwitches, SWITCH_FIELDS } from "./interlocks";
+import { isSentence, lineRules, interlockSensorMachine, ruleSwitches, SWITCH_FIELDS, isRuleOff, isFeedRateLinkOff } from "./interlocks";
 
 // The rules a machine runs that are not interlock sentences (issue #85).
 const MACHINE_RULE_KINDS = new Set(["gradedFeedSchedule", "holdNextBatch"]);
@@ -57,15 +57,24 @@ export function validateLine(line) {
     }
   }
 
+  // Issue #87: a machine added in Build mode has no zone, and its tag is
+  // empty until the user sets one.
   const zoneIds = new Set(line.zones.map((z) => z.id));
   for (const m of line.machines) {
-    if (!zoneIds.has(m.zone)) {
+    if (m.zone !== undefined && !zoneIds.has(m.zone)) {
       errors.push(`machine "${m.id}" assigned to undeclared zone "${m.zone}"`);
     }
   }
 
+  const seenIds = new Set();
+  for (const m of line.machines) {
+    if (seenIds.has(m.id)) errors.push(`two machines have the id "${m.id}"`);
+    seenIds.add(m.id);
+  }
+
   const seenTags = new Map();
   for (const m of line.machines) {
+    if (m.tag === "") continue;
     if (seenTags.has(m.tag)) {
       errors.push(`duplicate tag "${m.tag}" on machines "${seenTags.get(m.tag)}" and "${m.id}"`);
     } else {
@@ -92,7 +101,11 @@ export function validateLine(line) {
   // Issue #85: every interlock is a sentence, which checks its own parts,
   // and a malformed one is refused with a message rather than failing at
   // run time (issue #82).
+  //
+  // A rule that names a machine the line no longer has is off (issue #87):
+  // it is kept, but not run or checked here.
   for (const rule of line.interlocks ?? []) {
+    if (isRuleOff(line, rule)) continue;
     if (isSentence(rule)) {
       errors.push(...validateSentence(rule, byId));
     } else {
@@ -105,6 +118,7 @@ export function validateLine(line) {
       errors.push(`machine rule "${rule.id}" has unknown kind "${rule.kind}" (expected one of ${[...MACHINE_RULE_KINDS].join(", ")})`);
       continue;
     }
+    if (isRuleOff(line, rule)) continue;
     if (!byId.has(rule.sensor?.machine)) {
       errors.push(`machine rule "${rule.id}" references unknown sensor machine "${rule.sensor?.machine}"`);
     }
@@ -177,6 +191,7 @@ export function validateLine(line) {
   // outside `line.interlocks` and `line.machineRules` (see control.js's
   // initFeedRateDerivations: it is not a phase-machine rule kind).
   for (const link of line.feedRateDerivations ?? []) {
+    if (isFeedRateLinkOff(line, link)) continue;
     if (!byId.has(link.elevator.machine)) {
       errors.push(`feed-rate derivation "${link.id}" references unknown elevator machine "${link.elevator.machine}"`);
     }
@@ -185,6 +200,23 @@ export function validateLine(line) {
     }
   }
 
+  // A Diverter's authored default must be one of its own outlets.
+  for (const m of line.machines) {
+    if (!BEHAVIORS[m.sim?.kind]?.selectPort) continue;
+    if (m.sim.defaultPort && !m.ports.outputs.includes(m.sim.defaultPort)) {
+      errors.push(`machine "${m.id}" declares router defaultPort "${m.sim.defaultPort}" not among its own output ports`);
+    }
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
+// Gaps in a line's wiring (issue #87): a machine no connection touches, and
+// a Diverter outlet with no connection. A line with gaps still loads and
+// runs, because a line being built has them; the hand-written golden line
+// is held to having none by its own test.
+export function wiringGaps(line) {
+  const errors = [];
   const touched = new Set();
   for (const c of line.connections) {
     touched.add(c.from.machine);
@@ -206,9 +238,6 @@ export function validateLine(line) {
   for (const m of line.machines) {
     if (!BEHAVIORS[m.sim?.kind]?.selectPort) continue;
     const outputPorts = m.ports.outputs;
-    if (m.sim.defaultPort && !outputPorts.includes(m.sim.defaultPort)) {
-      errors.push(`machine "${m.id}" declares router defaultPort "${m.sim.defaultPort}" not among its own output ports`);
-    }
     for (const p of outputPorts) {
       const wired = line.connections.some((c) => c.from.machine === m.id && c.from.port === p);
       if (!wired) {
@@ -217,5 +246,5 @@ export function validateLine(line) {
     }
   }
 
-  return { ok: errors.length === 0, errors };
+  return errors;
 }

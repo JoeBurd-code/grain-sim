@@ -7,14 +7,8 @@
 // `running`/`speed` (useSimEngine.js) are threaded through so machine
 // motion freezes on pause and scales with the speed multiplier.
 import { C, SELECT_STROKE } from "./theme";
-import {
-  BinSymbol, MetalBinSymbol, ElevatorSymbol, DiverterSymbol,
-  StubSymbol, FallbackSymbol, MachineLabel,
-  ConveyorSymbol, DrumFeederSymbol, ScreenSymbol, TreaterSymbol,
-  SamplerSymbol, GrainBreakSymbol, IbcSymbol, MetalRemoverSymbol,
-  ProBoxSymbol, VibratorySymbol, FillingHeadSymbol, RollerScaleSymbol,
-  ScaleSymbol, FillerSymbol, PalletiserSymbol, ValveSymbol,
-} from "./symbols";
+import { MachineLabel } from "./symbols";
+import { symbolFor } from "./symbolMap";
 import { useFlowAnimation, FLOW_DASH_PATTERN } from "./useFlowAnimation";
 import { useMachineMotion } from "./useMachineMotion";
 import { connectionPoints } from "../line/routing";
@@ -23,30 +17,6 @@ import { machineFootprint } from "../line/layout";
 // Temporary direction markers: flip to false (or delete usages) when the
 // animated flow shimmer replaces them. One flag = the one-step removal.
 const SHOW_FLOW_ARROWS = true;
-
-const SYMBOLS = {
-  bin: BinSymbol,
-  metalBin: MetalBinSymbol,
-  elevator: ElevatorSymbol,
-  diverter: DiverterSymbol,
-  stub: StubSymbol,
-  conveyor: ConveyorSymbol,
-  drumFeeder: DrumFeederSymbol,
-  valve: ValveSymbol,
-  screen: ScreenSymbol,
-  treater: TreaterSymbol,
-  sampler: SamplerSymbol,
-  grainBreak: GrainBreakSymbol,
-  ibc: IbcSymbol,
-  metalRemover: MetalRemoverSymbol,
-  proBox: ProBoxSymbol,
-  vibratory: VibratorySymbol,
-  fillingHead: FillingHeadSymbol,
-  rollerScale: RollerScaleSymbol,
-  scale: ScaleSymbol,
-  filler: FillerSymbol,
-  palletiser: PalletiserSymbol,
-};
 
 const STREAM_STYLE = {
   product: { stroke: C.wheat, width: 2, opacity: 0.85, marker: "arrProduct" },
@@ -177,7 +147,7 @@ export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelec
 
       {/* machines */}
       {line.machines.map((m) => {
-        const Symbol = SYMBOLS[m.type] ?? FallbackSymbol;
+        const Symbol = symbolFor(m.type);
         const selected = m.id === selectedId;
         return (
           <g

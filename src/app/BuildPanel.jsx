@@ -154,7 +154,7 @@ function FieldRow({ field, value, changed, onEdit }) {
   );
 }
 
-function MachineSettings({ line, machine, onEditField }) {
+function MachineSettings({ line, machine, onEditField, onDeleteMachine }) {
   const fields = adjustableFields(machine);
   return (
     <>
@@ -173,11 +173,24 @@ function MachineSettings({ line, machine, onEditField }) {
           />
         ))
       )}
+      {/* Issue #87. The Delete key does the same. */}
+      <div style={{ marginTop: 22 }}>
+        <button
+          className="zonebtn"
+          style={{ ...btnStyle, color: C.red, borderColor: C.red }}
+          onClick={() => onDeleteMachine(machine.id)}
+        >
+          DELETE MACHINE
+        </button>
+        <div style={{ fontSize: 9, color: C.muted, marginTop: 6 }}>
+          Removes the machine and its connections.
+        </div>
+      </div>
     </>
   );
 }
 
-export default function BuildPanel({ line, machine, settingsOpen, lineName, onStartOver, onEditField }) {
+export default function BuildPanel({ line, machine, settingsOpen, lineName, onStartOver, onEditField, onDeleteMachine }) {
   return (
     <aside style={{
       width: BUILD_PANEL_WIDTH, flex: "none", borderLeft: `1px solid ${C.line}`,
@@ -189,7 +202,7 @@ export default function BuildPanel({ line, machine, settingsOpen, lineName, onSt
       ) : machine ? (
         // Keyed by machine, so a half-typed value or a refusal never carries
         // over to the next machine selected.
-        <MachineSettings key={machine.id} line={line} machine={machine} onEditField={onEditField} />
+        <MachineSettings key={machine.id} line={line} machine={machine} onEditField={onEditField} onDeleteMachine={onDeleteMachine} />
       ) : (
         <div style={{ fontSize: 10, color: C.muted }}>Select a machine to see its settings.</div>
       )}

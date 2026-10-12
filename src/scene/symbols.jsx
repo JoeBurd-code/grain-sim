@@ -983,3 +983,26 @@ export function FallbackSymbol({ machine: m }) {
     </g>
   );
 }
+
+// Grain in and Grain out (issue #87): where grain enters and leaves a line a
+// user builds. A tag that points down the way the grain goes, with a wheat
+// chevron inside, the same at both ends; the port is the difference.
+function EdgeTag({ machine: m }) {
+  const { w, h } = m;
+  const tip = 10;
+  const cx = w / 2, cy = (h - tip) / 2;
+  return (
+    <g>
+      <path className="body" d={`M0,0 H${w} V${h - tip} L${cx},${h} L0,${h - tip} Z`} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
+      <path d={`M${cx - 8},${cy - 4} L${cx},${cy + 4} L${cx + 8},${cy - 4}`} fill="none" stroke={C.wheat} strokeWidth="2" />
+    </g>
+  );
+}
+
+export function GrainInSymbol({ machine }) {
+  return <EdgeTag machine={machine} />;
+}
+
+export function GrainOutSymbol({ machine }) {
+  return <EdgeTag machine={machine} />;
+}

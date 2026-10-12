@@ -17,11 +17,16 @@ export { setAdjustableValue, differsFromDefault } from "./adjustableFields";
 export { diffFromBase, applyChanges } from "./lineChanges";
 // Moving a machine (issue #86).
 export { moveMachine } from "./layout";
+// Adding and deleting machines, and NEW LINE (issue #87).
+export { addMachine, deleteMachine, emptyLine } from "./editing";
 
 export const LINE_FORMAT = "grain-sim-line";
 // Version 2 (issue #85): every interlock is a sentence, and the rules that
 // are not move to `machineRules`. A version 1 file is refused with a message.
-export const LINE_FORMAT_VERSION = 2;
+// Version 3 (issue #87): a machine names its catalogue `item`, a machine
+// can have no zone and an empty tag, and a line can have unconnected
+// machines and rules that are off. An older file is refused with a message.
+export const LINE_FORMAT_VERSION = 3;
 
 function withoutProvenance(key, value) {
   return key === "provenance" ? undefined : value;

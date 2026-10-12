@@ -1,0 +1,85 @@
+{
+  "id": "batch-treater",
+  "version": 1,
+  "name": "Batch treater",
+  "group": "treating",
+  "maker": "Niklas",
+  "model": "WNS/200",
+  "machine": {
+    "type": "treater",
+    "w": 132,
+    "h": 110,
+    "ports": {
+      "inputs": [
+        "in",
+        "chemIn"
+      ],
+      "outputs": [
+        "out",
+        "wasteOut"
+      ]
+    },
+    "anchors": {
+      "in": {
+        "x": 75,
+        "y": 0
+      },
+      "chemIn": {
+        "x": 132,
+        "y": 30
+      },
+      "out": {
+        "x": 0,
+        "y": 98
+      },
+      "wasteOut": {
+        "x": 100,
+        "y": 110
+      }
+    },
+    "label": {
+      "side": "right",
+      "align": "center"
+    },
+    "params": [
+      {
+        "id": "batchSize",
+        "label": "batch size",
+        "min": 40,
+        "max": 300,
+        "value": 160,
+        "unit": "kg",
+        "bind": "batchSize"
+      },
+      {
+        "id": "cycleTime",
+        "label": "cycle time",
+        "min": 10,
+        "max": 90,
+        "value": 48,
+        "unit": "s",
+        "bind": "batchCycleTime"
+      }
+    ],
+    "adjustable": [
+      {
+        "param": "batchSize",
+        "default": 160
+      },
+      {
+        "param": "cycleTime",
+        "default": 48
+      }
+    ],
+    "sim": {
+      "kind": "batchCycle",
+      "chargeM3": 0.22222222222222224,
+      "phases": [
+        {
+          "name": "cycle",
+          "durationSec": 48
+        }
+      ]
+    }
+  }
+}

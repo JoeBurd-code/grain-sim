@@ -15,7 +15,7 @@ const DRAG_THRESHOLD_PX = 4;
 const FLASH_MS = 600;
 
 // The pointer's position in the SVG's world (viewBox) space.
-function toWorld(svg, e) {
+export function toWorld(svg, e) {
   const p = svg.createSVGPoint();
   p.x = e.clientX;
   p.y = e.clientY;

@@ -4,7 +4,8 @@
 // provisional form from issue #5.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { goldenLine, goldenLineErrors, GOLDEN_LINE_NAME } from "../line/goldenLine";
-import { exportLine, importLineFile, setAdjustableValue, moveMachine } from "../line/lineDocument";
+import { exportLine, importLineFile, setAdjustableValue, moveMachine, addMachine, deleteMachine, emptyLine } from "../line/lineDocument";
+import { catalogueItem } from "../catalogue/catalogue";
 import { placeMachine } from "../line/layout";
 import { lineBounds, zoneBounds } from "../line/bounds";
 import { plantControlsFor } from "../line/plantControls";
@@ -16,15 +17,16 @@ import ChartDock from "./ChartDock";
 import EventLogPanel from "./EventLogPanel";
 import ModeSwitch from "./ModeSwitch";
 import BuildPanel from "./BuildPanel";
-import { loadSavedWork, storeWork, clearSavedWork } from "./savedWork";
+import CataloguePanel, { CATALOGUE_DRAG_TYPE } from "./CataloguePanel";
+import { loadSavedWork, storeWork, clearSavedWork, hasUnsavedWork } from "./savedWork";
 import { useViewport } from "../scene/useViewport";
-import { useMachineDrag } from "../scene/useMachineDrag";
+import { useMachineDrag, toWorld } from "../scene/useMachineDrag";
 import { useSimEngine } from "../sim/useSimEngine";
 import { readLiveControl } from "../sim/liveControls";
 import { isSeriesPlotted } from "../sim/plotHistory";
 import { plotColorFor } from "./plotColors";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
-import { lineRules, interlockSensorMachine } from "../line/interlocks";
+import { lineRules, interlockSensorMachine, isRuleOff } from "../line/interlocks";
 import { setpointSliders } from "../line/setpointSliders";
 
 // The golden line is validated on its way in through the import path
@@ -32,6 +34,14 @@ import { setpointSliders } from "../line/setpointSliders";
 // An opened file is validated by importLineFile and never loads when it fails.
 const goldenValidation = { ok: goldenLineErrors.length === 0, errors: goldenLineErrors };
 const GOLDEN_LINE_DOC = { line: goldenLine, name: GOLDEN_LINE_NAME, fromFile: false };
+// NEW LINE (issue #87). Like an opened file, a new line is stored whole.
+const NEW_LINE_NAME = "new line";
+
+// Typing in a box never deletes a machine.
+function isTyping(target) {
+  return target instanceof HTMLElement
+    && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+}
 
 // "golden line" -> "golden-line.json".
 function fileNameFor(name) {
@@ -58,7 +68,7 @@ function downloadLine(lineToSave, name) {
 // Derived from line data, not from events seen so far, so a toggle exists
 // for a machine even before its first trip.
 function interlockedMachinesOf(line) {
-  const ids = new Set(lineRules(line).map(interlockSensorMachine));
+  const ids = new Set(lineRules(line).filter((r) => !isRuleOff(line, r)).map(interlockSensorMachine));
   return line.machines.filter((m) => ids.has(m.id));
 }
 
@@ -121,6 +131,8 @@ export default function PlantApp() {
   // Build mode's right panel shows the line settings or the selected
   // machine, never both: one panel, always in the same place.
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // NEW LINE's confirmation, shown when there is work to lose.
+  const [confirmingNewLine, setConfirmingNewLine] = useState(false);
   // OPEN's last refusal, shown until the next OPEN, START OVER or mode switch.
   const [openError, setOpenError] = useState(null);
   // Bumped on every mode switch. A file read that finishes after a switch is
@@ -134,6 +146,7 @@ export default function PlantApp() {
     setEventPanelOpen(false);
     setSettingsOpen(false);
     setOpenError(null);
+    setConfirmingNewLine(false);
     setMode(next);
   }, [onRestart, line]);
 
@@ -177,7 +190,18 @@ export default function PlantApp() {
     clearSavedWork();
     loadLine(GOLDEN_LINE_DOC);
     setSettingsOpen(false);
+    setConfirmingNewLine(false);
   }, [loadLine]);
+
+  const startNewLine = useCallback(() => {
+    setConfirmingNewLine(false);
+    setSettingsOpen(false);
+    loadLine({ line: emptyLine(), name: NEW_LINE_NAME, fromFile: true });
+  }, [loadLine]);
+  const onNewLine = useCallback(() => {
+    if (hasUnsavedWork(GOLDEN_LINE_DOC, current)) setConfirmingNewLine(true);
+    else startNewLine();
+  }, [current, startNewLine]);
 
   // Issue #78: a Build mode edit changes the current line only. The sim
   // picks it up on the switch back to Sim mode, where it is what RESTART
@@ -206,6 +230,52 @@ export default function PlantApp() {
     });
   }, []);
   const drag = useMachineDrag(line, onMoveMachine);
+
+  // Issue #87: a catalogue item dropped on the canvas is added there, centred
+  // on the pointer, and selected so its values show in the right panel. Alt
+  // turns snapping off, as it does for a move.
+  const onCanvasDragOver = useCallback((e) => {
+    if (!building || !e.dataTransfer.types.includes(CATALOGUE_DRAG_TYPE)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }, [building]);
+  const onCanvasDrop = useCallback((e) => {
+    const itemId = e.dataTransfer.getData(CATALOGUE_DRAG_TYPE);
+    const item = catalogueItem(itemId);
+    const svg = containerRef.current?.querySelector("svg");
+    if (!building || !item || !svg) return;
+    e.preventDefault();
+    const world = toWorld(svg, e);
+    const pos = { x: world.x - item.machine.w / 2, y: world.y - item.machine.h / 2, snap: !e.altKey };
+    const result = addMachine(line, itemId, pos);
+    if (!result.ok) return;
+    setCurrent((c) => {
+      const next = addMachine(c.line, itemId, pos);
+      return next.ok ? { ...c, line: next.line } : c;
+    });
+    setSelectedId(result.id);
+    setSettingsOpen(false);
+  }, [building, containerRef, line]);
+
+  // Issue #87: the Delete key or the right panel's button deletes the
+  // selected machine and its connections.
+  const onDeleteMachine = useCallback((machineId) => {
+    setCurrent((c) => {
+      const next = deleteMachine(c.line, machineId);
+      return next.ok ? { ...c, line: next.line } : c;
+    });
+    setSelectedId(null);
+  }, []);
+  useEffect(() => {
+    if (!building || !selectedId) return undefined;
+    const onKeyDown = (e) => {
+      if (e.key !== "Delete" || isTyping(e.target)) return;
+      e.preventDefault();
+      onDeleteMachine(selectedId);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [building, selectedId, onDeleteMachine]);
   const { onCanvasPointerDown, wasDrag: dragWasDrag } = drag;
   const handlers = useMemo(() => ({
     onPointerDown: (e) => {
@@ -270,6 +340,9 @@ export default function PlantApp() {
         .machine .mname { transition: fill .15s ease; }
         .machine:hover .mname { fill: #ffffff; }
         .zonebtn:hover { color: #d4dad0; border-color: #6e7a71; }
+        .catalogue-item:hover { border-color: ${C.line} !important; background: ${C.panel2}; }
+        /* A thumbnail is drawn small; its lines keep their width (issue #87). */
+        .catalogue-thumb * { vector-effect: non-scaling-stroke; }
         /* Pinned to MachinePopup.jsx's own THUMB_PX/TRACK_PX so the cap
            tick's own thumb-center math there matches what actually renders
            here. Both the track and the thumb are styled explicitly on both
@@ -343,6 +416,9 @@ export default function PlantApp() {
             </div>
             {building ? (
               <div style={{ display: "flex", gap: 6 }}>
+                <button className="zonebtn" style={{ ...zoneBtnStyle, color: C.wheat }} onClick={onNewLine}>
+                  NEW LINE
+                </button>
                 <button className="zonebtn" style={{ ...zoneBtnStyle, color: C.wheat }} onClick={() => fileInputRef.current?.click()}>
                   OPEN
                 </button>
@@ -401,10 +477,25 @@ export default function PlantApp() {
             {selected
               ? selected.name
               : building
-                ? "drag a machine to move it · hold Alt to place it off the grid"
+                ? "drag from the catalogue to add · drag to move · Alt places off the grid · Delete removes"
                 : "click a machine · drag to pan · wheel to zoom"}
           </div>
         </div>
+        {building && confirmingNewLine && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 10, color: C.text }}>
+            <div>Discard the work on {current.name} and start a new line?</div>
+            <button
+              className="zonebtn"
+              style={{ ...zoneBtnStyle, color: C.red, borderColor: C.red, padding: "2px 8px" }}
+              onClick={startNewLine}
+            >
+              DISCARD AND START NEW
+            </button>
+            <button className="zonebtn" style={{ ...zoneBtnStyle, padding: "2px 8px" }} onClick={() => setConfirmingNewLine(false)}>
+              CANCEL
+            </button>
+          </div>
+        )}
         {building && openError && (
           <div style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 10, color: C.red }}>
             <div>
@@ -435,7 +526,13 @@ export default function PlantApp() {
 
       {validation.ok ? (
         <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
-          <main ref={containerRef} style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden", position: "relative" }}>
+          {building && <CataloguePanel />}
+          <main
+            ref={containerRef}
+            style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden", position: "relative" }}
+            onDragOver={onCanvasDragOver}
+            onDrop={onCanvasDrop}
+          >
             {vb && (
               <Scene
                 line={shownLine}
@@ -489,6 +586,7 @@ export default function PlantApp() {
               lineName={current.name}
               onStartOver={onStartOver}
               onEditField={onEditField}
+              onDeleteMachine={onDeleteMachine}
             />
           )}
         </div>

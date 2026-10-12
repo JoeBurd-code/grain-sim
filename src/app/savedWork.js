@@ -65,3 +65,11 @@ export function storeWork(golden, current, getStorage = browserStorage) {
     if (saved) clearSavedWork(getStorage);
   }
 }
+
+// NEW LINE asks first when this is true (issue #87): the golden line with
+// changes, or any other line that has a machine on it. An opened file may
+// also be on disk, but the browser cannot know, so it asks.
+export function hasUnsavedWork(golden, current) {
+  if (!current.fromFile) return diffFromBase(golden.line, current.line).length > 0;
+  return current.line.machines.length > 0;
+}

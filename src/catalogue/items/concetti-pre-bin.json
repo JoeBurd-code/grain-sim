@@ -1,0 +1,90 @@
+{
+  "id": "concetti-pre-bin",
+  "version": 1,
+  "name": "Concetti pre-bin",
+  "group": "storage",
+  "maker": "",
+  "model": "",
+  "machine": {
+    "type": "bin",
+    "w": 90,
+    "h": 90,
+    "ports": {
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ]
+    },
+    "anchors": {
+      "in": {
+        "x": 45,
+        "y": 0
+      },
+      "out": {
+        "x": 45,
+        "y": 90
+      }
+    },
+    "fill": 0,
+    "instruments": [
+      "LT",
+      "LSHH",
+      "LSH",
+      "LSL"
+    ],
+    "label": {
+      "side": "left",
+      "align": "center"
+    },
+    "params": [
+      {
+        "id": "level",
+        "label": "fill level",
+        "min": 0,
+        "max": 100,
+        "value": 0,
+        "unit": "%",
+        "bind": "levelJump"
+      }
+    ],
+    "setpointSliders": [
+      {
+        "switch": "LSL",
+        "label": "LSL recover",
+        "min": 0,
+        "max": 55
+      },
+      {
+        "switch": "LSH",
+        "label": "LSH set point",
+        "min": 35,
+        "max": 90
+      },
+      {
+        "switch": "LSHH",
+        "label": "LSHH trip set point",
+        "min": 55,
+        "max": 100
+      }
+    ],
+    "adjustable": [
+      {
+        "id": "capacity",
+        "label": "capacity",
+        "unit": "m³",
+        "kind": "number",
+        "min": 0.2,
+        "max": 2,
+        "default": 0.72,
+        "bind": "capacity"
+      }
+    ],
+    "sim": {
+      "kind": "accumulator",
+      "capacityM3": 0.72,
+      "atomicDischarge": true
+    }
+  }
+}

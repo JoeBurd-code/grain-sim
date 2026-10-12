@@ -1,0 +1,72 @@
+{
+  "id": "scalping-screen",
+  "version": 1,
+  "name": "Scalping screen",
+  "group": "treating",
+  "maker": "",
+  "model": "",
+  "machine": {
+    "type": "screen",
+    "w": 140,
+    "h": 70,
+    "ports": {
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out",
+        "waste"
+      ]
+    },
+    "anchors": {
+      "in": {
+        "x": 30,
+        "y": 0
+      },
+      "out": {
+        "x": 100,
+        "y": 70
+      },
+      "waste": {
+        "x": 20,
+        "y": 70
+      }
+    },
+    "label": {
+      "side": "left",
+      "align": "center"
+    },
+    "params": [
+      {
+        "id": "wasteFrac",
+        "label": "scalpings split",
+        "min": 0,
+        "max": 20,
+        "value": 1,
+        "unit": "%",
+        "bind": "wasteFraction"
+      }
+    ],
+    "adjustable": [
+      {
+        "param": "wasteFrac",
+        "default": 1
+      },
+      {
+        "id": "ratedCapacity",
+        "label": "rated capacity",
+        "unit": "t/h",
+        "kind": "number",
+        "min": 10,
+        "max": 100,
+        "default": 64.4,
+        "bind": "ratedCapacity"
+      }
+    ],
+    "sim": {
+      "kind": "splitter",
+      "wasteFraction": 0.01,
+      "ceilingM3PerSec": 0.024845679012345682
+    }
+  }
+}

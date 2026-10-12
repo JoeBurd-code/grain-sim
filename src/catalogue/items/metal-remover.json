@@ -1,0 +1,43 @@
+{
+  "id": "metal-remover",
+  "version": 1,
+  "name": "Metal remover",
+  "group": "treating",
+  "maker": "",
+  "model": "",
+  "machine": {
+    "type": "metalRemover",
+    "w": 90,
+    "h": 50,
+    "ports": {
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out",
+        "waste"
+      ]
+    },
+    "anchors": {
+      "in": {
+        "x": 45,
+        "y": 0
+      },
+      "out": {
+        "x": 45,
+        "y": 50
+      },
+      "waste": {
+        "x": 90,
+        "y": 40
+      }
+    },
+    "label": {
+      "side": "right",
+      "align": "center"
+    },
+    "sim": {
+      "kind": "passThrough"
+    }
+  }
+}

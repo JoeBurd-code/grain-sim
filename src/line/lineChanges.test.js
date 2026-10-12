@@ -2,7 +2,7 @@
 // made, not as a copy of the line, so every value they never touched comes
 // fresh from the golden line on the next load.
 import { describe, it, expect } from "vitest";
-import { diffFromBase, applyChanges, setAdjustableValue, moveMachine } from "./lineDocument";
+import { diffFromBase, applyChanges, setAdjustableValue, moveMachine, addMachine, deleteMachine } from "./lineDocument";
 import { readAdjustableValue } from "./adjustableFields";
 import { goldenLine } from "./goldenLine";
 
@@ -144,5 +144,78 @@ describe("moves as changes", () => {
     const loaded = applyChanges(updatedGolden, changes);
     expect(loaded.machines.find((m) => m.id === "concettiScale")).toMatchObject({ x: 3300, y: 470 });
     expect(loaded.machines.find((m) => m.id === "discardBin")).toMatchObject({ x: 300, y: 900 });
+  });
+});
+
+// Issue #87: an added machine is stored whole, and a deleted golden line
+// machine as its id.
+describe("adds and deletes as changes", () => {
+  function add(line, itemId, pos) {
+    const result = addMachine(line, itemId, pos);
+    if (!result.ok) throw new Error(result.error);
+    return result;
+  }
+  function remove(line, id) {
+    const result = deleteMachine(line, id);
+    if (!result.ok) throw new Error(result.error);
+    return result.line;
+  }
+
+  it("lists each deleted machine, then each added machine whole, after the moves", () => {
+    const { line: added, id } = add(remove(edit(goldenLine, ["metalBin1", "capacity", 9]), "discardBin"), "grain-out", { x: 0, y: -400 });
+    const changes = diffFromBase(goldenLine, added);
+    expect(changes).toEqual([
+      { machine: "metalBin1", field: "capacity", value: 9 },
+      { delete: "discardBin" },
+      { add: added.machines.find((m) => m.id === id) },
+    ]);
+  });
+
+  it("stores no value changes or moves for an added machine: they are in the machine", () => {
+    const { line, id } = add(goldenLine, "treater-buffer-bin", { x: 0, y: -600 });
+    const edited = edit(line, [id, "capacity", 12]);
+    const moved = moveMachine(edited, id, { x: 0, y: -900 }).line;
+    const changes = diffFromBase(goldenLine, moved);
+    expect(changes).toHaveLength(1);
+    expect(changes[0].add).toMatchObject({ id, x: 0, y: -900, sim: { capacityM3: 12 } });
+  });
+
+  it("reproduces the line with its adds and deletes", () => {
+    let line = remove(remove(goldenLine, "treaterPreBin"), "grainBreak");
+    line = add(line, "metal-bin", { x: 0, y: -600 }).line;
+    line = add(line, "grain-in", { x: 400, y: -600 }).line;
+    expect(applyChanges(goldenLine, diffFromBase(goldenLine, line))).toEqual(line);
+  });
+
+  it("puts an added machine in the place a deleted one left", () => {
+    const bin = goldenLine.machines.find((m) => m.id === "treaterBufferBin");
+    const freed = remove(goldenLine, "treaterBufferBin");
+    const { line } = add(freed, "treater-buffer-bin", { x: bin.x, y: bin.y });
+    expect(line.machines.at(-1)).toMatchObject({ x: bin.x, y: bin.y });
+    expect(applyChanges(goldenLine, diffFromBase(goldenLine, line))).toEqual(line);
+  });
+
+  it("ignores a delete of a machine the base does not have, and an add it cannot take", () => {
+    const { line, id } = add(goldenLine, "metal-bin", { x: 0, y: -600 });
+    const machine = line.machines.find((m) => m.id === id);
+    const bin = goldenLine.machines.find((m) => m.id === "treaterBufferBin");
+    const loaded = applyChanges(goldenLine, [
+      { delete: "noSuchMachine" },
+      { add: { ...machine, id: "treaterBufferBin" } },
+      { add: { ...machine, id: "on-top", x: bin.x, y: bin.y } },
+      { add: { id: "broken" } },
+      { add: { ...machine, id: "no-kind", x: 1000, y: -600, sim: { kind: "teleporter" } } },
+      { add: "nothing" },
+      { add: machine },
+    ]);
+    expect(diffFromBase(goldenLine, loaded)).toEqual([{ add: machine }]);
+  });
+
+  it("brings a repo fix to every machine the user did not delete", () => {
+    const changes = diffFromBase(goldenLine, remove(goldenLine, "discardBin"));
+    const updatedGolden = edit(goldenLine, ["metalBin1", "capacity", 12]);
+    const loaded = applyChanges(updatedGolden, changes);
+    expect(loaded.machines.some((m) => m.id === "discardBin")).toBe(false);
+    expect(readAdjustableValue(loaded, "metalBin1", "capacity")).toBe(12);
   });
 });

@@ -1,0 +1,82 @@
+{
+  "id": "bucket-elevator",
+  "version": 1,
+  "name": "Bucket elevator",
+  "group": "conveying",
+  "maker": "Simatek",
+  "model": "E200",
+  "machine": {
+    "type": "elevator",
+    "w": 420,
+    "h": 264,
+    "geom": {
+      "colX": 200,
+      "duct": 36
+    },
+    "ports": {
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ]
+    },
+    "anchors": {
+      "in": {
+        "x": 25,
+        "y": 228
+      },
+      "out": {
+        "x": 376,
+        "y": 44
+      }
+    },
+    "instruments": [
+      "ST"
+    ],
+    "label": {
+      "side": "above",
+      "align": "center"
+    },
+    "params": [
+      {
+        "id": "speed",
+        "label": "speed",
+        "min": 0,
+        "max": 100,
+        "value": 100,
+        "unit": "%",
+        "bind": "elevatorSpeed",
+        "readBind": "elevatorSpeedActual"
+      }
+    ],
+    "adjustable": [
+      {
+        "id": "ratedCapacity",
+        "label": "rated capacity",
+        "unit": "t/h",
+        "kind": "number",
+        "min": 5,
+        "max": 40,
+        "default": 20,
+        "bind": "ratedCapacity"
+      },
+      {
+        "id": "chainSpeed",
+        "label": "chain speed",
+        "unit": "m/min",
+        "kind": "number",
+        "min": 2,
+        "max": 30,
+        "default": 10.08,
+        "bind": "chainSpeed"
+      }
+    ],
+    "sim": {
+      "kind": "transportDelay",
+      "distanceM": 8.731,
+      "speedMPerMin": 10.08,
+      "ceilingM3PerSec": 0.00771604938271605
+    }
+  }
+}

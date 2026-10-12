@@ -34,6 +34,44 @@ export function interlockCommandedMachines(rule) {
   return [action.machine];
 }
 
+// Every machine the rule names: its sensor, the machines it commands and
+// the Diverters it is armed on.
+export function ruleMachines(rule) {
+  return [
+    interlockSensorMachine(rule),
+    ...interlockCommandedMachines(rule),
+    ...(rule.armedWhen ?? []).map((a) => a?.machine),
+  ].filter((id) => typeof id === "string");
+}
+
+// Issue #87: a rule that names a machine the line does not have (the user
+// deleted it) is off. It stays on the line, but it does not run and is not
+// checked, and the problems list reports it. A feed rate link
+// (`line.feedRateDerivations`) is off the same way. A rule with a part
+// missing altogether is not off: validateLine refuses it.
+function namesMissing(line, ids) {
+  const onLine = new Set(line.machines.map((m) => m.id));
+  return ids.some((id) => typeof id === "string" && !onLine.has(id));
+}
+
+export function isRuleOff(line, rule) {
+  return namesMissing(line, ruleMachines(rule));
+}
+
+export function isFeedRateLinkOff(line, link) {
+  return namesMissing(line, [link.elevator?.machine, link.feeder?.machine]);
+}
+
+// The line as the engine runs it: without the rules and links that are off.
+export function withoutOffRules(line) {
+  return {
+    ...line,
+    interlocks: (line.interlocks ?? []).filter((r) => !isRuleOff(line, r)),
+    machineRules: (line.machineRules ?? []).filter((r) => !isRuleOff(line, r)),
+    feedRateDerivations: (line.feedRateDerivations ?? []).filter((l) => !isFeedRateLinkOff(line, l)),
+  };
+}
+
 // Issue #83: a level condition can name the level switch that reads it, so
 // the switch's lamp and its popup set point slider follow the sentence. The
 // field is the name a machine rule gives that switch's set point, which the

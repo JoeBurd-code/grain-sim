@@ -2,10 +2,10 @@
 // changes; an opened file is stored whole, with its name; an untouched
 // golden line stores nothing. Storage that throws means "no saved work".
 import { describe, it, expect } from "vitest";
-import { loadSavedWork, storeWork, clearSavedWork, SAVED_WORK_KEY } from "./savedWork";
+import { loadSavedWork, storeWork, clearSavedWork, hasUnsavedWork, SAVED_WORK_KEY } from "./savedWork";
 import { goldenLine, GOLDEN_LINE_NAME } from "../line/goldenLine";
 import { setAdjustableValue, readAdjustableValue } from "../line/adjustableFields";
-import { exportLine, moveMachine } from "../line/lineDocument";
+import { exportLine, moveMachine, addMachine, deleteMachine, emptyLine } from "../line/lineDocument";
 
 const GOLDEN = { line: goldenLine, name: GOLDEN_LINE_NAME, fromFile: false };
 
@@ -109,6 +109,26 @@ describe("loadSavedWork", () => {
     expect(loaded.line).toEqual(JSON.parse(exportLine(line, "client trial")).line);
   });
 
+  // Issue #87.
+  it("brings back a new line of unconnected machines after a reload", () => {
+    const storage = memoryStorage();
+    let line = emptyLine();
+    for (const [item, x] of [["grain-in", 0], ["metal-bin", 200], ["grain-out", 500]]) line = addMachine(line, item, { x, y: 0 }).line;
+    storeWork(GOLDEN, { line, name: "new line", fromFile: true }, () => storage);
+    const loaded = loadSavedWork(GOLDEN, () => storage);
+    expect(loaded).toMatchObject({ name: "new line", fromFile: true });
+    expect(loaded.line).toEqual(line);
+  });
+
+  it("brings back added and deleted golden line machines after a reload", () => {
+    const storage = memoryStorage();
+    const added = addMachine(deleteMachine(goldenLine, "grainBreak").line, "metal-bin", { x: 0, y: -600 });
+    storeWork(GOLDEN, { ...GOLDEN, line: added.line }, () => storage);
+    const loaded = loadSavedWork(GOLDEN, () => storage);
+    expect(loaded.fromFile).toBe(false);
+    expect(loaded.line).toEqual(added.line);
+  });
+
   it("does not take a later golden line fix into an opened file", () => {
     const storage = memoryStorage();
     storeWork(GOLDEN, { line: goldenLine, name: "client trial", fromFile: true }, () => storage);
@@ -139,5 +159,19 @@ describe("blocked or unavailable storage", () => {
     expect(loadSavedWork(GOLDEN, blocked)).toBeNull();
     expect(() => storeWork(GOLDEN, GOLDEN, blocked)).not.toThrow();
     expect(loadSavedWork(GOLDEN, () => undefined)).toBeNull();
+  });
+});
+
+// Issue #87: NEW LINE asks first when there is work to lose.
+describe("hasUnsavedWork", () => {
+  it("is false for the untouched golden line and an empty new line", () => {
+    expect(hasUnsavedWork(GOLDEN, GOLDEN)).toBe(false);
+    expect(hasUnsavedWork(GOLDEN, { line: emptyLine(), name: "new line", fromFile: true })).toBe(false);
+  });
+
+  it("is true for a changed golden line and for a line with machines on it", () => {
+    expect(hasUnsavedWork(GOLDEN, { ...GOLDEN, line: deleteMachine(goldenLine, "grainBreak").line })).toBe(true);
+    const line = addMachine(emptyLine(), "grain-in", { x: 0, y: 0 }).line;
+    expect(hasUnsavedWork(GOLDEN, { line, name: "new line", fromFile: true })).toBe(true);
   });
 });

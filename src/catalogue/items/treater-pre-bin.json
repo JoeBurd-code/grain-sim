@@ -1,0 +1,90 @@
+{
+  "id": "treater-pre-bin",
+  "version": 1,
+  "name": "Treater pre-bin",
+  "group": "storage",
+  "maker": "",
+  "model": "",
+  "machine": {
+    "type": "bin",
+    "w": 90,
+    "h": 100,
+    "ports": {
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ]
+    },
+    "anchors": {
+      "in": {
+        "x": 45,
+        "y": 0
+      },
+      "out": {
+        "x": 45,
+        "y": 100
+      }
+    },
+    "fill": 0,
+    "instruments": [
+      "LT",
+      "LSHH",
+      "LSH",
+      "LSL"
+    ],
+    "label": {
+      "side": "right",
+      "align": "center"
+    },
+    "params": [
+      {
+        "id": "level",
+        "label": "fill level",
+        "min": 0,
+        "max": 100,
+        "value": 0,
+        "unit": "%",
+        "bind": "levelJump"
+      }
+    ],
+    "setpointSliders": [
+      {
+        "switch": "LSL",
+        "label": "LSL recover",
+        "min": 0,
+        "max": 55
+      },
+      {
+        "switch": "LSH",
+        "label": "LSH set point",
+        "min": 35,
+        "max": 90
+      },
+      {
+        "switch": "LSHH",
+        "label": "LSHH trip set point",
+        "min": 55,
+        "max": 100
+      }
+    ],
+    "adjustable": [
+      {
+        "id": "capacity",
+        "label": "capacity",
+        "unit": "m³",
+        "kind": "number",
+        "min": 0.5,
+        "max": 5,
+        "default": 1.63,
+        "bind": "capacity"
+      }
+    ],
+    "sim": {
+      "kind": "accumulator",
+      "capacityM3": 1.63,
+      "atomicDischarge": true
+    }
+  }
+}

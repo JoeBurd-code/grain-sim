@@ -1,0 +1,38 @@
+{
+  "id": "roller-conveyors",
+  "version": 1,
+  "name": "Roller conveyors and belt scale",
+  "group": "packaging",
+  "maker": "",
+  "model": "",
+  "machine": {
+    "type": "rollerScale",
+    "w": 180,
+    "h": 26,
+    "ports": {
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ]
+    },
+    "anchors": {
+      "in": {
+        "x": 90,
+        "y": 0
+      },
+      "out": {
+        "x": 170,
+        "y": 13
+      }
+    },
+    "label": {
+      "side": "below",
+      "align": "center"
+    },
+    "sim": {
+      "kind": "passThrough"
+    }
+  }
+}

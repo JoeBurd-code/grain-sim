@@ -1,0 +1,84 @@
+{
+  "id": "flexicon-pre-bin",
+  "version": 1,
+  "name": "Flexicon pre-bin",
+  "group": "storage",
+  "maker": "",
+  "model": "",
+  "machine": {
+    "type": "bin",
+    "w": 90,
+    "h": 90,
+    "ports": {
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ]
+    },
+    "anchors": {
+      "in": {
+        "x": 45,
+        "y": 0
+      },
+      "out": {
+        "x": 45,
+        "y": 90
+      }
+    },
+    "fill": 0,
+    "instruments": [
+      "LSH",
+      "LSL"
+    ],
+    "label": {
+      "side": "left",
+      "align": "center"
+    },
+    "params": [
+      {
+        "id": "level",
+        "label": "fill level",
+        "min": 0,
+        "max": 100,
+        "value": 0,
+        "unit": "%",
+        "bind": "levelJump"
+      }
+    ],
+    "setpointSliders": [
+      {
+        "switch": "LSH",
+        "label": "LSH set point",
+        "min": 45,
+        "max": 100
+      },
+      {
+        "switch": "LSL",
+        "label": "LSL set point",
+        "min": 0,
+        "max": 45
+      }
+    ],
+    "adjustable": [
+      {
+        "id": "capacity",
+        "label": "capacity",
+        "unit": "m³",
+        "kind": "number",
+        "min": 0.6,
+        "max": 8,
+        "default": 2.5,
+        "bind": "capacity"
+      }
+    ],
+    "sim": {
+      "kind": "accumulator",
+      "capacityM3": 2.5,
+      "levelSwitches": {
+        "LSL": 0.35
+      }
+    }
+  }
+}

@@ -10,6 +10,7 @@ import {
   setInterlockLowSetpoint, setInterlockSignalDelay, getUtilitiesTripPhase, getCombinedEvents, setUtilitiesHealthy,
 } from "./engine";
 import { exportLine, importLine } from "../line/lineDocument";
+import { isRuleOff } from "../line/interlocks";
 
 function machine(id, sim, inputs, outputs) {
   return {
@@ -159,14 +160,12 @@ describe("interlock sentence in the line document", () => {
 
   const malformed = [
     ["no when part", { when: undefined }, /missing its "when" part/],
-    ["an unknown sensor machine", { when: { machine: "nowhere", condition: "stopped", delaySec: 1 } }, /unknown machine "nowhere"/],
     ["an unknown condition", { when: { machine: "conveyor", condition: "sideways", delaySec: 1 } }, /unknown condition "sideways"/],
     ["a condition the machine cannot have", { when: { machine: "bin", condition: "stopped", delaySec: 1 } }, /machine "bin" cannot be "stopped"/],
     ["a negative signal delay", { when: { machine: "conveyor", condition: "stopped", delaySec: -1 } }, /signal delay/],
     ["no steps", { then: [] }, /at least one step/],
     ["an unknown action", { then: [{ action: "explode", machine: "feeder" }] }, /unknown action "explode"/],
     ["an action the machine cannot take", { then: [{ action: "stop", machine: "bin" }] }, /cannot stop machine "bin"/],
-    ["an unknown action machine", { then: [{ action: "stop", machine: "nowhere" }] }, /unknown machine "nowhere"/],
     ["an unknown reset", { reset: "sometimes" }, /reset "sometimes"/],
     ["a level condition with no set point", { when: { machine: "bin", condition: "above", delaySec: 1 } }, /set point/],
     ["a set point over 100 %", { when: { machine: "bin", condition: "above", setpoint: 1.5, delaySec: 1 } }, /set point/],
@@ -176,9 +175,25 @@ describe("interlock sentence in the line document", () => {
     ["a when it clears part that is not a part", { whenClears: [] }, /"when it clears" part/],
     ["a when it clears part with no steps", { whenClears: { condition: "running", delaySec: 1, then: [] } }, /at least one step after "when it clears"/],
     ["a when it clears part with an unknown condition", { whenClears: { condition: "sideways", delaySec: 1, then: [{ action: "stop", machine: "feeder" }] } }, /unknown condition "sideways"/],
-    ["arming on an unknown machine", { armedWhen: [{ machine: "nowhere", port: "a" }] }, /armed on unknown machine "nowhere"/],
     ["arming on a port the machine cannot select", { armedWhen: [{ machine: "feeder", port: "nope" }] }, /cannot select port "nope"/],
   ];
+  // Issue #87: a sentence that names a machine the line does not have is
+  // off, not refused: deleting a machine must not stop the line loading.
+  const naming = [
+    ["sensor", { when: { machine: "nowhere", condition: "stopped", delaySec: 1 } }],
+    ["action", { then: [{ action: "stop", machine: "nowhere" }] }],
+    ["arming", { armedWhen: [{ machine: "nowhere", port: "a" }] }],
+  ];
+  for (const [what, change] of naming) {
+    it(`loads a sentence whose ${what} machine is not on the line, and turns it off`, () => {
+      const line = smallLine([sentence("orphaned", "stopped", 1, change)]);
+      const result = importLine(exportLine(line, "small"));
+      expect(result.errors ?? []).toEqual([]);
+      expect(isRuleOff(result.line, result.line.interlocks[0])).toBe(true);
+      expect(createSim(result.line).control.some((r) => r.id === "orphaned")).toBe(false);
+    });
+  }
+
   for (const [what, change, message] of malformed) {
     it(`refuses a sentence with ${what}, with a message`, () => {
       const line = smallLine([sentence("broken", "stopped", 1, change)]);
@@ -718,6 +733,23 @@ describe("interlock sentence: wait, if still true, trip the whole line, start, a
     ["trip the whole line in the when it clears steps", { whenClears: { then: [tripLine] } }, /"trip the whole line" only after "then"/],
     ["a start the machine cannot take", { then: [{ action: "start", machine: "bin" }] }, /cannot start machine "bin"/],
   ];
+  // Issue #87: a sentence that names a machine the line does not have is
+  // off, not refused: deleting a machine must not stop the line loading.
+  const naming = [
+    ["sensor", { when: { machine: "nowhere", condition: "stopped", delaySec: 1 } }],
+    ["action", { then: [{ action: "stop", machine: "nowhere" }] }],
+    ["arming", { armedWhen: [{ machine: "nowhere", port: "a" }] }],
+  ];
+  for (const [what, change] of naming) {
+    it(`loads a sentence whose ${what} machine is not on the line, and turns it off`, () => {
+      const line = smallLine([sentence("orphaned", "stopped", 1, change)]);
+      const result = importLine(exportLine(line, "small"));
+      expect(result.errors ?? []).toEqual([]);
+      expect(isRuleOff(result.line, result.line.interlocks[0])).toBe(true);
+      expect(createSim(result.line).control.some((r) => r.id === "orphaned")).toBe(false);
+    });
+  }
+
   for (const [what, change, message] of malformed) {
     it(`refuses a sentence with ${what}, with a message`, () => {
       const result = importLine(exportLine(smallLine([sentence("broken", "stopped", 1, change)]), "small"));

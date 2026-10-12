@@ -1,0 +1,67 @@
+{
+  "id": "metal-bin",
+  "version": 1,
+  "name": "Metal bin",
+  "group": "storage",
+  "maker": "",
+  "model": "",
+  "machine": {
+    "type": "metalBin",
+    "w": 160,
+    "h": 172,
+    "ports": {
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ]
+    },
+    "anchors": {
+      "in": {
+        "x": 80,
+        "y": 0
+      },
+      "out": {
+        "x": 80,
+        "y": 162
+      }
+    },
+    "fill": 0,
+    "instruments": [
+      "LT",
+      "LSH"
+    ],
+    "label": {
+      "side": "left",
+      "align": "center"
+    },
+    "params": [
+      {
+        "id": "level",
+        "label": "fill level",
+        "min": 0,
+        "max": 100,
+        "value": 0,
+        "unit": "%",
+        "bind": "levelJump"
+      }
+    ],
+    "adjustable": [
+      {
+        "id": "capacity",
+        "label": "capacity",
+        "unit": "m³",
+        "kind": "number",
+        "min": 1.5,
+        "max": 18,
+        "default": 6,
+        "bind": "capacity"
+      }
+    ],
+    "sim": {
+      "kind": "accumulator",
+      "capacityM3": 6
+    }
+  }
+}

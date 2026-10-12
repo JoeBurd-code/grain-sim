@@ -30,6 +30,9 @@
 // down the screen, elevators climb, what catches sits below what drops.
 // Anchors are port positions relative to the machine origin (x, y).
 //
+// `item` names the machine's catalogue entry (src/catalogue/items, issue
+// #87). Stubs stand for the plant's edges and have none.
+//
 // Tags marked TBC-nn were not legible / not present on the drawings; the
 // real tags are an engineer-meeting question.
 //
@@ -170,6 +173,7 @@ export const line = {
     {
       id: "treatMetalRemover",
       type: "metalRemover",
+      item: "metal-remover",
       name: "METAL REMOVER",
       tag: "52.501.F00",
       status: "new",
@@ -201,6 +205,7 @@ export const line = {
     {
       id: "treaterBufferBin",
       type: "bin",
+      item: "treater-buffer-bin",
       name: "TREATER BUFFER BIN",
       // FD sequence sections say 52.502.H00; its own alarm tables say
       // 52.501.H00 (an internal FD inconsistency, not ours to resolve —
@@ -255,6 +260,7 @@ export const line = {
     {
       id: "treatDrumFeeder",
       type: "drumFeeder",
+      item: "drum-feeder",
       name: "INLET DRUM FEEDER",
       tag: "52.505.L00",
       status: "new",
@@ -294,6 +300,7 @@ export const line = {
     {
       id: "treatingElevator",
       type: "elevator",
+      item: "bucket-elevator",
       name: "BUCKET ELEVATOR · TREATING",
       tag: "52.506.E00",
       status: "new",
@@ -341,6 +348,7 @@ export const line = {
     {
       id: "treaterPreBin",
       type: "bin",
+      item: "treater-pre-bin",
       name: "TREATER PRE-BIN",
       tag: "52.507.H00",
       status: "new",
@@ -396,6 +404,7 @@ export const line = {
     {
       id: "batchTreater",
       type: "treater",
+      item: "batch-treater",
       name: "NIKLAS WNS/200 BATCH TREATER",
       tag: "52.508.T00",
       status: "new",
@@ -458,6 +467,7 @@ export const line = {
     {
       id: "treaterAfterBin",
       type: "bin",
+      item: "treater-after-bin",
       name: "TREATER AFTER-BIN",
       tag: "52.601.H00",
       status: "new",
@@ -510,6 +520,7 @@ export const line = {
     {
       id: "afterBinOutletValve",
       type: "valve",
+      item: "outlet-valve",
       name: "AFTER-BIN OUTLET VALVE",
       tag: "52.601.V00",
       status: "new",
@@ -560,6 +571,7 @@ export const line = {
     {
       id: "scalpingScreen",
       type: "screen",
+      item: "scalping-screen",
       name: "TREATMENT SCALPING SCREEN",
       tag: "52.602.F00",
       status: "new",
@@ -599,6 +611,7 @@ export const line = {
     {
       id: "scalpingDischargeHopper",
       type: "bin",
+      item: "discharge-hopper",
       name: "SCALPING SCREEN DISCHARGE HOPPER",
       tag: "52.603.H00",
       status: "new",
@@ -652,6 +665,7 @@ export const line = {
     {
       id: "discardBin",
       type: "metalBin",
+      item: "discard-bin",
       name: "DISCARD SCALPINGS BIN",
       tag: "52.801.L00",
       status: "new",
@@ -692,6 +706,7 @@ export const line = {
     {
       id: "proBoxStation",
       type: "proBox",
+      item: "pro-box-station",
       name: "PRO BOX UNLOADING STATION",
       tag: "52.608.H00",
       status: "new",
@@ -725,6 +740,7 @@ export const line = {
     {
       id: "inletDrumFeeder1",
       type: "drumFeeder",
+      item: "drum-feeder",
       name: "INLET DRUM FEEDER 1",
       // Tag corrected 2026-08-12 (issue #44): the Packaging mimic settles
       // which source feeds which tag. This feeder (fed by the Pro Box,
@@ -786,6 +802,7 @@ export const line = {
     {
       id: "inletDrumFeeder2",
       type: "drumFeeder",
+      item: "drum-feeder",
       name: "INLET DRUM FEEDER 2",
       // Tag corrected 2026-08-12 (issue #44): this feeder (fed by the
       // scalping screen, below) is 52.603.L00 — see inletDrumFeeder1's
@@ -833,6 +850,7 @@ export const line = {
     {
       id: "pendulumConveyor",
       type: "conveyor",
+      item: "pendulum-conveyor",
       name: "PENDULUM CONVEYOR",
       // Merged 2026-08-12 (issue #44): the former "lift conveyor" and "top
       // transport conveyor" are one machine, 52.604.E00, a Simatek E200
@@ -953,6 +971,7 @@ export const line = {
     {
       id: "outloadBufferBin",
       type: "bin",
+      item: "outload-buffer-bin",
       name: "OUTLOAD BUFFER BIN",
       // Corrected 2026-08-05: was tagged 52.701.H00 by the earlier
       // drawing reading, which the FD reassigns to the Flexicon Pre-Bin
@@ -988,6 +1007,7 @@ export const line = {
     {
       id: "grainBreak",
       type: "grainBreak",
+      item: "grain-break",
       name: "GRAIN BREAK",
       // Re-sited 2026-08-12 (issue #44): its old parent, the phantom
       // packaging bucket elevator (52.702.U00), does not exist — see
@@ -1015,6 +1035,7 @@ export const line = {
     {
       id: "outloadDiverter",
       type: "diverter",
+      item: "diverter",
       name: "DIVERTER",
       // Retagged 2026-08-12 (issue #44): this is the outload diverter
       // valve, 52.612.V00. 52.613.V00 (its old tag here) is metal bin 1's
@@ -1050,6 +1071,7 @@ export const line = {
     {
       id: "metalBin1",
       type: "metalBin",
+      item: "metal-bin",
       name: "TREATED OUTLOAD METAL BIN 1",
       tag: "52.613.H00",
       status: "new",
@@ -1105,6 +1127,7 @@ export const line = {
     {
       id: "metalBin2",
       type: "metalBin",
+      item: "metal-bin",
       name: "TREATED OUTLOAD METAL BIN 2",
       tag: "52.613.H01",
       status: "new",
@@ -1149,6 +1172,7 @@ export const line = {
     {
       id: "binSegSampler",
       type: "sampler",
+      item: "auto-sampler",
       name: "AUTO SAMPLER",
       tag: "52.609.X00",
       status: "new",
@@ -1178,6 +1202,7 @@ export const line = {
     {
       id: "flexiconPreBin",
       type: "bin",
+      item: "flexicon-pre-bin",
       name: "FLEXICON PRE-BIN",
       // Corrected 2026-08-05 [FD]: this bin is 52.701.H00 (the earlier
       // drawing reading had wrongly given that tag to outloadBufferBin).
@@ -1228,6 +1253,7 @@ export const line = {
     {
       id: "vibratingConveyor",
       type: "vibratory",
+      item: "vibrating-conveyor",
       name: "VIBRATING CONVEYOR",
       // Corrected 2026-08-05 [FD]: this is 52.702.C00; the drawing
       // reading had swapped this tag with flexiconFillingHead's.
@@ -1255,6 +1281,7 @@ export const line = {
     {
       id: "flexiconFillingHead",
       type: "fillingHead",
+      item: "filling-head",
       name: "FLEXICON FILLING HEAD",
       // Corrected 2026-08-05 [FD]: this is 52.703.L00 (see
       // vibratingConveyor above for the other half of the swap).
@@ -1299,6 +1326,7 @@ export const line = {
     {
       id: "rollerScale",
       type: "rollerScale",
+      item: "roller-conveyors",
       name: "ROLLER CONVEYORS 1-4 + BELT SCALE",
       tag: "52.704.K00",
       status: "relocated",
@@ -1344,6 +1372,7 @@ export const line = {
     {
       id: "concettiSampler",
       type: "sampler",
+      item: "auto-sampler",
       name: "AUTO SAMPLER",
       // Corrected 2026-08-05 [FD]: this is 52.605.X00 (the earlier
       // drawing reading had wrongly given that tag to topConveyor).
@@ -1371,6 +1400,7 @@ export const line = {
     {
       id: "concettiPreBin",
       type: "bin",
+      item: "concetti-pre-bin",
       name: "CONCETTI PRE-BIN",
       tag: "52.705.H00",
       status: "new",
@@ -1424,6 +1454,7 @@ export const line = {
     {
       id: "concettiScale",
       type: "scale",
+      item: "bagging-scale",
       name: "BAGGING SCALE",
       tag: "TBC-16",
       status: "new",
@@ -1464,6 +1495,7 @@ export const line = {
     {
       id: "concettiFiller",
       type: "filler",
+      item: "filling-sewing",
       name: "FILLING & SEWING",
       tag: "TBC-17",
       status: "new",
@@ -1481,6 +1513,7 @@ export const line = {
     {
       id: "palletising",
       type: "palletiser",
+      item: "palletiser",
       name: "PALLETISING (COLLAPSED)",
       tag: "TBC-18",
       status: "relocated",

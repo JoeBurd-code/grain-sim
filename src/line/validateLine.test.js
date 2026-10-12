@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { validateLine } from "./validateLine";
+import { validateLine, wiringGaps } from "./validateLine";
+import { isRuleOff } from "./interlocks";
 
 // Minimal well-formed line: one source stub feeding one bin, in one zone.
 function makeValidLine(overrides = {}) {
@@ -79,7 +80,9 @@ describe("validateLine", () => {
     expect(result.errors.join("\n")).toContain("bufferBin");
   });
 
-  it("rejects an orphan machine that no connection touches", () => {
+  // Issue #87: a machine just added in Build mode has no connections yet,
+  // and the line must still load. The gap is reported, not refused.
+  it("accepts an orphan machine that no connection touches, and reports it as a wiring gap", () => {
     const line = makeValidLine();
     line.machines.push({
       id: "lonelyBin",
@@ -92,10 +95,22 @@ describe("validateLine", () => {
       y: 500,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 0, y: 0 }, out: { x: 0, y: 50 } },
+      sim: { kind: "accumulator", capacityM3: 1 },
     });
-    const result = validateLine(line);
-    expect(result.ok).toBe(false);
-    expect(result.errors.join("\n")).toContain("lonelyBin");
+    expect(validateLine(line).errors).toEqual([]);
+    expect(wiringGaps(line).join("\n")).toContain("lonelyBin");
+  });
+
+  // Issue #87: a built line has no zones, and two new machines both have an
+  // empty tag.
+  it("accepts machines with no zone and machines with an empty tag", () => {
+    const line = makeValidLine();
+    line.zones = [];
+    for (const m of line.machines) {
+      delete m.zone;
+      m.tag = "";
+    }
+    expect(validateLine(line).errors).toEqual([]);
   });
 
   it("rejects a machine assigned to a zone that is not declared", () => {
@@ -168,26 +183,18 @@ describe("validateLine", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("rejects a machine rule whose sensor references an unknown machine", () => {
+  // Issue #87: a machine rule that names a machine the line does not have
+  // (the user deleted it) is off, not refused, so the line still loads.
+  it.each([
+    ["sensor", { machine: "ghostBin" }, { machine: "feedStub", rampTimeSec: 5 }],
+    ["action", { machine: "bufferBin" }, { machine: "ghostValve", rampTimeSec: 5 }],
+  ])("accepts a machine rule whose %s names a machine the line does not have, and turns it off", (_what, sensor, action) => {
     const line = makeValidLine();
     line.machineRules = [{
-      id: "trip", kind: "holdNextBatch", sensor: { machine: "ghostBin" }, highSetpoint: 0.9, lowSetpoint: 0.3,
-      signalDelaySec: 3, action: { machine: "feedStub", rampTimeSec: 5 },
+      id: "trip", kind: "holdNextBatch", sensor, highSetpoint: 0.9, lowSetpoint: 0.3, signalDelaySec: 3, action,
     }];
-    const result = validateLine(line);
-    expect(result.ok).toBe(false);
-    expect(result.errors.join("\n")).toContain("ghostBin");
-  });
-
-  it("rejects a machine rule whose action references an unknown machine", () => {
-    const line = makeValidLine();
-    line.machineRules = [{
-      id: "trip", kind: "holdNextBatch", sensor: { machine: "bufferBin" }, highSetpoint: 0.9, lowSetpoint: 0.3,
-      signalDelaySec: 3, action: { machine: "ghostValve", rampTimeSec: 5 },
-    }];
-    const result = validateLine(line);
-    expect(result.ok).toBe(false);
-    expect(result.errors.join("\n")).toContain("ghostValve");
+    expect(validateLine(line).errors).toEqual([]);
+    expect(isRuleOff(line, line.machineRules[0])).toBe(true);
   });
 
   it("rejects a machine rule whose action targets a machine that cannot be commanded", () => {
@@ -286,13 +293,13 @@ describe("validateLine", () => {
     expect(result.ok).toBe(true);
   });
 
-  it("rejects a router with a declared output port that no connection routes anywhere", () => {
+  it("accepts a router with a declared output port that no connection routes anywhere, and reports it as a wiring gap", () => {
     const line = makeRouterLine();
     line.machines.find((m) => m.id === "diverter").ports.outputs.push("out3"); // declared, never wired
-    const result = validateLine(line);
-    expect(result.ok).toBe(false);
-    expect(result.errors.join("\n")).toContain("out3");
-    expect(result.errors.join("\n")).toContain("diverter");
+    expect(validateLine(line).errors).toEqual([]);
+    const gaps = wiringGaps(line).join("\n");
+    expect(gaps).toContain("out3");
+    expect(gaps).toContain("diverter");
   });
 
   it("rejects a router whose defaultPort names a port it never declares", () => {

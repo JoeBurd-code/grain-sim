@@ -1,0 +1,52 @@
+{
+  "id": "drum-feeder",
+  "version": 1,
+  "name": "Drum feeder",
+  "group": "conveying",
+  "maker": "",
+  "model": "",
+  "machine": {
+    "type": "drumFeeder",
+    "w": 80,
+    "h": 36,
+    "ports": {
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ]
+    },
+    "anchors": {
+      "in": {
+        "x": 40,
+        "y": 0
+      },
+      "out": {
+        "x": 40,
+        "y": 36
+      }
+    },
+    "label": {
+      "side": "left",
+      "align": "center"
+    },
+    "params": [
+      {
+        "id": "gatePosition",
+        "label": "gate position",
+        "min": 0,
+        "max": 100,
+        "value": 100,
+        "unit": "%",
+        "bind": "gatePosition",
+        "readBind": "gatePositionActual"
+      }
+    ],
+    "sim": {
+      "kind": "meteredFeeder",
+      "rateM3PerSec": 0.00462962962962963,
+      "hasGate": true
+    }
+  }
+}

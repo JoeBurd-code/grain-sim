@@ -12,7 +12,9 @@
 // A machine can give its switches' sliders a label and limits
 // (`setpointSliders` on the machine), listed in the order the popup shows
 // them. A switch it does not list gets "<code> set point", 0 to 100 %.
-import { lineRules, interlockSensorMachine, interlockValue, isSentence, ruleSwitches, SWITCH_FIELDS } from "./interlocks";
+//
+// A rule that is off (issue #87) does not run, so it gives no slider.
+import { lineRules, interlockSensorMachine, interlockValue, isSentence, ruleSwitches, SWITCH_FIELDS, isRuleOff } from "./interlocks";
 
 // The Sim mode live control (sim/liveControls.js) each switch's slider drives.
 export const SWITCH_BINDS = {
@@ -37,7 +39,7 @@ const percent = (fraction) => Number((fraction * 100).toPrecision(12));
 function switchValues(line, machine) {
   const values = new Map();
   for (const rule of lineRules(line)) {
-    if (interlockSensorMachine(rule) !== machine.id) continue;
+    if (interlockSensorMachine(rule) !== machine.id || isRuleOff(line, rule)) continue;
     for (const code of ruleSwitches(rule)) {
       if (!values.has(code)) values.set(code, interlockValue(rule, SWITCH_FIELDS[code]));
     }
@@ -52,7 +54,7 @@ function switchValues(line, machine) {
 function unnamedParts(line, machine) {
   const parts = [];
   for (const rule of line.interlocks ?? []) {
-    if (!isSentence(rule) || rule.when?.machine !== machine.id) continue;
+    if (!isSentence(rule) || rule.when?.machine !== machine.id || isRuleOff(line, rule)) continue;
     for (const [name, part] of [["when", rule.when], ["whenClears", rule.whenClears]]) {
       if (part?.setpoint !== undefined && part.switch === undefined) parts.push({ rule, name, part });
     }

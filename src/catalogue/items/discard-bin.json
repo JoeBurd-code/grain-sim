@@ -1,0 +1,35 @@
+{
+  "id": "discard-bin",
+  "version": 1,
+  "name": "Discard bin",
+  "group": "storage",
+  "maker": "",
+  "model": "",
+  "machine": {
+    "type": "metalBin",
+    "w": 100,
+    "h": 80,
+    "ports": {
+      "inputs": [
+        "in"
+      ],
+      "outputs": []
+    },
+    "anchors": {
+      "in": {
+        "x": 50,
+        "y": 0
+      }
+    },
+    "fill": 0.01,
+    "label": {
+      "side": "below",
+      "align": "center"
+    },
+    "sim": {
+      "kind": "terminalSink",
+      "displayCapacityM3": 0.3,
+      "initialLevelFraction": 0.01
+    }
+  }
+}

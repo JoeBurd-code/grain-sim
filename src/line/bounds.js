@@ -27,7 +27,11 @@ function labelBox(m) {
   };
 }
 
+// The view of a line with no machines: an empty canvas around the origin.
+const EMPTY_BOUNDS = { x: -100, y: -100, w: 1200, h: 700 };
+
 export function machinesBounds(machines, margin = LABEL_MARGIN) {
+  if (machines.length === 0) return { ...EMPTY_BOUNDS };
   const boxes = machines.map((m) => (m.type === "stub" ? null : labelBox(m)));
   const xs = machines.flatMap((m, i) => {
     const pts = [m.x, m.x + m.w];
