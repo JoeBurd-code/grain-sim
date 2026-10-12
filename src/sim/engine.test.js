@@ -12,7 +12,7 @@ import {
 import { setSource, getSource, setDestination, getDestination } from "./goldenLineSelectors";
 import { assertConserved, conservationTotals } from "./conservation";
 import { tPerHourToM3PerSec, m3PerSecToTPerHour } from "./units";
-import { instrumentReadings, mergeInstruments } from "./control";
+import { instrumentReadings, mergeEvents, mergeInstruments } from "./control";
 import { line } from "../line/lineData";
 import { interlockCommandedMachines, interlockSensorMachine } from "../line/interlocks";
 import { BEHAVIORS } from "./behaviors";
@@ -3684,10 +3684,7 @@ describe("Concetti pre-bin's staged pause and restart (issue #73)", () => {
     expect(valve(sim).opennessTarget).toBe(1);
   });
 
-  // Issue #84: the pause comes back after the same 5 s signal delay as the
-  // first pause, not at once as the coded rule did. Its 30 s escalation then
-  // still counts from the moment LSHH makes again.
-  it("abandons a restart and pauses again if LSHH comes back for its signal delay part-way through it", () => {
+  it("abandons a restart and pauses again if LSHH comes back part-way through it", () => {
     const sim = createSim(lineWithConcettiScheduleWithoutScale);
     setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
     run(sim, SIGNAL_DELAY + 1);
@@ -3697,11 +3694,9 @@ describe("Concetti pre-bin's staged pause and restart (issue #73)", () => {
     expectPauseReleasedConveyor(sim);
 
     setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97); // fills again
-    run(sim, SIGNAL_DELAY - 1);
-    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBeGreaterThan(0); // inside the signal delay
-    run(sim, 2);
+    run(sim, DT);
     expect(concettiPauseSequence(sim).phase).toBe("active");
-    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(0); // back down
+    expect(getMachineState(sim, CONVEYOR_ID).throttleTarget).toBe(0); // straight back down
     expect(valve(sim).opennessTarget).toBe(0);
     run(sim, VALVE_OPEN + 5);
     expect(valve(sim).opennessTarget).toBe(0); // the abandoned restart never opens it
@@ -3828,6 +3823,18 @@ describe("Concetti pre-bin's staged pause and restart (issue #73)", () => {
     // Whichever rule comes first.
     const reversed = [...readers].reverse().reduce((merged, r) => mergeInstruments(merged, r.instruments), {});
     expect(reversed.LSHH).toMatchObject({ signal: true, alarm: true });
+  });
+
+  // Found in the browser check: both sentences logged the one LSHH crossing.
+  it("logs the pre-bin's one LSHH crossing once, in its popup and in the combined event log", () => {
+    const sim = createSim(lineWithConcettiScheduleWithoutScale);
+    setAccumulatorLevel(sim, CONCETTI_PRE_BIN_ID, 0.97);
+    run(sim, 1);
+    const isLshhOn = (e) => e.message.startsWith("LSHH ON");
+    expect(getCombinedEvents(sim).filter(isLshhOn)).toHaveLength(1);
+    const readers = sim.control.filter((r) => r.sensorId === CONCETTI_PRE_BIN_ID);
+    const popup = readers.reduce((events, r) => mergeEvents(events, r.log), []);
+    expect(popup.filter(isLshhOn)).toHaveLength(1);
   });
 
   it("logs the pause, the restart stages and the escalation against the pre-bin, each with its own simulated time", () => {

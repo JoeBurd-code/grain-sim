@@ -12,7 +12,7 @@ import {
   hasAnyTripLatched,
 } from "./engine";
 import { BEHAVIORS } from "./behaviors";
-import { mergeInstruments } from "./control";
+import { mergeEvents, mergeInstruments } from "./control";
 import { setLiveControl } from "./liveControls";
 import { createPlotHistory, setSeriesPlotted, recordSample } from "./plotHistory";
 
@@ -45,7 +45,7 @@ function publishSnap(sim) {
   // Events are re-sorted because two rules' logs interleave in time.
   for (const rule of sim.control) {
     const prev = machines.get(rule.sensorId);
-    const events = prev?.events ? [...prev.events, ...rule.log].sort((a, b) => a.t - b.t) : rule.log;
+    const events = prev?.events ? mergeEvents(prev.events, rule.log) : rule.log;
     machines.set(rule.sensorId, { ...prev, events, instruments: mergeInstruments(prev?.instruments, rule.instruments) });
   }
   // Issue #29: the same rule logs, flattened line-wide and tagged with

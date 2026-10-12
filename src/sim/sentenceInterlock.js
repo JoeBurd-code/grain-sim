@@ -42,9 +42,11 @@
 //
 // Steps run top to bottom. A wait holds the steps after it, so a sequence
 // can run for many ticks. A new sequence replaces the one running: when the
-// "when" condition fires again part way through the "when it clears" steps,
-// those steps stop and the "then" steps run again from the top, and the
-// other way round.
+// "when" condition holds again part way through the "when it clears" steps,
+// those steps stop and the "then" steps run again from the top at once,
+// with no signal delay, and the other way round. While the whole line is
+// tripped, the "when it clears" steps wait, and run from the top after the
+// reset.
 //
 // Reset:
 // - auto with no "when it clears": the steps are let go the tick the "when"
@@ -117,14 +119,6 @@ export const ACTIONS = {
   open: { verb: "close", value: false, done: "opened" },
 };
 
-// Steps that command no machine. `thenOnly` steps read or act on the "when"
-// condition firing, so they have no meaning after it clears.
-const FLOW_STEPS = {
-  wait: { name: "wait" },
-  ifStillTrue: { name: "if still true", thenOnly: true },
-  tripLine: { name: "trip the whole line", thenOnly: true },
-};
-
 export const RESETS = ["auto", "latched"];
 
 const isPlainObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -173,9 +167,8 @@ export function validateSentence(rule, machinesById) {
       const flow = FLOW_STEPS[step.action];
       if (flow) {
         if (flow.thenOnly && after !== "then") say(`${where} can be "${flow.name}" only after "then"`);
-        if (step.action === "wait" && !(isFiniteNumber(step.seconds) && step.seconds >= 0)) {
-          say(`${where} needs a wait of zero or more seconds`);
-        }
+        const problem = flow.check?.(step);
+        if (problem) say(`${where} ${problem}`);
         return;
       }
       const action = ACTIONS[step.action];
@@ -303,6 +296,57 @@ function tripLine(rule, sim, reason) {
   });
 }
 
+// Steps that command no machine. `check` returns a problem with the step
+// for validateSentence, or nothing. `run` acts on the running sequence and
+// returns what the sequence does next: NEXT step, HOLD here until a later
+// tick, or END the steps. `thenOnly` steps read or act on the "when"
+// condition firing, so they have no meaning after it clears. A `trips`
+// step can hold the line until an operator resets it.
+const NEXT = "next", HOLD = "hold", END = "end";
+const FLOW_STEPS = {
+  wait: {
+    name: "wait",
+    check: (step) => (isFiniteNumber(step.seconds) && step.seconds >= 0 ? null : "needs a wait of zero or more seconds"),
+    // After a wait, the clock moves to the tick that passed it, so the next
+    // wait counts from the step it follows.
+    run: (rule, sim, seq, step) => {
+      seq.waitUntil ??= seq.clock + step.seconds;
+      if (sim.t < seq.waitUntil) return HOLD;
+      seq.clock = sim.t;
+      seq.waitUntil = null;
+      seq.reason = `${step.seconds}s later`;
+      return NEXT;
+    },
+  },
+  ifStillTrue: {
+    name: "if still true",
+    thenOnly: true,
+    run: (rule, sim, seq) => {
+      if (!holds(rule, rule.when, sim)) {
+        logEvent(rule, sim.t, `no longer ${describe(rule, rule.when, "fires")}, the steps end here`);
+        return END;
+      }
+      seq.reason = `still ${describe(rule, rule.when, "fires")}`;
+      return NEXT;
+    },
+  },
+  tripLine: {
+    name: "trip the whole line",
+    thenOnly: true,
+    trips: true,
+    run: (rule, sim, seq) => {
+      tripLine(rule, sim, seq.reason);
+      return NEXT;
+    },
+  },
+};
+
+function runMachineStep(rule, sim, seq, step) {
+  command(rule, sim, step, true);
+  logEvent(rule, sim.t, `${seq.reason}, ${machineName(sim, step.machine)} ${ACTIONS[step.action].done}`);
+  return NEXT;
+}
+
 // Starts `steps` as the running sequence, replacing any other. `start` is
 // when the sequence began: a delay's due time rather than the tick that saw
 // it pass, so a wait in the "then" steps counts from the moment the
@@ -312,31 +356,17 @@ function startSequence(rule, steps, start, reason) {
   rule.sequence = { steps, next: 0, clock: start, waitUntil: null, reason };
 }
 
-// Runs the sequence's steps until a wait that has not passed yet, or the
-// end. After a wait, the clock moves to the tick that passed it, so the next
-// wait counts from the step it follows.
+const runningClearSteps = (rule) => rule.whenClears !== null && rule.sequence?.steps === rule.whenClears.then;
+
+// Runs the sequence's steps until one holds it (a wait that has not passed
+// yet), one ends it, or the last.
 function runSequence(rule, sim) {
   const seq = rule.sequence;
   while (seq.next < seq.steps.length) {
     const step = seq.steps[seq.next];
-    if (step.action === "wait") {
-      seq.waitUntil ??= seq.clock + step.seconds;
-      if (sim.t < seq.waitUntil) return;
-      seq.clock = sim.t;
-      seq.waitUntil = null;
-      seq.reason = `${step.seconds}s later`;
-    } else if (step.action === "ifStillTrue") {
-      if (!holds(rule, rule.when, sim)) {
-        logEvent(rule, sim.t, `no longer ${describe(rule, rule.when, "fires")}, the steps end here`);
-        break;
-      }
-      seq.reason = `still ${describe(rule, rule.when, "fires")}`;
-    } else if (step.action === "tripLine") {
-      tripLine(rule, sim, seq.reason);
-    } else {
-      command(rule, sim, step, true);
-      logEvent(rule, sim.t, `${seq.reason}, ${machineName(sim, step.machine)} ${ACTIONS[step.action].done}`);
-    }
+    const outcome = (FLOW_STEPS[step.action]?.run ?? runMachineStep)(rule, sim, seq, step);
+    if (outcome === HOLD) return;
+    if (outcome === END) break;
     seq.next += 1;
   }
   rule.sequence = null;
@@ -419,7 +449,7 @@ function initSentence(cfg) {
   }
   // A switch whose sentence can hold the line until an operator resets it
   // is a trip: its lamp is red (ADR 0007).
-  const trips = cfg.reset === "latched" || cfg.then.some((step) => step.action === "tripLine");
+  const trips = cfg.reset === "latched" || cfg.then.some((step) => FLOW_STEPS[step.action]?.trips);
   rule.alarmCode = trips ? (cfg.when.switch ?? null) : null;
   if (Object.keys(rule.instrumentFields).length === 0) rule.instrumentFields = null;
   return rule;
@@ -450,7 +480,16 @@ function stepSentence(rule, sim) {
   }
   const whenHolds = holds(rule, rule.when, sim);
 
-  if (rule.phase === "clear" && whenHolds) {
+  if (rule.phase === "clear" && whenHolds && runningClearSteps(rule)) {
+    // Issue #84: back part way through the clear steps. The sentence has
+    // not finished clearing, so its "then" steps run again at once, as the
+    // Concetti pause did when LSHH came back during its restart. Their
+    // waits still count from when the signal delay would have ended, so an
+    // escalation lands as long after the condition came back as it would
+    // from clear.
+    startSequence(rule, rule.then, sim.t + rule.signalDelaySec, `${describe(rule, rule.when, "fires")} again`);
+    rule.phase = "active";
+  } else if (rule.phase === "clear" && whenHolds) {
     rule.phase = "arming";
     rule.fireAt = sim.t + rule.signalDelaySec;
   }
@@ -470,6 +509,14 @@ function stepSentence(rule, sim) {
     } else {
       release(rule, sim, sim.t, describe(rule, rule.when, "clears"));
     }
+  }
+  // Issue #84: while the whole line is tripped, the clear steps wait at the
+  // top and run in order from the reset, as the Concetti pause's restart
+  // did. Run under the trip, they would finish while the trip held every
+  // machine, and its reset would bring them all back at once.
+  if (runningClearSteps(rule) && sim.utilitiesTrip?.phase === "tripped") {
+    startSequence(rule, rule.sequence.steps, sim.t, rule.sequence.reason);
+    return;
   }
   if (rule.sequence) runSequence(rule, sim);
 }

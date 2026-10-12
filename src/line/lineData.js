@@ -1890,6 +1890,16 @@ export const line = {
       // escalation less the 5 s signal delay: both count from the moment
       // LSHH first makes.
       //
+      // The restart order is the point of the rule: it protects the
+      // scalping screen discharge hopper. That hopper's only discharge is
+      // inlet drum feeder 2 into the conveyor, so stopping the conveyor
+      // shuts its outlet; closing the valve above the screen at the same
+      // moment stops its inlet, so it holds steady rather than backing up.
+      // Coming back, the drain path is proven before the fill path reopens:
+      // conveyor first, valve only 10 s later. The two inlet drum feeders
+      // are not commanded here: conveyorRunningInterlockFeeder1/2 already
+      // follow the conveyor down and back up.
+      //
       // The set points are the bin's own 85% / 95% pair, shared with
       // concettiFeedSchedule above (one physical LSH and one physical
       // LSHH; engine.js's setInterlockField moves every rule together from

@@ -25,9 +25,6 @@ export function interlockCommandedMachines(rule) {
     const feeders = Array.isArray(action.feeder) ? action.feeder : [action.feeder];
     return [action.elevator, ...feeders].map((t) => t?.machine);
   }
-  if (rule.kind === "stagedPauseRestart") {
-    return [action.treater, action.valve, action.conveyor].map((t) => t?.machine);
-  }
   return [action.machine];
 }
 

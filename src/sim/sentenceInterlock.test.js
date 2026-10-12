@@ -7,7 +7,7 @@ import { describe, it, expect } from "vitest";
 import {
   createSim, stepSim, DT, getMachineState, getInterlockState, setElevatorSpeed, releaseElevatorSpeed,
   setAccumulatorLevel, resetTrips, hasAnyTripLatched, setSelection, setInterlockHighSetpoint,
-  setInterlockLowSetpoint, setInterlockSignalDelay, getUtilitiesTripPhase, getCombinedEvents,
+  setInterlockLowSetpoint, setInterlockSignalDelay, getUtilitiesTripPhase, getCombinedEvents, setUtilitiesHealthy,
 } from "./engine";
 import { exportLine, importLine } from "../line/lineDocument";
 
@@ -634,7 +634,7 @@ describe("interlock sentence: wait, if still true, trip the whole line, start, a
     expect(openness(sim)).toBe(1);
   });
 
-  it("a condition back for its signal delay part way through the clear steps runs the then steps again", () => {
+  it("a condition back part way through the clear steps runs the then steps again at once", () => {
     const sim = createSim(binLine([ordered()]));
     setAccumulatorLevel(sim, "bin", 0.9);
     run(sim, 1.1);
@@ -643,24 +643,44 @@ describe("interlock sentence: wait, if still true, trip the whole line, start, a
     expect(throttle(sim)).toBe(1);
 
     setAccumulatorLevel(sim, "bin", 0.9);
-    run(sim, 1.1);
+    run(sim, DT); // no signal delay: the sentence had not finished clearing
     expect(throttle(sim)).toBe(0);
     expect(openness(sim)).toBe(0);
     run(sim, 5);
     expect(openness(sim)).toBe(0); // the abandoned clear steps never finish
   });
 
-  it("a condition back for less than its signal delay leaves the clear steps running", () => {
-    const sim = createSim(binLine([ordered()]));
+  it("a condition back part way through the clear steps escalates as long after it came back as from clear", () => {
+    const sim = createSim(binLine([escalating()])); // 1 s signal delay, 4 s wait
     setAccumulatorLevel(sim, "bin", 0.9);
     run(sim, 1.1);
     setAccumulatorLevel(sim, "bin", 0.5);
-    run(sim, 1);
+    run(sim, 1); // inside the clear steps' 2 s wait
     setAccumulatorLevel(sim, "bin", 0.9);
-    run(sim, 0.5);
-    setAccumulatorLevel(sim, "bin", 0.5);
-    run(sim, 2);
+    run(sim, 4.9);
+    expect(getUtilitiesTripPhase(sim)).toBe("running");
+    run(sim, 0.2);
+    expect(getUtilitiesTripPhase(sim)).toBe("tripped");
+  });
+
+  it("while the whole line is tripped, the clear steps wait, then run in order from the reset", () => {
+    const sim = createSim(binLine([ordered()]));
+    setAccumulatorLevel(sim, "bin", 0.9);
+    run(sim, 1.1);
+    setUtilitiesHealthy(sim, false);
+    run(sim, 1.1);
+    setAccumulatorLevel(sim, "bin", 0.5); // clears during the trip
+    run(sim, 10); // far past both waits
+
+    setUtilitiesHealthy(sim, true);
+    resetTrips(sim);
+    run(sim, DT);
+    expect(throttle(sim)).toBe(0); // not brought back with the trip's own release
+    expect(openness(sim)).toBe(0);
+    run(sim, 2.1);
     expect(throttle(sim)).toBe(1);
+    expect(openness(sim)).toBe(0);
+    run(sim, 1.1);
     expect(openness(sim)).toBe(1);
   });
 

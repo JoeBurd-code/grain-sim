@@ -13,7 +13,6 @@
 // second entry here, not a branch bolted onto the first one. `kind` defaults
 // to `thresholdTrip` so every interlock authored before this registry
 // existed (issue #19) needs no `lineData.js` change.
-import { tripLineFromInterlock } from "./utilitiesTrip";
 import { BEHAVIORS } from "./behaviors";
 import { SENTENCE_KIND } from "./sentenceInterlock";
 import { SWITCH_FIELDS } from "../line/interlocks";
@@ -77,12 +76,6 @@ const INSTRUMENT_FIELDS = {
   // shape as gradedFeedSchedule above but over hysteresisValve's binary
   // open/closed bands rather than continuous speed/gate ones.
   hysteresisValve: { LSL: "lowSetpoint", LSH: "highSetpoint", LSHH: "highHighSetpoint" },
-  // Issue #73: two codes, both load-bearing and neither of them the other's
-  // spare. LSHH starts the pause and the escalation; LSH is what releases
-  // the treater again. No LSL entry — this rule reads nothing at the bottom
-  // of the vessel, that band belongs to concettiFeedSchedule's own rule on
-  // the same bin.
-  stagedPauseRestart: { LSH: "highSetpoint", LSHH: "highHighSetpoint" },
 };
 
 // Issue #72: which one of a rule's codes is its *latched trip* — the switch
@@ -107,10 +100,6 @@ const ALARM_CODE = {
   thresholdStopTrip: "LSH",
   gradedFeedSchedule: "LSHH",
   hysteresisValve: "LSHH",
-  // Issue #73: LSHH again, on the same reasoning — it is the switch that
-  // stops something, and the only one of this rule's two that can put the
-  // line in a state needing an operator.
-  stagedPauseRestart: "LSHH",
 };
 
 // Pure: which of a rule's instruments are signalling right now, given the
@@ -1014,7 +1003,7 @@ function stepGradedFeedSchedule(rule, sim) {
   // the bands underneath it are doing.
   // Issue #73: `trip` is now optional. The Concetti pre-bin's schedule has
   // no high-high stage of its own any more — its LSHH commands the staged
-  // pause sequence (stagedPauseRestart) on the same bin instead, which
+  // pause sequence (an interlock sentence since issue #84) on the same bin instead, which
   // stops the same conveyor but recovers by itself rather than latching.
   // The treater pre-bin's schedule is unchanged and still trips. A rule
   // with no `trip` simply never leaves its band machine, so every branch
@@ -1115,271 +1104,6 @@ function disarmGradedFeedSchedule(rule) {
   }
 }
 
-// Staged pause and restart (issue #73) — the Concetti pre-bin's LSHH
-// response, described by the plant engineer and replacing the latched
-// conveyor trip gradedFeedSchedule's own LSHH stage used to command there.
-// Every kind above either latches until a SCADA reset or recovers the
-// instant its level clears. This one does neither: it recovers by itself,
-// but only through an ordered restart with real dwell times between the
-// stages, and it escalates to a whole-line trip if the condition refuses to
-// clear at all. Those three properties together are why it is a new kind
-// rather than a configuration of an existing one.
-//
-//   running --[LSHH, signalDelaySec]--> paused
-//   paused  --[LSHH clear]------------> restartingConveyor
-//           --[LSHH held escalationDelaySec]--> line trip (utilitiesTrip.js)
-//   restartingConveyor --[conveyorStartDelaySec]--> restartingValve
-//   restartingValve    --[valveOpenDelaySec]-----> running
-//
-// On entering `paused`, three things are commanded at once: the batch
-// treater is told to finish the charge it is mixing and then hold, the
-// after-bin outlet valve above the scalping screen is closed, and the
-// packaging conveyor is stopped. The two inlet drum feeders are
-// deliberately *not* commanded here — conveyorRunningInterlockFeeder1/2
-// (sentences since issue #82, the FD's own 1 s reverse-direction interlock)
-// already follow the conveyor down and, being a plain PI rather than a
-// trip, release on their own when it comes back up. Commanding them from
-// here as well would be a second, redundant authority over the same two
-// machines.
-//
-// The restart's ordering is the whole point of the rule, and it is what
-// protects the scalping screen discharge hopper. That hopper's only
-// discharge is inlet drum feeder 2 into the conveyor, so stopping the
-// conveyor shuts its outlet; closing the valve above the screen at the same
-// moment is what stops its inlet, leaving it holding steady rather than
-// backing up. Coming back, the drain path must be proven before the fill
-// path reopens: conveyor first, valve only once the conveyor has been
-// running for valveOpenDelaySec. Reversing those two would put grain into a
-// hopper that cannot yet empty.
-//
-// The treater's own release is on a different, lower switch (LSH, not
-// LSHH), and is deliberately independent of the restart staging above —
-// the engineer's own wording, kept literally. See docs/OPEN_QUESTIONS.md
-// for the consequence: LSH normally clears about one bag after LSHH does,
-// well inside conveyorStartDelaySec, so the treater usually restarts before
-// the valve above the screen has reopened, fills the after-bin, and is held
-// again by afterBinHoldTreater's own interlock a few seconds later.
-function initStagedPauseRestart(cfg) {
-  return {
-    kind: "stagedPauseRestart",
-    id: cfg.id,
-    sensorId: cfg.sensor.machine,
-    // Named, not positional: this kind commands three unlike actuators, so
-    // an `action` of three named entries is clearer than gradedFeedSchedule's
-    // own elevator/feeder pair generalised further.
-    treaterId: cfg.action.treater.machine,
-    valveId: cfg.action.valve.machine,
-    conveyorId: cfg.action.conveyor.machine,
-    highSetpoint: cfg.highSetpoint,
-    highHighSetpoint: cfg.highHighSetpoint,
-    signalDelaySec: cfg.signalDelaySec,
-    escalationDelaySec: cfg.escalationDelaySec,
-    conveyorStartDelaySec: cfg.conveyorStartDelaySec,
-    valveOpenDelaySec: cfg.valveOpenDelaySec,
-    valveRampSec: cfg.valveRampSec,
-    conveyorRampSec: cfg.conveyorRampSec,
-    phase: "running", // running -> armingPause -> paused -> restartingConveyor -> restartingValve -> running
-    fireAt: null,
-    // When the whole-line escalation fires, tracked separately from
-    // `fireAt` because the two run concurrently while LSHH is high: the
-    // pause's own signal delay is counting down at the same time.
-    escalateAt: null,
-    // The treater hold is a latch of its own, not a phase of the sequence:
-    // it is set with the pause but released on LSH, which can (and usually
-    // does) happen while the restart staging is still part-way through.
-    treaterHeld: false,
-    log: [],
-  };
-}
-function commandTreaterHold(rule, sim, held) {
-  const treater = sim.machines.get(rule.treaterId);
-  // Held under this rule's own key (issue #73): the after-bin's own
-  // holdNextBatch holds the same treater under its key, and releasing one
-  // must never release the other — see initBatchCycle's own `holders`.
-  BEHAVIORS[treater.kind].command(treater, held, rule.id);
-}
-function commandValve(rule, sim, direction) {
-  const valve = sim.machines.get(rule.valveId);
-  BEHAVIORS[valve.kind].command(valve, direction, rule.valveRampSec, rule.id);
-}
-function commandConveyor(rule, sim, fraction) {
-  const conveyor = sim.machines.get(rule.conveyorId);
-  BEHAVIORS[conveyor.kind].command(conveyor, fraction, rule.conveyorRampSec, rule.id);
-}
-// Entering the pause, from `running` or from either restart stage: a
-// re-assertion part-way through a restart must put the line straight back
-// where the pause had it, not carry on opening up.
-function enterPause(rule, sim, reason) {
-  commandValve(rule, sim, "close");
-  commandConveyor(rule, sim, 0);
-  if (!rule.treaterHeld) {
-    commandTreaterHold(rule, sim, true);
-    rule.treaterHeld = true;
-  }
-  rule.phase = "paused";
-  rule.fireAt = null;
-  logEvent(rule, sim.t, reason);
-}
-function stepStagedPauseRestart(rule, sim) {
-  const level = readLevel(sim.machines, rule.sensorId);
-  stepRuleInstruments(rule, level, sim);
-
-  // While the whole line is tripped, this rule holds exactly where it is.
-  // Every other kind in this file is latched, so none of them had to say
-  // this. This one recovers by itself, so without the guard it would run its
-  // whole ordered restart *during* a line trip. The trip's own command slot
-  // (commandSlots.js) would still keep the conveyor and valve shut, but the
-  // restart would log stages that never happened and finish before the
-  // operator restarts the line. Its own `reset` is what starts the restart
-  // instead, on the operator's press.
-  if (sim.utilitiesTrip?.phase === "tripped") return;
-
-  const high = level >= rule.highHighSetpoint;
-
-  // The escalation clock runs from the LSHH crossing itself, independent of
-  // every phase below — the engineer's own "if the LSHH is high for more
-  // than 30s" reads on the switch, not on how far the pause has got. It is
-  // therefore started and cleared here, before any phase handling, and a
-  // level that dips below LSHH and comes back starts a fresh 30 s rather
-  // than resuming a part-spent one.
-  if (high && rule.escalateAt === null) {
-    rule.escalateAt = sim.t + rule.escalationDelaySec;
-  } else if (!high && rule.escalateAt !== null) {
-    rule.escalateAt = null;
-  }
-  if (rule.escalateAt !== null && sim.t >= rule.escalateAt) {
-    rule.escalateAt = null;
-    logEvent(rule, sim.t, `high-high set point held for ${rule.escalationDelaySec}s at ${pct(level)} — entire line tripped, operator restart required`);
-    tripLineFromInterlock(sim, {
-      causeId: rule.sensorId,
-      causeName: "Concetti pre-bin high-high",
-      holds: () => readLevel(sim.machines, rule.sensorId) >= rule.highHighSetpoint,
-      message: `high-high set point would not clear — entire line tripped, operator restart required`,
-    });
-    // Fall through to the phase machine below: the trip has already stopped
-    // every actuator, and holding the rule in `paused` is exactly right —
-    // it is what makes the restart staging run again once the operator's
-    // reset clears the latch.
-    if (rule.phase !== "paused") enterPause(rule, sim, "line tripped — pause sequence holds until the level clears");
-    return;
-  }
-
-  if (rule.phase === "armingPause") {
-    if (!high) {
-      // The level fell back before the delay expired. Nothing has been
-      // commanded yet, so this cancels silently, the same way
-      // disarmThresholdStopTrip's own cancellation does.
-      rule.phase = "running";
-      rule.fireAt = null;
-      return;
-    }
-    if (sim.t >= rule.fireAt) {
-      enterPause(rule, sim, `treater commanded to hold, valve above the scalping screen closed, conveyor stopped — high-high trip`);
-    }
-    return;
-  }
-
-  if (rule.phase === "running" && high) {
-    rule.phase = "armingPause";
-    rule.fireAt = sim.t + rule.signalDelaySec;
-    logEvent(rule, sim.t, `high-high set point reached at ${pct(level)} — pause armed`);
-    return;
-  }
-
-  // The treater's own release, checked in every phase: LSH is a lower
-  // switch than LSHH, so this routinely fires while the restart staging
-  // below is still running. Never released while LSHH itself is still high,
-  // which LSH >= LSHH's own ordering already guarantees.
-  if (rule.treaterHeld && level < rule.highSetpoint) {
-    commandTreaterHold(rule, sim, false);
-    rule.treaterHeld = false;
-    logEvent(rule, sim.t, `high set point cleared at ${pct(level)} — treater released to start its next batch`);
-  }
-
-  if (rule.phase === "paused") {
-    if (high) return;
-    rule.phase = "restartingConveyor";
-    rule.fireAt = sim.t + rule.conveyorStartDelaySec;
-    logEvent(rule, sim.t, `high-high set point cleared at ${pct(level)} — conveyor restarts in ${rule.conveyorStartDelaySec}s`);
-    return;
-  }
-  if (rule.phase === "restartingConveyor") {
-    if (high) {
-      enterPause(rule, sim, `high-high set point reached again at ${pct(level)} — restart abandoned, line paused`);
-      return;
-    }
-    if (sim.t >= rule.fireAt) {
-      commandConveyor(rule, sim, 1);
-      rule.phase = "restartingValve";
-      rule.fireAt = sim.t + rule.valveOpenDelaySec;
-      logEvent(rule, sim.t, `conveyor started — valve above the scalping screen opens in ${rule.valveOpenDelaySec}s`);
-    }
-    return;
-  }
-  if (rule.phase === "restartingValve") {
-    if (high) {
-      enterPause(rule, sim, `high-high set point reached again at ${pct(level)} — restart abandoned, line paused`);
-      return;
-    }
-    if (sim.t >= rule.fireAt) {
-      commandValve(rule, sim, "open");
-      rule.phase = "running";
-      rule.fireAt = null;
-      logEvent(rule, sim.t, `valve above the scalping screen opened — sequence running`);
-    }
-  }
-}
-// Reset (issue #45's latch convention). Unlike every other kind here this
-// rule recovers on its own, so `reset` exists for the one case that cannot:
-// the escalation trip above, whose whole point is that the operator must
-// restart. Pressing RESET TRIPS while the level is still above LSHH is
-// refused by utilitiesTrip.js's own gate; this half puts the rule's
-// sequence back to the top so the ordered restart runs from `paused` as
-// usual, rather than leaving it stranded mid-stage.
-function resetStagedPauseRestart(rule, sim) {
-  if (rule.phase !== "paused") return;
-  const level = readLevel(sim.machines, rule.sensorId);
-  if (level >= rule.highHighSetpoint) {
-    logEvent(rule, sim.t, `reset commanded — high-high set point still reading ${pct(level)}, remains paused`);
-    return;
-  }
-  rule.phase = "restartingConveyor";
-  rule.fireAt = sim.t + rule.conveyorStartDelaySec;
-  rule.escalateAt = null;
-  logEvent(rule, sim.t, `reset — conveyor restarts in ${rule.conveyorStartDelaySec}s`);
-}
-// Disarm, and a deliberate departure from every other kind's own. The
-// others cancel only a pending, not-yet-committed timer and leave any
-// command already issued standing (see disarmThresholdStopTrip). That is
-// right for them: their actuator is theirs alone, so an already-issued stop
-// stays correct whether or not the rule is still scanning.
-//
-// This rule's three actuators are shared with the whole line, and its
-// arming condition is the destination selector. A presenter switching the
-// conveyor from Concetti to Flexicon mid-pause would otherwise leave the
-// valve above the scalping screen shut and the conveyor stopped with
-// nothing left running to ever reopen them, because the rule that issued
-// those commands is no longer being stepped. So disarming here withdraws
-// the commands outright: the interlock no longer applies, and neither
-// should anything it did. Idempotent via the phase guard, as every disarm
-// must be (it is called every tick the rule is disarmed, not just on the
-// falling edge).
-function disarmStagedPauseRestart(rule, sim) {
-  if (rule.phase === "running" && !rule.treaterHeld) return;
-  if (rule.treaterHeld) {
-    commandTreaterHold(rule, sim, false);
-    rule.treaterHeld = false;
-  }
-  if (rule.phase !== "running") {
-    commandValve(rule, sim, "open");
-    commandConveyor(rule, sim, 1);
-    logEvent(rule, sim.t, `destination no longer Concetti — pause sequence released, valve and conveyor restored`);
-  }
-  rule.phase = "running";
-  rule.fireAt = null;
-  rule.escalateAt = null;
-}
-
 // Continuous feed-rate derivation (issue #59): what actually makes a dial
 // change visible in the feeder's commanded rate. Every rule kind above is a
 // phase machine — a sensor crossing a setpoint arms a delayed command — but
@@ -1468,14 +1192,6 @@ const LATCHED_PHASES = {
   thresholdStopTrip: new Set(["stopped"]),
   gradedFeedSchedule: new Set(["tripped"]),
   hysteresisValve: new Set(["tripped"]),
-  // Issue #73: stagedPauseRestart has no latched phase, deliberately. Its
-  // ordinary "paused" clears itself the moment LSHH does, so pulsing RESET
-  // TRIPS through a routine pause would tell a presenter to press a button
-  // that is not needed. The one state on this rule that *does* need an
-  // operator is its 30 s escalation, and that is a whole-line trip: it
-  // already shows through `sim.utilitiesTrip.phase` in engine.js's
-  // hasAnyTripLatched, which is the same indicator, reached by the honest
-  // route.
 };
 
 // One dispatch table entry per rule kind (issue #45's own instruction:
@@ -1499,10 +1215,6 @@ const CONTROL_KINDS = {
     disarm: disarmGradedFeedSchedule,
   },
   hysteresisValve: { init: initHysteresisValve, step: stepHysteresisValve, reset: resetHysteresisValve },
-  stagedPauseRestart: {
-    init: initStagedPauseRestart, step: stepStagedPauseRestart, reset: resetStagedPauseRestart,
-    disarm: disarmStagedPauseRestart,
-  },
   // Issue #82: the interlock sentence (sentenceInterlock.js), the one shape
   // that replaces every kind above as each is converted. Its level switches
   // (issue #83) are read here, with every other kind's, before it steps.
@@ -1565,13 +1277,29 @@ function isArmed(rule, sim) {
 // source of truth for event history, not two that can drift apart.
 export function combineEventLogs(control, machineNames) {
   const events = [];
+  const seen = new Set();
   for (const rule of control) {
     for (const entry of rule.log) {
+      const key = `${rule.sensorId} ${eventKey(entry)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       events.push({ ...entry, machineId: rule.sensorId, machineName: machineNames.get(rule.sensorId) });
     }
   }
   events.sort((a, b) => a.t - b.t);
   return events;
+}
+
+// Issue #84: two rules that read one switch on one machine (both Concetti
+// pre-bin LSHH sentences) each log its crossing, word for word, on the same
+// tick. It is one event, so it is listed once.
+const eventKey = (entry) => `${entry.t} ${entry.message}`;
+
+// One machine's events, in time order, from the logs of every rule that
+// reads it, with each event listed once.
+export function mergeEvents(events, log) {
+  const seen = new Set(events.map(eventKey));
+  return [...events, ...log.filter((entry) => !seen.has(eventKey(entry)))].sort((a, b) => a.t - b.t);
 }
 
 export function initControl(line) {
