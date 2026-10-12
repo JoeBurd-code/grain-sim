@@ -17,6 +17,8 @@ import {
 } from "./symbols";
 import { useFlowAnimation, FLOW_DASH_PATTERN } from "./useFlowAnimation";
 import { useMachineMotion } from "./useMachineMotion";
+import { connectionPoints } from "../line/routing";
+import { machineFootprint } from "../line/layout";
 
 // Temporary direction markers: flip to false (or delete usages) when the
 // animated flow shimmer replaces them. One flag = the one-step removal.
@@ -52,17 +54,22 @@ const STREAM_STYLE = {
   chemical: { stroke: "#5a9ea0", width: 1.5, opacity: 0.8, marker: "arrChemical" },
 };
 
-function anchorAbs(machine, port) {
-  const a = machine.anchors[port];
-  return { x: machine.x + a.x, y: machine.y + a.y };
+// Issue #86: hand-placed bend points where the line has them, otherwise a
+// route with right-angle bends (line/routing.js).
+function connectionPath(line, c) {
+  return connectionPoints(line, c).map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
 }
 
-function connectionPath(line, c) {
-  const byId = new Map(line.machines.map((m) => [m.id, m]));
-  const from = anchorAbs(byId.get(c.from.machine), c.from.port);
-  const to = anchorAbs(byId.get(c.to.machine), c.to.port);
-  const pts = [from, ...(c.via ?? []), to];
-  return pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x},${p.y}`).join(" ");
+// Red outline on a machine's own footprint (a Z-shaped duct outlines its
+// three runs), shown for a moment after a Build mode drop on top of another
+// machine was refused (issue #86).
+function OverlapOutline({ machine: m }) {
+  return machineFootprint(m).map((r, i) => (
+    <rect
+      key={i} x={r.x - m.x - 4} y={r.y - m.y - 4} width={r.w + 8} height={r.h + 8}
+      fill="none" stroke={C.red} strokeWidth="2" rx="3" pointerEvents="none"
+    />
+  ));
 }
 
 // Single point of resolution for a machine's dynamic (per-tick) values.
@@ -79,7 +86,10 @@ function resolveDynamic(machine, simSnap) {
   return { ...live, fill: live.fill ?? machine.fill };
 }
 
-export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelect, simSnap, running, speed, simTime }) {
+// `onMachinePointerDown` is set only in Build mode, where a press on a
+// machine drags it (useMachineDrag.js); `overlapId` names the machine to
+// outline in red.
+export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelect, simSnap, running, speed, simTime, onMachinePointerDown, overlapId }) {
   const flowPathRef = useFlowAnimation(line, simSnap);
   const motion = useMachineMotion(running, speed);
   return (
@@ -174,6 +184,8 @@ export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelec
             key={m.id}
             className="machine"
             transform={`translate(${m.x},${m.y})`}
+            style={onMachinePointerDown ? { cursor: "move" } : undefined}
+            onPointerDown={onMachinePointerDown ? (e) => onMachinePointerDown(e, m) : undefined}
             onClick={(e) => {
               e.stopPropagation();
               if (!wasDrag()) onSelect(m.id);
@@ -187,6 +199,7 @@ export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelec
             )}
             <Symbol machine={m} dynamic={resolveDynamic(m, simSnap)} motion={motion} simTime={simTime} />
             {m.type !== "stub" && <MachineLabel machine={m} />}
+            {m.id === overlapId && <OverlapOutline machine={m} />}
           </g>
         );
       })}

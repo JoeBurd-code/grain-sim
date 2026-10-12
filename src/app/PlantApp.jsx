@@ -4,7 +4,8 @@
 // provisional form from issue #5.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { goldenLine, goldenLineErrors, GOLDEN_LINE_NAME } from "../line/goldenLine";
-import { exportLine, importLineFile, setAdjustableValue } from "../line/lineDocument";
+import { exportLine, importLineFile, setAdjustableValue, moveMachine } from "../line/lineDocument";
+import { placeMachine } from "../line/layout";
 import { lineBounds, zoneBounds } from "../line/bounds";
 import { plantControlsFor } from "../line/plantControls";
 import Scene from "../scene/Scene";
@@ -17,6 +18,7 @@ import ModeSwitch from "./ModeSwitch";
 import BuildPanel from "./BuildPanel";
 import { loadSavedWork, storeWork, clearSavedWork } from "./savedWork";
 import { useViewport } from "../scene/useViewport";
+import { useMachineDrag } from "../scene/useMachineDrag";
 import { useSimEngine } from "../sim/useSimEngine";
 import { readLiveControl } from "../sim/liveControls";
 import { isSeriesPlotted } from "../sim/plotHistory";
@@ -92,7 +94,7 @@ export default function PlantApp() {
   const selected = line.machines.find((m) => m.id === selectedId);
 
   const home = useMemo(() => lineBounds(line), [line]);
-  const { containerRef, vb, fitTo, wasDrag, handlers } = useViewport(home);
+  const { containerRef, vb, fitTo, wasDrag: viewportWasDrag, handlers: viewportHandlers } = useViewport(home);
   const engine = useSimEngine(simLine);
 
   // The operator's last-dragged slider position per machine/param, kept
@@ -193,6 +195,31 @@ export default function PlantApp() {
     }
     return result;
   }, [line]);
+
+  // Issue #86: a machine dragged in Build mode moves in the current line.
+  // The move is applied again inside the updater, as onEditField does. A
+  // move the line refuses leaves it as it was.
+  const onMoveMachine = useCallback((machineId, pos) => {
+    setCurrent((c) => {
+      const next = moveMachine(c.line, machineId, pos);
+      return next.ok && next.line !== c.line ? { ...c, line: next.line } : c;
+    });
+  }, []);
+  const drag = useMachineDrag(line, onMoveMachine);
+  const { onCanvasPointerDown, wasDrag: dragWasDrag } = drag;
+  const handlers = useMemo(() => ({
+    onPointerDown: (e) => {
+      onCanvasPointerDown();
+      viewportHandlers.onPointerDown(e);
+    },
+  }), [onCanvasPointerDown, viewportHandlers]);
+  const wasDrag = useCallback(() => dragWasDrag(viewportWasDrag), [dragWasDrag, viewportWasDrag]);
+  // While a drag is in progress the scene draws the machine where it would
+  // land; the current line changes only on release.
+  const shownLine = useMemo(
+    () => (drag.preview ? placeMachine(line, drag.preview.id, drag.preview.pos) : line),
+    [line, drag.preview],
+  );
 
   const onSelect = useCallback((id) => {
     setSelectedId(id);
@@ -371,7 +398,11 @@ export default function PlantApp() {
             )}
           </div>
           <div style={{ fontSize: 9, color: selected ? C.wheat : C.muted, textAlign: "right", minWidth: 170 }}>
-            {selected ? selected.name : "click a machine · drag to pan · wheel to zoom"}
+            {selected
+              ? selected.name
+              : building
+                ? "drag a machine to move it · hold Alt to place it off the grid"
+                : "click a machine · drag to pan · wheel to zoom"}
           </div>
         </div>
         {building && openError && (
@@ -407,7 +438,7 @@ export default function PlantApp() {
           <main ref={containerRef} style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden", position: "relative" }}>
             {vb && (
               <Scene
-                line={line}
+                line={shownLine}
                 vb={vb}
                 handlers={handlers}
                 wasDrag={wasDrag}
@@ -417,6 +448,8 @@ export default function PlantApp() {
                 running={engine.running}
                 speed={engine.speed}
                 simTime={engine.snap.t}
+                onMachinePointerDown={building ? drag.onMachinePointerDown : undefined}
+                overlapId={drag.flashId}
               />
             )}
             {selected && !building && (

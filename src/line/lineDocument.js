@@ -15,6 +15,8 @@ import { validateLine } from "./validateLine";
 export { setAdjustableValue, differsFromDefault } from "./adjustableFields";
 // Browser autosave (issue #79) stores edits to the golden line as changes.
 export { diffFromBase, applyChanges } from "./lineChanges";
+// Moving a machine (issue #86).
+export { moveMachine } from "./layout";
 
 export const LINE_FORMAT = "grain-sim-line";
 // Version 2 (issue #85): every interlock is a sentence, and the rules that

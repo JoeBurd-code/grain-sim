@@ -5,7 +5,7 @@ import { describe, it, expect } from "vitest";
 import { loadSavedWork, storeWork, clearSavedWork, SAVED_WORK_KEY } from "./savedWork";
 import { goldenLine, GOLDEN_LINE_NAME } from "../line/goldenLine";
 import { setAdjustableValue, readAdjustableValue } from "../line/adjustableFields";
-import { exportLine } from "../line/lineDocument";
+import { exportLine, moveMachine } from "../line/lineDocument";
 
 const GOLDEN = { line: goldenLine, name: GOLDEN_LINE_NAME, fromFile: false };
 
@@ -80,6 +80,14 @@ describe("loadSavedWork", () => {
     storeWork(GOLDEN, { ...GOLDEN, line }, () => storage);
     const loaded = loadSavedWork(GOLDEN, () => storage);
     expect(loaded).toEqual({ line, name: GOLDEN_LINE_NAME, fromFile: false });
+  });
+
+  it("brings back moved golden line machines after a reload", () => {
+    const storage = memoryStorage();
+    const moved = moveMachine(goldenLine, "discardBin", { x: 300, y: 900 });
+    expect(moved.ok).toBe(true);
+    storeWork(GOLDEN, { ...GOLDEN, line: moved.line }, () => storage);
+    expect(loadSavedWork(GOLDEN, () => storage)).toEqual({ ...GOLDEN, line: moved.line });
   });
 
   it("applies the stored changes to the golden line as it is now", () => {

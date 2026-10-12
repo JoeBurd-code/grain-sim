@@ -2,7 +2,7 @@
 // made, not as a copy of the line, so every value they never touched comes
 // fresh from the golden line on the next load.
 import { describe, it, expect } from "vitest";
-import { diffFromBase, applyChanges, setAdjustableValue } from "./lineDocument";
+import { diffFromBase, applyChanges, setAdjustableValue, moveMachine } from "./lineDocument";
 import { readAdjustableValue } from "./adjustableFields";
 import { goldenLine } from "./goldenLine";
 
@@ -94,5 +94,55 @@ describe("applyChanges", () => {
   it("treats a missing or non-list set of changes as no changes", () => {
     expect(applyChanges(goldenLine, undefined)).toEqual(goldenLine);
     expect(applyChanges(goldenLine, { machine: "metalBin1" })).toEqual(goldenLine);
+  });
+});
+
+// Issue #86: a moved machine is a change too, stored as its new position.
+describe("moves as changes", () => {
+  function move(line, id, pos) {
+    const result = moveMachine(line, id, pos);
+    if (!result.ok) throw new Error(result.error);
+    return result.line;
+  }
+
+  it("lists each moved machine's position, after the value changes", () => {
+    const edited = move(edit(goldenLine, ["metalBin1", "capacity", 9]), "discardBin", { x: 300, y: 900 });
+    expect(diffFromBase(goldenLine, edited)).toEqual([
+      { machine: "metalBin1", field: "capacity", value: 9 },
+      { machine: "discardBin", position: { x: 300, y: 900 } },
+    ]);
+  });
+
+  it("reproduces the moved line, rerouted connections included", () => {
+    const edited = move(move(goldenLine, "discardBin", { x: 300, y: 900 }), "concettiScale", { x: 3300, y: 470 });
+    expect(applyChanges(goldenLine, diffFromBase(goldenLine, edited))).toEqual(edited);
+  });
+
+  it("applies moves that only fit in a different order than the one stored", () => {
+    // The discard bin moves into the space the metal remover left.
+    const remover = goldenLine.machines.find((m) => m.id === "treatMetalRemover");
+    const edited = move(move(goldenLine, "treatMetalRemover", { x: 140, y: 1000 }), "discardBin", { x: remover.x, y: remover.y });
+    const changes = diffFromBase(goldenLine, edited);
+    expect(changes.map((c) => c.machine)).toEqual(["treatMetalRemover", "discardBin"]);
+    expect(applyChanges(goldenLine, [...changes].reverse())).toEqual(edited);
+  });
+
+  it("ignores a move for a machine that no longer exists, and a move onto another machine", () => {
+    const bin = goldenLine.machines.find((m) => m.id === "treaterBufferBin");
+    const loaded = applyChanges(goldenLine, [
+      { machine: "noSuchMachine", position: { x: 0, y: 0 } },
+      { machine: "discardBin", position: { x: bin.x, y: bin.y } },
+      { machine: "metalBin1", position: "here" },
+      { machine: "concettiScale", position: { x: 3300, y: 470 } },
+    ]);
+    expect(diffFromBase(goldenLine, loaded)).toEqual([{ machine: "concettiScale", position: { x: 3300, y: 470 } }]);
+  });
+
+  it("brings a repo fix to every machine the user did not move", () => {
+    const changes = diffFromBase(goldenLine, move(goldenLine, "discardBin", { x: 300, y: 900 }));
+    const updatedGolden = move(goldenLine, "concettiScale", { x: 3300, y: 470 });
+    const loaded = applyChanges(updatedGolden, changes);
+    expect(loaded.machines.find((m) => m.id === "concettiScale")).toMatchObject({ x: 3300, y: 470 });
+    expect(loaded.machines.find((m) => m.id === "discardBin")).toMatchObject({ x: 300, y: 900 });
   });
 });
