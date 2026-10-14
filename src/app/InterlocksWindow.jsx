@@ -9,11 +9,13 @@ import {
 } from "../line/sentenceEditor";
 import {
   CONDITIONS, conditionOptions, machineActionOptions, watchableMachines, actionableMachines, switchOptions,
-  sentenceSummary, sentenceProblems, runStepHint, machineName,
+  sentenceSummary, sentenceProblems, runStepHint, machineName, interlocksByMachine,
 } from "../line/sentenceOptions";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 
 export const INTERLOCKS_WINDOW_WIDTH = 380;
+// Above this many interlocks, every machine group starts shut.
+const COLLAPSE_ABOVE = 8;
 
 const pill = {
   background: "transparent", color: C.muted, border: `1px solid ${C.line}`, borderRadius: 4,
@@ -395,6 +397,11 @@ function ruleMachines(rule) {
 // `onEdit(fn)` applies `fn(line) => { ok, line }` as one undoable edit (PlantApp).
 export default function InterlocksWindow({ line, onEdit, onHoverMachines, onClose }) {
   const [openId, setOpenId] = useState(null);
+  // Machine id ("" for no machine yet) -> collapsed. A long list starts with
+  // every group shut, so the user opens the machine they are after.
+  const [collapsed, setCollapsed] = useState({});
+  // Fixed when the window opens, so adding one more never shuts open groups.
+  const [manyInterlocks] = useState(() => line.interlocks.length > COLLAPSE_ABOVE);
   const actionsFor = (id) => ({
     setField: (part, field, value) => onEdit((l) => setSentenceField(l, id, part, field, value)),
     setWhenClearsCondition: (on) => onEdit((l) => setWhenClearsCondition(l, id, on)),
@@ -437,6 +444,7 @@ export default function InterlocksWindow({ line, onEdit, onHoverMachines, onClos
         </div>
         <div style={{ ...caption, marginTop: 6 }}>
           Each interlock watches one machine, and while that is true it holds other machines stopped or valves closed.
+          They are listed under the machine they watch.
         </div>
       </div>
 
@@ -444,30 +452,68 @@ export default function InterlocksWindow({ line, onEdit, onHoverMachines, onClos
         {line.interlocks.length === 0 && (
           <div style={{ ...caption, marginTop: 10 }}>This line has no interlocks. Press + ADD to make one.</div>
         )}
-        {line.interlocks.map((rule) => {
-          const open = rule.id === openId;
-          const ok = sentenceProblems(line, rule).length === 0;
+        {interlocksByMachine(line).map(({ machine, rules }) => {
+          const okById = new Map(rules.map((r) => [r.id, sentenceProblems(line, r).length === 0]));
+          const key = machine ?? "";
+          // A group holding the open interlock is always shown.
+          const shown = rules.some((r) => r.id === openId) || !(collapsed[key] ?? manyInterlocks);
           return (
-            <div
-              key={rule.id}
-              onMouseEnter={() => onHoverMachines(ruleMachines(rule))}
-              onMouseLeave={() => onHoverMachines(null)}
-              style={{ border: `1px solid ${open ? C.wheat : ok ? C.line : C.amber}`, borderRadius: 6, marginTop: 8, background: C.bg }}
-            >
+            <div key={key} style={{ marginTop: 10 }}>
               <button
-                onClick={() => setOpenId(open ? null : rule.id)}
-                aria-expanded={open}
+                className="zonebtn"
+                aria-expanded={shown}
+                onClick={() => setCollapsed((c) => ({ ...c, [key]: shown }))}
+                onMouseEnter={() => machine && onHoverMachines([machine])}
+                onMouseLeave={() => onHoverMachines(null)}
                 style={{
-                  display: "flex", gap: 8, alignItems: "flex-start", width: "100%", textAlign: "left",
-                  background: "transparent", border: "none", padding: "9px 10px", cursor: "pointer", fontFamily: FONT_MONO,
+                  display: "flex", alignItems: "center", gap: 8, width: "100%", background: "transparent", border: "none",
+                  borderBottom: `1px solid ${C.line}`, padding: "4px 2px", cursor: "pointer", fontFamily: FONT_MONO, textAlign: "left",
                 }}
               >
-                <span title={ok ? "will run" : "will not run yet"}
-                  style={{ width: 7, height: 7, borderRadius: 4, marginTop: 5, flex: "none", background: ok ? C.green : C.amber }} />
-                <span style={{ flex: 1 }}><Summary line={line} rule={rule} /></span>
-                <span style={{ color: C.muted, fontSize: 9, marginTop: 3 }}>{open ? "▲" : "▼"}</span>
+                <span style={{ color: C.muted, fontSize: 9, width: 8 }}>{shown ? "▾" : "▸"}</span>
+                <span style={{ flex: 1, fontSize: 10, color: machine ? C.wheat : C.muted, letterSpacing: "0.08em" }}>
+                  {machine ? machineName(line, machine) : "NO MACHINE YET"}
+                </span>
+                {rules.some((r) => !okById.get(r.id)) && (
+                  <span title="an interlock here will not run yet" style={{ width: 6, height: 6, borderRadius: 3, background: C.amber }} />
+                )}
+                <span style={{ fontSize: 9, color: C.muted }}>{rules.length}</span>
               </button>
-              {open && <Editor key={rule.id} line={line} rule={rule} actions={actionsFor(rule.id)} onHover={onHoverMachines} />}
+              {shown && rules.map((rule) => {
+                const open = rule.id === openId;
+                const ok = okById.get(rule.id);
+                return (
+                  <div
+                    key={rule.id}
+                    onMouseEnter={() => onHoverMachines(ruleMachines(rule))}
+                    onMouseLeave={() => onHoverMachines(null)}
+                    style={{ border: `1px solid ${open ? C.wheat : ok ? C.line : C.amber}`, borderRadius: 6, marginTop: 6, background: C.bg }}
+                  >
+                    <button
+                      onClick={() => setOpenId(open ? null : rule.id)}
+                      aria-expanded={open}
+                      style={{
+                        display: "flex", gap: 8, alignItems: "flex-start", width: "100%", textAlign: "left",
+                        background: "transparent", border: "none", padding: "9px 10px", cursor: "pointer", fontFamily: FONT_MONO,
+                      }}
+                    >
+                      <span title={ok ? "will run" : "will not run yet"}
+                        style={{ width: 7, height: 7, borderRadius: 4, marginTop: 5, flex: "none", background: ok ? C.green : C.amber }} />
+                      <span style={{ flex: 1 }}>
+                        {rule.suggested && (
+                          <span title="Added when you connected these machines. Change it and it becomes your own."
+                            style={{ fontSize: 8, color: C.wheat, border: `1px solid ${C.wheat}`, borderRadius: 3, padding: "0 4px", marginRight: 6, letterSpacing: "0.08em" }}>
+                            SUGGESTED
+                          </span>
+                        )}
+                        <Summary line={line} rule={rule} />
+                      </span>
+                      <span style={{ color: C.muted, fontSize: 9, marginTop: 3 }}>{open ? "▲" : "▼"}</span>
+                    </button>
+                    {open && <Editor key={rule.id} line={line} rule={rule} actions={actionsFor(rule.id)} onHover={onHoverMachines} />}
+                  </div>
+                );
+              })}
             </div>
           );
         })}

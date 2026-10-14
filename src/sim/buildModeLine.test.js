@@ -15,7 +15,9 @@ function add(line, itemId, pos) {
 function connect(line, a, b) {
   const result = connectPorts(line, a, b);
   if (!result.ok) throw new Error(result.error);
-  return result.line;
+  // These tests are about lines without interlocks; suggestions (issue #93)
+  // have their own tests in suggestedInterlocks.test.js.
+  return { ...result.line, interlocks: result.line.interlocks.filter((x) => !x.suggested) };
 }
 function setField(line, id, field, value) {
   const result = setAdjustableValue(line, id, field, value);

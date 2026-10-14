@@ -19,7 +19,9 @@ function add(line, item, pos) {
 function connect(line, a, b) {
   const r = connectPorts(line, a, b);
   if (!r.ok) throw new Error(r.error);
-  return r.line;
+  // These tests are about lines without interlocks; suggestions (issue #93)
+  // have their own tests in suggestedInterlocks.test.js.
+  return { ...r.line, interlocks: r.line.interlocks.filter((x) => !x.suggested) };
 }
 function ok(result) {
   if (!result.ok) throw new Error(result.error);

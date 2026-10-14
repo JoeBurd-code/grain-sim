@@ -3,6 +3,7 @@
 // end is the output and which is the input, since a drag can start on
 // either one. Like the other line document functions, neither function here
 // ever changes the line it is given.
+import { addSuggestionsFor, withoutStaleSuggestions } from "./suggestedInterlocks";
 
 function endpointInfo(line, end) {
   const m = line.machines.find((x) => x.id === end.machine);
@@ -55,7 +56,8 @@ export function connectPorts(line, a, b) {
     to: { machine: inEnd.machine, port: inEnd.port },
     kind: connectionKindFor(outEnd.port),
   };
-  return { ok: true, line: { ...line, connections: [...line.connections, connection] } };
+  // Issue #93: a new connection brings the interlocks it calls for.
+  return { ok: true, line: addSuggestionsFor({ ...line, connections: [...line.connections, connection] }, connection) };
 }
 
 // Returns { ok: true, line } or { ok: false, error }. `from` is the output
@@ -63,5 +65,6 @@ export function connectPorts(line, a, b) {
 export function disconnectConnection(line, from) {
   const idx = line.connections.findIndex((c) => c.from.machine === from.machine && c.from.port === from.port);
   if (idx === -1) return { ok: false, error: `There is no connection from "${from.machine}:${from.port}".` };
-  return { ok: true, line: { ...line, connections: line.connections.filter((_, i) => i !== idx) } };
+  // Issue #93: a suggestion the user never changed goes with its connection.
+  return { ok: true, line: withoutStaleSuggestions({ ...line, connections: line.connections.filter((_, i) => i !== idx) }) };
 }
