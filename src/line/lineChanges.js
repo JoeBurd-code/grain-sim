@@ -10,7 +10,7 @@
 // repo on the next load.
 import { adjustableFields, readAdjustableValue, setAdjustableValue, closeTo } from "./adjustableFields";
 import { moveMachine, overlappingMachine } from "./layout";
-import { deleteMachine } from "./editing";
+import { deleteMachine, setMachineText } from "./editing";
 import { connectPorts, disconnectConnection } from "./connecting";
 import { REGISTERED_KINDS } from "../sim/behaviors";
 
@@ -53,6 +53,9 @@ export function diffFromBase(base, line) {
     if (m.x !== was.x || m.y !== was.y) {
       changes.push({ machine: m.id, position: { x: m.x, y: m.y } });
     }
+    // Issue #90: name and tag are plain text, not adjustable fields.
+    if (m.name !== was.name) changes.push({ machine: m.id, text: "name", value: m.name });
+    if (m.tag !== was.tag) changes.push({ machine: m.id, text: "tag", value: m.tag });
   }
   const ids = new Set(line.machines.map((m) => m.id));
   for (const m of base.machines) {
@@ -108,6 +111,7 @@ function isChange(c) {
     return isEndpoint(c.connect.from) && isEndpoint(c.connect.to) && typeof c.connect.kind === "string";
   }
   if (c.disconnect !== undefined) return isEndpoint(c.disconnect.from);
+  if (c.text !== undefined) return typeof c.machine === "string" && (c.text === "name" || c.text === "tag") && typeof c.value === "string";
   return typeof c.machine === "string" && (typeof c.field === "string" || isObject(c.position));
 }
 
@@ -125,6 +129,7 @@ function applyChange(line, c) {
   if (c.add !== undefined) return addStoredMachine(line, c.add);
   if (c.connect !== undefined) return connectPorts(line, c.connect.from, c.connect.to);
   if (c.disconnect !== undefined) return disconnectConnection(line, c.disconnect.from);
+  if (c.text !== undefined) return setMachineText(line, c.machine, c.text, c.value);
   return c.position ? moveMachine(line, c.machine, c.position) : setAdjustableValue(line, c.machine, c.field, c.value);
 }
 

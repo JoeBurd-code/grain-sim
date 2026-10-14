@@ -5,6 +5,7 @@
 import { useState } from "react";
 import { adjustableFields, readAdjustableValue } from "../line/adjustableFields";
 import { differsFromDefault } from "../line/lineDocument";
+import { catalogueItem } from "../catalogue/catalogue";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 
 const BUILD_PANEL_WIDTH = 280;
@@ -154,12 +155,55 @@ function FieldRow({ field, value, changed, onEdit }) {
   );
 }
 
-function MachineSettings({ line, machine, onEditField, onDeleteMachine }) {
+// A name or tag (issue #90): free text, committed the same way a number is
+// (Enter or blur, Escape reverts), but with no min/max/unit line underneath
+// since there is no plant unit to show.
+function TextFieldRow({ label, value, onCommit }) {
+  const [draft, setDraft] = useState(null);
+  const [error, setError] = useState(null);
+  const showValue = () => {
+    setDraft(null);
+    setError(null);
+  };
+  const commitDraft = () => {
+    if (draft === null || draft === value) return showValue();
+    const result = onCommit(draft);
+    if (result.ok) showValue();
+    else setError(result.error);
+  };
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div style={{ fontSize: 10, color: C.text }}>{label}</div>
+      <input
+        type="text"
+        aria-label={label}
+        value={draft ?? value}
+        style={{ ...inputStyle, width: "100%", borderColor: error ? C.red : C.line, boxSizing: "border-box" }}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commitDraft}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commitDraft();
+          if (e.key === "Escape") showValue();
+        }}
+      />
+      {error && <div style={{ fontSize: 9, color: C.red, marginTop: 3 }}>{error}</div>}
+    </div>
+  );
+}
+
+function MachineSettings({ line, machine, onEditField, onEditText, onDeleteMachine }) {
   const fields = adjustableFields(machine);
+  const item = catalogueItem(machine.item);
   return (
     <>
       <div style={headingStyle}>{machine.name}</div>
-      <div style={{ fontSize: 9, color: C.muted, marginTop: 2 }}>{machine.tag}</div>
+      <TextFieldRow label="name" value={machine.name} onCommit={(v) => onEditText(machine.id, "name", v)} />
+      <TextFieldRow label="tag" value={machine.tag} onCommit={(v) => onEditText(machine.id, "tag", v)} />
+      {item && (
+        <div style={{ fontSize: 9, color: C.muted, marginTop: 10 }}>
+          {item.maker || "—"} &middot; {item.model || "—"}
+        </div>
+      )}
       {fields.length === 0 ? (
         <div style={{ fontSize: 10, color: C.muted, marginTop: 16 }}>This machine has no adjustable settings.</div>
       ) : (
@@ -249,7 +293,7 @@ function ConnectionSettings({ line, connection, onDeleteConnection }) {
 
 export default function BuildPanel({
   line, machine, connection, settingsOpen, problemsOpen, problems, lineName,
-  onStartOver, onEditField, onDeleteMachine, onDeleteConnection, onGoToProblem,
+  onStartOver, onEditField, onEditText, onDeleteMachine, onDeleteConnection, onGoToProblem,
 }) {
   return (
     <aside style={{
@@ -262,7 +306,7 @@ export default function BuildPanel({
       ) : machine ? (
         // Keyed by machine, so a half-typed value or a refusal never carries
         // over to the next machine selected.
-        <MachineSettings key={machine.id} line={line} machine={machine} onEditField={onEditField} onDeleteMachine={onDeleteMachine} />
+        <MachineSettings key={machine.id} line={line} machine={machine} onEditField={onEditField} onEditText={onEditText} onDeleteMachine={onDeleteMachine} />
       ) : connection ? (
         <ConnectionSettings line={line} connection={connection} onDeleteConnection={onDeleteConnection} />
       ) : problemsOpen ? (

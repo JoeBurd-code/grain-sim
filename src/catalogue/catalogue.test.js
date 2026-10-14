@@ -17,9 +17,13 @@ describe("the catalogue", () => {
     }
   });
 
-  it("has every golden line machine but the stubs, plus Grain in and Grain out", () => {
+  it("has every golden line machine but the stubs, plus Grain in, Grain out, and the generic conveyors", () => {
     const fromGolden = new Set(goldenLine.machines.filter((m) => m.type !== "stub").map((m) => m.item));
-    expect(new Set(CATALOGUE.map((i) => i.id))).toEqual(new Set([...fromGolden, "grain-in", "grain-out"]));
+    // Issue #90: belt-conveyor and chain-conveyor are generic catalogue
+    // items, not used by the golden line itself, for a line built from
+    // scratch to use alongside pendulumConveyor's own real item.
+    expect(new Set(CATALOGUE.map((i) => i.id)))
+      .toEqual(new Set([...fromGolden, "grain-in", "grain-out", "belt-conveyor", "chain-conveyor"]));
     expect(catalogueItem("grain-in").machine.sim.kind).toBe("source");
     expect(catalogueItem("grain-out").machine.sim.kind).toBe("terminalSink");
     expect(CATALOGUE.some((i) => i.machine.type === "stub")).toBe(false);

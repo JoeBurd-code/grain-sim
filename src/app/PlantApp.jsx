@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { goldenLine, goldenLineErrors, GOLDEN_LINE_NAME } from "../line/goldenLine";
 import {
   exportLine, importLineFile, setAdjustableValue, moveMachine, addMachine, deleteMachine, emptyLine,
-  connectPorts, disconnectConnection, connectionKey,
+  connectPorts, disconnectConnection, connectionKey, setMachineText,
 } from "../line/lineDocument";
 import { catalogueItem } from "../catalogue/catalogue";
 import { placeMachine } from "../line/layout";
@@ -263,6 +263,19 @@ export default function PlantApp() {
     if (result.ok) {
       setCurrent((c) => {
         const next = setAdjustableValue(c.line, machineId, fieldId, value);
+        return next.ok ? { ...c, line: next.line } : c;
+      });
+    }
+    return result;
+  }, [line]);
+
+  // Issue #90: a machine's name or tag, the same double-apply pattern as
+  // onEditField.
+  const onEditText = useCallback((machineId, key, value) => {
+    const result = setMachineText(line, machineId, key, value);
+    if (result.ok) {
+      setCurrent((c) => {
+        const next = setMachineText(c.line, machineId, key, value);
         return next.ok ? { ...c, line: next.line } : c;
       });
     }
@@ -725,6 +738,7 @@ export default function PlantApp() {
               lineName={current.name}
               onStartOver={onStartOver}
               onEditField={onEditField}
+              onEditText={onEditText}
               onDeleteMachine={onDeleteMachine}
               onDeleteConnection={() => onDisconnect(selectedConnectionKey)}
               onGoToProblem={onGoToProblem}

@@ -51,8 +51,10 @@ const APPROVED = [
   ["concettiPreBin", "capacity", "m³", 0.2, 2, 0.72],
   ["treatingElevator", "ratedCapacity", "t/h", 5, 40, 20],
   ["treatingElevator", "chainSpeed", "m/min", 2, 30, 10.08],
+  ["treatingElevator", "height", "m", 4, 20, 8.731],
   ["pendulumConveyor", "ratedCapacity", "t/h", 5, 40, 20.84],
   ["pendulumConveyor", "chainSpeed", "m/min", 2, 30, 10.08],
+  ["pendulumConveyor", "length", "m", 15, 60, 31.087],
   ["afterBinOutletValve", "ratedCapacity", "t/h", 5, 40, 19.2],
   ["scalpingScreen", "ratedCapacity", "t/h", 10, 100, 64.4],
 ];

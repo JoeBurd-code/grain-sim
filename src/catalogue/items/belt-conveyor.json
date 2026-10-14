@@ -1,0 +1,73 @@
+{
+  "id": "belt-conveyor",
+  "version": 1,
+  "name": "Belt conveyor",
+  "group": "conveying",
+  "maker": "Simatek",
+  "model": "B100",
+  "machine": {
+    "type": "conveyor",
+    "w": 300,
+    "h": 26,
+    "ports": {
+      "inputs": [
+        "in"
+      ],
+      "outputs": [
+        "out"
+      ]
+    },
+    "anchors": {
+      "in": {
+        "x": 0,
+        "y": 13
+      },
+      "out": {
+        "x": 300,
+        "y": 13
+      }
+    },
+    "label": {
+      "side": "above",
+      "align": "center"
+    },
+    "adjustable": [
+      {
+        "id": "ratedCapacity",
+        "label": "rated capacity",
+        "unit": "t/h",
+        "kind": "number",
+        "min": 5,
+        "max": 40,
+        "default": 20,
+        "bind": "ratedCapacity"
+      },
+      {
+        "id": "chainSpeed",
+        "label": "belt speed",
+        "unit": "m/min",
+        "kind": "number",
+        "min": 2,
+        "max": 60,
+        "default": 30,
+        "bind": "chainSpeed"
+      },
+      {
+        "id": "length",
+        "label": "length",
+        "unit": "m",
+        "kind": "number",
+        "min": 2,
+        "max": 40,
+        "default": 10,
+        "bind": "length"
+      }
+    ],
+    "sim": {
+      "kind": "transportDelay",
+      "distanceM": 10,
+      "speedMPerMin": 30,
+      "ceilingM3PerSec": 0.00771604938271605
+    }
+  }
+}

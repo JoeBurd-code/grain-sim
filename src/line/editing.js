@@ -90,6 +90,19 @@ function plantControlsWithout(plantControls, id) {
   return result;
 }
 
+// Sets a machine's name or tag (issue #90). Plain text, not part of the
+// adjustable/BINDS system: there is no plant unit to convert and no default
+// to diff against, so a blank tag is allowed but a blank name is not — the
+// scene always needs something to label the machine with.
+// Returns { ok: true, line } or { ok: false, error }.
+export function setMachineText(line, id, key, value) {
+  const m = line.machines.find((x) => x.id === id);
+  if (!m) return { ok: false, error: `There is no machine "${id}" on this line.` };
+  if (typeof value !== "string") return { ok: false, error: `${key === "name" ? "Name" : "Tag"} must be text.` };
+  if (key === "name" && value.trim() === "") return { ok: false, error: "Name cannot be blank." };
+  return { ok: true, line: { ...line, machines: line.machines.map((x) => (x.id === id ? { ...x, [key]: value } : x)) } };
+}
+
 // Deletes the machine and every connection to it. The interlocks, machine
 // rules and feed rate links that name it stay on the line, off
 // (interlocks.js isRuleOff), so the user can see what it was protecting.

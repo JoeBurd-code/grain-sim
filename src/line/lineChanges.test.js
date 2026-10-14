@@ -4,7 +4,7 @@
 import { describe, it, expect } from "vitest";
 import {
   diffFromBase, applyChanges, setAdjustableValue, moveMachine, addMachine, deleteMachine,
-  connectPorts, disconnectConnection,
+  connectPorts, disconnectConnection, setMachineText,
 } from "./lineDocument";
 import { readAdjustableValue } from "./adjustableFields";
 import { goldenLine } from "./goldenLine";
@@ -147,6 +147,42 @@ describe("moves as changes", () => {
     const loaded = applyChanges(updatedGolden, changes);
     expect(loaded.machines.find((m) => m.id === "concettiScale")).toMatchObject({ x: 3300, y: 470 });
     expect(loaded.machines.find((m) => m.id === "discardBin")).toMatchObject({ x: 300, y: 900 });
+  });
+});
+
+// Issue #90: name, tag, length and height are saved work on the golden
+// line, like value edits, through the same diff/apply/saved-work pipeline.
+describe("name, tag and resize as changes", () => {
+  function rename(line, id, key, value) {
+    const result = setMachineText(line, id, key, value);
+    if (!result.ok) throw new Error(result.error);
+    return result.line;
+  }
+
+  it("lists a changed name and tag, and nothing when set back", () => {
+    const edited = rename(rename(goldenLine, "discardBin", "name", "WASTE BIN"), "discardBin", "tag", "99.000.H00");
+    expect(diffFromBase(goldenLine, edited)).toEqual([
+      { machine: "discardBin", text: "name", value: "WASTE BIN" },
+      { machine: "discardBin", text: "tag", value: "99.000.H00" },
+    ]);
+    const reverted = rename(edited, "discardBin", "name", goldenLine.machines.find((m) => m.id === "discardBin").name);
+    expect(diffFromBase(goldenLine, reverted)).toEqual([{ machine: "discardBin", text: "tag", value: "99.000.H00" }]);
+  });
+
+  it("reproduces a renamed line through diff and apply", () => {
+    const edited = rename(rename(goldenLine, "discardBin", "name", "WASTE BIN"), "metalBin1", "tag", "X");
+    expect(applyChanges(goldenLine, diffFromBase(goldenLine, edited))).toEqual(edited);
+  });
+
+  it("refuses a blank name but allows a blank tag", () => {
+    expect(setMachineText(goldenLine, "discardBin", "name", "  ").ok).toBe(false);
+    expect(setMachineText(goldenLine, "discardBin", "tag", "").ok).toBe(true);
+  });
+
+  it("lists and reproduces a resized conveyor's length as a change, like any other adjustable field", () => {
+    const resized = edit(goldenLine, ["pendulumConveyor", "length", 40]);
+    expect(diffFromBase(goldenLine, resized)).toEqual([{ machine: "pendulumConveyor", field: "length", value: 40 }]);
+    expect(applyChanges(goldenLine, diffFromBase(goldenLine, resized))).toEqual(resized);
   });
 });
 

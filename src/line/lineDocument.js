@@ -18,7 +18,7 @@ export { diffFromBase, applyChanges } from "./lineChanges";
 // Moving a machine (issue #86).
 export { moveMachine } from "./layout";
 // Adding and deleting machines, and NEW LINE (issue #87).
-export { addMachine, deleteMachine, emptyLine } from "./editing";
+export { addMachine, deleteMachine, emptyLine, setMachineText } from "./editing";
 // Connecting and disconnecting ports (issue #88).
 export { connectPorts, disconnectConnection, connectionKey } from "./connecting";
 

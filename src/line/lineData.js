@@ -67,6 +67,11 @@ const signalDelayField = (value) => ({ id: "signalDelay", label: "signal delay",
 const capacityField = (min, max, value) => ({ id: "capacity", label: "capacity", unit: "m³", kind: "number", min, max, default: value, bind: "capacity" });
 const ratedCapacityField = (label, min, max, value) => ({ id: "ratedCapacity", label, unit: "t/h", kind: "number", min, max, default: value, bind: "ratedCapacity" });
 const chainSpeedField = (value) => ({ id: "chainSpeed", label: "chain speed", unit: "m/min", kind: "number", min: 2, max: 30, default: value, bind: "chainSpeed" });
+// Issue #90: a conveyor's length or an elevator's height. The field's value
+// *is* `sim.distanceM` (adjustableFields.js's resizeField) so the drawn size
+// and the transit distance never disagree.
+const lengthField = (min, max, value) => ({ id: "length", label: "length", unit: "m", kind: "number", min, max, default: value, bind: "length" });
+const heightField = (min, max, value) => ({ id: "height", label: "height", unit: "m", kind: "number", min, max, default: value, bind: "height" });
 
 export const line = {
   zones: [
@@ -336,6 +341,7 @@ export const line = {
       adjustable: [
         ratedCapacityField("rated capacity", 5, 40, 20),
         chainSpeedField(10.08),
+        heightField(4, 20, 8.731),
       ],
       sim: {
         kind: "transportDelay",
@@ -932,6 +938,7 @@ export const line = {
       adjustable: [
         ratedCapacityField("rated capacity", 5, 40, 20.84),
         chainSpeedField(10.08),
+        lengthField(15, 60, PENDULUM_CONVEYOR_RUN_M),
       ],
       sim: {
         kind: "routedTransportDelay",
