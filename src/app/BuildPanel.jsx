@@ -295,25 +295,32 @@ export default function BuildPanel({
   line, machine, connection, settingsOpen, problemsOpen, problems, lineName,
   onStartOver, onEditField, onEditText, onDeleteMachine, onDeleteConnection, onGoToProblem,
 }) {
+  // Nothing selected and neither SETTINGS nor PROBLEMS open: the panel
+  // takes no width at all, so the canvas gets the room back. Opening it
+  // slides it in from the right edge rather than popping into place; the
+  // inner content keeps its full width throughout so it never squashes
+  // mid-transition.
+  const open = Boolean(settingsOpen || machine || connection || problemsOpen);
   return (
     <aside style={{
-      width: BUILD_PANEL_WIDTH, flex: "none", borderLeft: `1px solid ${C.line}`,
-      background: C.panel, padding: "14px 16px", overflowY: "auto",
-      fontFamily: FONT_MONO,
+      width: open ? BUILD_PANEL_WIDTH : 0, flex: "none",
+      borderLeft: open ? `1px solid ${C.line}` : "none",
+      background: C.panel, overflow: "hidden",
+      transition: "width 0.18s ease",
     }}>
-      {settingsOpen ? (
-        <LineSettings lineName={lineName} onStartOver={onStartOver} />
-      ) : machine ? (
-        // Keyed by machine, so a half-typed value or a refusal never carries
-        // over to the next machine selected.
-        <MachineSettings key={machine.id} line={line} machine={machine} onEditField={onEditField} onEditText={onEditText} onDeleteMachine={onDeleteMachine} />
-      ) : connection ? (
-        <ConnectionSettings line={line} connection={connection} onDeleteConnection={onDeleteConnection} />
-      ) : problemsOpen ? (
-        <Problems problems={problems} onGoToProblem={onGoToProblem} />
-      ) : (
-        <div style={{ fontSize: 10, color: C.muted }}>Select a machine or a connection to see its settings.</div>
-      )}
+      <div style={{ width: BUILD_PANEL_WIDTH, height: "100%", boxSizing: "border-box", padding: "14px 16px", overflowY: "auto", fontFamily: FONT_MONO }}>
+        {settingsOpen ? (
+          <LineSettings lineName={lineName} onStartOver={onStartOver} />
+        ) : machine ? (
+          // Keyed by machine, so a half-typed value or a refusal never
+          // carries over to the next machine selected.
+          <MachineSettings key={machine.id} line={line} machine={machine} onEditField={onEditField} onEditText={onEditText} onDeleteMachine={onDeleteMachine} />
+        ) : connection ? (
+          <ConnectionSettings line={line} connection={connection} onDeleteConnection={onDeleteConnection} />
+        ) : problemsOpen ? (
+          <Problems problems={problems} onGoToProblem={onGoToProblem} />
+        ) : null}
+      </div>
     </aside>
   );
 }

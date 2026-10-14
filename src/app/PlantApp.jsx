@@ -398,24 +398,26 @@ export default function PlantApp() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [building, selectedId, selectedConnectionKey, onDeleteMachine, onDisconnect]);
 
-  // Issue #91: undo/redo. Each gives back the exact earlier line document;
-  // the current selection is dropped since it may no longer exist in it.
+  // Issue #91: undo/redo. Each gives back the exact earlier line document.
+  // The selection stays as it was so the right panel keeps showing the same
+  // machine or connection with its reverted (or reapplied) values -- that's
+  // how the user sees the undo/redo actually happen. It's dropped only when
+  // the thing selected no longer exists in the line landed on.
+  const applyHistoryResult = useCallback((result) => {
+    if (!result) return;
+    setHistory(result.history);
+    setCurrent((c) => ({ ...c, line: result.line }));
+    if (selectedId && !result.line.machines.some((m) => m.id === selectedId)) setSelectedId(null);
+    if (selectedConnectionKey && !result.line.connections.some((c) => connectionKey(c) === selectedConnectionKey)) {
+      setSelectedConnectionKey(null);
+    }
+  }, [selectedId, selectedConnectionKey]);
   const onUndo = useCallback(() => {
-    const result = undoHistory(history, line);
-    if (!result) return;
-    setHistory(result.history);
-    setCurrent((c) => ({ ...c, line: result.line }));
-    setSelectedId(null);
-    setSelectedConnectionKey(null);
-  }, [history, line]);
+    applyHistoryResult(undoHistory(history, line));
+  }, [history, line, applyHistoryResult]);
   const onRedo = useCallback(() => {
-    const result = redoHistory(history, line);
-    if (!result) return;
-    setHistory(result.history);
-    setCurrent((c) => ({ ...c, line: result.line }));
-    setSelectedId(null);
-    setSelectedConnectionKey(null);
-  }, [history, line]);
+    applyHistoryResult(redoHistory(history, line));
+  }, [history, line, applyHistoryResult]);
   useEffect(() => {
     if (!building) return undefined;
     const onKeyDown = (e) => {
