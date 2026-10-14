@@ -362,6 +362,17 @@ const FLOW_STEPS = {
       return NEXT;
     },
   },
+  // Issue #92: an alarm only interlock. It holds nothing; it writes the
+  // event log (and a switch it names lights as any switch does), and
+  // `release` logs it clearing.
+  alarm: {
+    name: "raise an alarm",
+    thenOnly: true,
+    run: (rule, sim, seq) => {
+      logEvent(rule, sim.t, `${seq.reason}, ALARM`);
+      return NEXT;
+    },
+  },
   tripLine: {
     name: "trip the whole line",
     thenOnly: true,
@@ -424,6 +435,7 @@ function toClear(rule) {
 // "then" step let go. `start` is when the clear steps count from.
 function release(rule, sim, start, reason) {
   toClear(rule);
+  if (rule.then.some((step) => step.action === "alarm")) logEvent(rule, sim.t, `${reason}, alarm cleared`);
   if (rule.whenClears) {
     startSequence(rule, rule.whenClears.then, start, reason);
   } else {

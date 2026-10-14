@@ -146,13 +146,13 @@ function stepsOf(rule, part) {
   return rule.whenClears.then;
 }
 
-// `kind` is "machine", "wait", "ifStillTrue" or "tripLine". A machine or a
+// `kind` is "machine", "wait", "ifStillTrue", "tripLine" or "alarm". A machine or a
 // wait step starts blank.
 export function addStep(line, id, part, kind) {
   return withRule(line, id, (rule) => {
     let step;
     if (kind === "wait") step = { action: "wait", seconds: null };
-    else if (kind === "ifStillTrue" || kind === "tripLine") step = { action: kind };
+    else if (kind === "ifStillTrue" || kind === "tripLine" || kind === "alarm") step = { action: kind };
     else step = { action: null, machine: null };
     stepsOf(rule, part).push(step);
   });

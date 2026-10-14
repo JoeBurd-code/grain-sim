@@ -31,15 +31,21 @@ const selectStyle = {
   fontFamily: FONT_MONO, fontSize: 10, cursor: "pointer", minWidth: 0, maxWidth: "100%",
 };
 
-function Pills({ options, value, labelOf = (o) => String(o).toUpperCase(), onPick }) {
+// `disabled` maps an option to why it cannot be picked; it shows greyed
+// out with that reason as its tooltip.
+function Pills({ options, value, labelOf = (o) => String(o).toUpperCase(), onPick, disabled = {} }) {
   return (
     <div style={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
-      {options.map((o) => (
-        <button key={String(o)} className="zonebtn" aria-pressed={value === o} style={value === o ? pillOn : pill}
-          onClick={() => value !== o && onPick(o)}>
-          {labelOf(o)}
-        </button>
-      ))}
+      {options.map((o) => {
+        const why = value !== o ? disabled[o] : undefined;
+        return (
+          <button key={String(o)} className={why ? undefined : "zonebtn"} aria-pressed={value === o} disabled={Boolean(why)} title={why}
+            style={value === o ? pillOn : why ? { ...pill, opacity: 0.35, cursor: "not-allowed" } : pill}
+            onClick={() => value !== o && !why && onPick(o)}>
+            {labelOf(o)}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -147,15 +153,22 @@ function ConditionRows({ line, machine, part, onField }) {
   );
 }
 
-const STEP_LABEL = { ifStillTrue: "IF STILL TRUE, GO ON", tripLine: "TRIP THE WHOLE LINE" };
+const STEP_LABEL = { ifStillTrue: "IF STILL TRUE, GO ON", tripLine: "TRIP THE WHOLE LINE", alarm: "RAISE AN ALARM" };
+const STEP_COLOR = { tripLine: C.red, alarm: C.amber };
 
-// The actions worth offering a machine step: hold actions always, and the
-// undo of one only once an earlier step (`held`) held that machine. The
-// step's own action is always shown, so a broken one can be seen and fixed.
+// Every action the machine can take. Start and open only undo a stop or
+// close this interlock gave earlier (`held`), so until then they show
+// greyed out with the reason. The step's own action is always shown, so a
+// broken one can be seen and fixed.
 function stepActions(line, step, held) {
-  const options = machineActionOptions(line, step.machine).filter((a) =>
-    a === step.action || a === "stop" || a === "close" || held.has(step.machine));
-  return step.action == null || options.includes(step.action) ? options : [step.action, ...options];
+  const all = machineActionOptions(line, step.machine);
+  const options = step.action == null || all.includes(step.action) ? all : [step.action, ...all];
+  const disabled = {};
+  if (!held.has(step.machine)) {
+    disabled.start = "Only after this interlock has stopped it. Machines run on their own.";
+    disabled.open = "Only after this interlock has closed it. Valves are open on their own.";
+  }
+  return { options, disabled };
 }
 
 function StepList({ line, steps, part, heldBefore, actions, onHover }) {
@@ -167,7 +180,7 @@ function StepList({ line, steps, part, heldBefore, actions, onHover }) {
     <div style={{ marginTop: 6 }}>
       {steps.length === 0 && <div style={{ ...caption, padding: "4px 0" }}>No steps yet.</div>}
       {steps.map((step, i) => {
-        const offered = step.machine !== undefined ? stepActions(line, step, held) : [];
+        const offered = step.machine !== undefined ? stepActions(line, step, held) : null;
         if (step.action === "stop" || step.action === "close") held.add(step.machine);
         return (
           <div
@@ -199,7 +212,8 @@ function StepList({ line, steps, part, heldBefore, actions, onHover }) {
                   <MachineSelect machines={machines} line={line} value={step.machine} label="machine"
                     onChange={(v) => actions.setStepField(part, i, "machine", v)} />
                   {step.machine != null && (
-                    <Pills options={offered} value={step.action} onPick={(a) => actions.setStepField(part, i, "action", a)} />
+                    <Pills options={offered.options} disabled={offered.disabled} value={step.action}
+                      onPick={(a) => actions.setStepField(part, i, "action", a)} />
                   )}
                 </>
               ) : step.action === "wait" ? (
@@ -209,7 +223,7 @@ function StepList({ line, steps, part, heldBefore, actions, onHover }) {
                     onCommit={(v) => actions.setStepField(part, i, "seconds", v)} />
                 </>
               ) : (
-                <span style={{ fontSize: 10, letterSpacing: "0.06em", color: step.action === "tripLine" ? C.red : C.text }}>
+                <span style={{ fontSize: 10, letterSpacing: "0.06em", color: STEP_COLOR[step.action] ?? C.text }}>
                   {STEP_LABEL[step.action] ?? step.action}
                 </span>
               )}
@@ -224,6 +238,8 @@ function StepList({ line, steps, part, heldBefore, actions, onHover }) {
         <button className="zonebtn" style={textBtn} onClick={() => actions.addStep(part, "wait")}>+ WAIT</button>
         {part === "then" && (
           <>
+            <button className="zonebtn" style={textBtn} title="Write it to the event log, and hold nothing"
+              onClick={() => actions.addStep(part, "alarm")}>+ ALARM</button>
             <button className="zonebtn" style={textBtn} onClick={() => actions.addStep(part, "ifStillTrue")}>+ IF STILL TRUE</button>
             <button className="zonebtn" style={textBtn} onClick={() => actions.addStep(part, "tripLine")}>+ TRIP LINE</button>
           </>
@@ -243,10 +259,41 @@ function Summary({ line, rule }) {
   );
 }
 
-function Problems({ line, rule, onRewrite }) {
+// The first step with a machine picked but no action: nearly always someone
+// leaving it blank so the machine "runs", which needs no step at all.
+function idleStep(rule) {
+  const parts = [["then", rule.then], ["whenClearsThen", rule.whenClears?.then ?? []]];
+  for (const [part, steps] of parts) {
+    const index = steps.findIndex((s) => s.machine != null && s.action == null);
+    if (index >= 0) return { part, index, machine: steps[index].machine };
+  }
+  return null;
+}
+
+function Problems({ line, rule, onRewrite, onRemoveStep }) {
+  const idle = idleStep(rule);
+  const idleMessage = idle && idle.part === "then" ? `step ${idle.index + 1} needs an action` : null;
   const problems = sentenceProblems(line, rule);
   const hint = runStepHint(line, rule);
   if (problems.length === 0) return null;
+  if (idle && !hint) {
+    return (
+      <div style={{ marginTop: 14, border: `1px solid ${C.amber}`, borderRadius: 4, padding: "8px 10px" }}>
+        <div style={{ fontSize: 9, color: C.amber, letterSpacing: "0.1em" }}>THIS INTERLOCK WILL NOT RUN YET</div>
+        <div style={{ ...caption, color: C.text, marginTop: 6 }}>
+          Machines run on their own. A step can only stop a machine or close a valve.
+          To leave {machineName(line, idle.machine)} running, remove this step.
+        </div>
+        <button className="zonebtn" style={{ ...pill, color: C.wheat, border: `1px solid ${C.wheat}`, marginTop: 8 }}
+          onClick={() => onRemoveStep(idle.part, idle.index)}>
+          REMOVE STEP
+        </button>
+        {problems.filter((p) => p !== idleMessage && !(idle.part !== "then" && p.endsWith("needs an action"))).map((p, i) => (
+          <div key={i} style={{ ...caption, color: C.text, marginTop: 4 }}>· {p}</div>
+        ))}
+      </div>
+    );
+  }
   return (
     <div style={{ marginTop: 14, border: `1px solid ${C.amber}`, borderRadius: 4, padding: "8px 10px" }}>
       <div style={{ fontSize: 9, color: C.amber, letterSpacing: "0.1em" }}>THIS INTERLOCK WILL NOT RUN YET</div>
@@ -324,7 +371,7 @@ function Editor({ line, rule, actions, onHover }) {
         </div>
       </Section>
 
-      <Problems line={line} rule={rule} onRewrite={actions.rewrite} />
+      <Problems line={line} rule={rule} onRewrite={actions.rewrite} onRemoveStep={actions.removeStep} />
 
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginTop: 14 }}>
         {confirmDelete ? (

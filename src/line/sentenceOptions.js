@@ -63,6 +63,7 @@ function stepText(line, step) {
   if (step.action === "wait") return { text: `wait ${secs(step.seconds)}` };
   if (step.action === "ifStillTrue") return { text: "if still true" };
   if (step.action === "tripLine") return { text: "trip the whole line" };
+  if (step.action === "alarm") return { text: "raise an alarm" };
   return { text: `${step.action ?? "…"} `, machine: step.machine };
 }
 

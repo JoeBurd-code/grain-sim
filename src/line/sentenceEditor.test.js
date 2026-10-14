@@ -7,7 +7,9 @@ import {
 import { emptyLine, addMachine, connectPorts } from "./lineDocument";
 import { sentenceProblems, sentenceSummary, runStepHint } from "./sentenceOptions";
 import { lineProblems } from "./problems";
-import { createSim, stepSim, getMachineState, DT } from "../sim/engine";
+import {
+  createSim, stepSim, getMachineState, getCombinedEvents, setGateFraction, releaseGateFraction, setFeederRate, DT,
+} from "../sim/engine";
 
 function add(line, item, pos) {
   const r = addMachine(line, item, pos);
@@ -166,6 +168,35 @@ describe("step blocks", () => {
     const s = filled();
     const result = ok(setStepField(s.line, s.id, "then", 0, "machine", s.feeder));
     expect(ruleOf(result, s.id).then[0]).toEqual({ action: null, machine: s.feeder });
+  });
+});
+
+describe("an alarm only interlock", () => {
+  it("logs an alarm and holds nothing, then logs it clearing", () => {
+    const s = filled();
+    // "When the bin is above 30 % for 1 s, raise an alarm." The feeder is
+    // held stopped first so the bin fills past 30 %, then let go.
+    let line = ok(setSentenceField(s.line, s.id, "when", "setpoint", 0.3)).line;
+    line = ok(setSentenceField(line, s.id, "when", "delaySec", 1)).line;
+    line = ok(removeStep(line, s.id, "then", 0)).line;
+    line = ok(addStep(line, s.id, "then", "alarm")).line;
+    expect(sentenceProblems(line, line.interlocks[0])).toEqual([]);
+    expect(sentenceSummary(line, line.interlocks[0]).map((x) => x.text ?? "[m]").join(""))
+      .toBe("When [m] is above 30 % for 1 s, raise an alarm.");
+
+    const sim = createSim(line);
+    const events = () => getCombinedEvents(sim).map((e) => e.message);
+    setGateFraction(sim, s.feeder, 0);
+    // 100 s: past 30 % (about 50 s at 12 t/h) and short of full.
+    for (let i = 0; i < Math.round(100 / DT); i++) stepSim(sim, DT);
+    expect(events().some((m) => m.endsWith("ALARM"))).toBe(true);
+    // Nothing held: Grain in still feeds the bin.
+    expect(getMachineState(sim, s.grainIn).flowRateM3PerSec).toBeGreaterThan(0);
+
+    releaseGateFraction(sim, s.feeder);
+    setFeederRate(sim, s.feeder, getMachineState(sim, s.feeder).rate * 3);
+    for (let i = 0; i < Math.round(900 / DT); i++) stepSim(sim, DT);
+    expect(events().some((m) => m.endsWith("alarm cleared"))).toBe(true);
   });
 });
 
