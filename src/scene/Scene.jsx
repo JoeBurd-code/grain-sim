@@ -86,6 +86,18 @@ function ProblemOutline({ machine: m }) {
   ));
 }
 
+// Wheat, solid outline for a machine the Interlocks window's hovered
+// sentence names (issue #92): no wires drawn to it, just this, so hovering
+// never leaves anything permanent on the scene.
+function HighlightOutline({ machine: m }) {
+  return machineFootprint(m).map((r, i) => (
+    <rect
+      key={i} x={r.x - m.x - 6} y={r.y - m.y - 6} width={r.w + 12} height={r.h + 12}
+      fill="none" stroke={C.wheat} strokeWidth="2.5" rx="4" pointerEvents="none"
+    />
+  ));
+}
+
 // Single point of resolution for a machine's dynamic (per-tick) values.
 // `simSnap` is the live sim's published snapshot (Map<machineId, {...}>,
 // shape varies per sim.kind's own `snapshot`, see behaviors.js); a machine
@@ -110,7 +122,7 @@ function resolveDynamic(machine, simSnap) {
 export default function Scene({
   line, vb, handlers, wasDrag, selectedId, onSelect, simSnap, running, speed, simTime,
   onMachinePointerDown, overlapId, onPortPointerDown, selectedConnectionKey, onSelectConnection, connectionDraft,
-  problemMachineIds,
+  problemMachineIds, highlightMachineIds,
 }) {
   const flowPathRef = useFlowAnimation(line, simSnap);
   const motion = useMachineMotion(running, speed);
@@ -241,6 +253,7 @@ export default function Scene({
             {m.type !== "stub" && <MachineLabel machine={m} />}
             {m.id === overlapId && <OverlapOutline machine={m} />}
             {problemMachineIds?.has(m.id) && <ProblemOutline machine={m} />}
+            {highlightMachineIds?.has(m.id) && <HighlightOutline machine={m} />}
             {onPortPointerDown && <PortDots machine={m} onPortPointerDown={onPortPointerDown} />}
           </g>
         );

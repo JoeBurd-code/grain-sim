@@ -21,6 +21,7 @@ import ChartDock from "./ChartDock";
 import EventLogPanel from "./EventLogPanel";
 import ModeSwitch from "./ModeSwitch";
 import BuildPanel from "./BuildPanel";
+import InterlocksWindow from "./InterlocksWindow";
 import CataloguePanel, { CATALOGUE_DRAG_TYPE } from "./CataloguePanel";
 import { loadSavedWork, storeWork, clearSavedWork, hasUnsavedWork } from "./savedWork";
 import { emptyHistory, pushHistory, undoHistory, redoHistory } from "./editHistory";
@@ -158,6 +159,11 @@ export default function PlantApp() {
   // in, same rule as SETTINGS -- never shown at the same time as a selected
   // machine or connection.
   const [problemsOpen, setProblemsOpen] = useState(false);
+  // Issue #92: the Interlocks window, a fourth state for the same "never
+  // together" rule PROBLEMS and SETTINGS already follow -- opening it drops
+  // any selection, and selecting a machine closes it.
+  const [interlocksOpen, setInterlocksOpen] = useState(false);
+  const [hoveredInterlockMachine, setHoveredInterlockMachine] = useState(null);
   const problems = useMemo(() => lineProblems(line), [line]);
   const problemIds = useMemo(() => problemMachineIds(line), [line]);
   const runDisabledReason = useMemo(() => (hasGrainIn(simLine) ? null : "Add a Grain in to start"), [simLine]);
@@ -166,6 +172,7 @@ export default function PlantApp() {
     setSelectedConnectionKey(null);
     setSettingsOpen(false);
     setProblemsOpen(false);
+    setInterlocksOpen(false);
     fitTo(machineBounds(line, machineId));
   }, [line, fitTo]);
   // NEW LINE's confirmation, shown when there is work to lose.
@@ -203,6 +210,7 @@ export default function PlantApp() {
     setEventPanelOpen(false);
     setSettingsOpen(false);
     setProblemsOpen(false);
+    setInterlocksOpen(false);
     setOpenError(null);
     setConfirmingNewLine(false);
     setHistory(emptyHistory());
@@ -251,12 +259,14 @@ export default function PlantApp() {
     clearSavedWork();
     loadLine(GOLDEN_LINE_DOC);
     setSettingsOpen(false);
+    setInterlocksOpen(false);
     setConfirmingNewLine(false);
   }, [loadLine]);
 
   const startNewLine = useCallback(() => {
     setConfirmingNewLine(false);
     setSettingsOpen(false);
+    setInterlocksOpen(false);
     loadLine({ line: emptyLine(), name: NEW_LINE_NAME, fromFile: true });
   }, [loadLine]);
   const onNewLine = useCallback(() => {
@@ -293,6 +303,22 @@ export default function PlantApp() {
         return next.ok ? { ...c, line: next.line } : c;
       });
     }
+    return result;
+  }, [line, recordEdit]);
+
+  // Issue #92: every interlock sentence edit (add, change a blank, add/
+  // remove/reorder a step, delete the interlock) goes through sentenceEditor
+  // functions that return { ok, line }. `fn` is called against the current
+  // line first so a refusal never records history, then again inside the
+  // updater, the same double-apply pattern as every other Build mode edit.
+  const onEditInterlocks = useCallback((fn) => {
+    const result = fn(line);
+    if (!result.ok) return result;
+    recordEdit(line);
+    setCurrent((c) => {
+      const next = fn(c.line);
+      return next.ok ? { ...c, line: next.line } : c;
+    });
     return result;
   }, [line, recordEdit]);
 
@@ -455,6 +481,7 @@ export default function PlantApp() {
     if (id) {
       setSettingsOpen(false);
       setProblemsOpen(false);
+      setInterlocksOpen(false);
     }
   }, []);
   const onSelectConnection = useCallback((key) => {
@@ -462,6 +489,7 @@ export default function PlantApp() {
     setSelectedId(null);
     setSettingsOpen(false);
     setProblemsOpen(false);
+    setInterlocksOpen(false);
   }, []);
 
   // Issue #81: the plant control panel is generated from the line the sim
@@ -638,11 +666,27 @@ export default function PlantApp() {
                   onClick={() => {
                     setProblemsOpen((v) => !v);
                     setSettingsOpen(false);
+                    setInterlocksOpen(false);
                     setSelectedId(null);
                     setSelectedConnectionKey(null);
                   }}
                 >
                   PROBLEMS{problems.length > 0 ? ` (${problems.length})` : ""}
+                </button>
+                <button
+                  className="zonebtn"
+                  style={interlocksOpen
+                    ? zoneBtnActiveStyle
+                    : zoneBtnStyle}
+                  onClick={() => {
+                    setInterlocksOpen((v) => !v);
+                    setSettingsOpen(false);
+                    setProblemsOpen(false);
+                    setSelectedId(null);
+                    setSelectedConnectionKey(null);
+                  }}
+                >
+                  INTERLOCKS
                 </button>
                 <button
                   className="zonebtn"
@@ -652,6 +696,7 @@ export default function PlantApp() {
                   onClick={() => {
                     setSettingsOpen((v) => !v);
                     setProblemsOpen(false);
+                    setInterlocksOpen(false);
                     setSelectedId(null);
                     setSelectedConnectionKey(null);
                   }}
@@ -778,6 +823,7 @@ export default function PlantApp() {
                 onSelectConnection={building ? onSelectConnection : undefined}
                 connectionDraft={building ? connectionDrag.draft : null}
                 problemMachineIds={building ? problemIds : null}
+                highlightMachineIds={hoveredInterlockMachine ? new Set([hoveredInterlockMachine]) : null}
               />
             )}
             {selected && !building && (
@@ -806,6 +852,13 @@ export default function PlantApp() {
                 events={engine.snap.events}
                 onClose={() => setEventPanelOpen(false)}
                 jumpTo={eventJump}
+              />
+            )}
+            {interlocksOpen && building && (
+              <InterlocksWindow
+                line={line}
+                onEdit={onEditInterlocks}
+                onHoverMachine={setHoveredInterlockMachine}
               />
             )}
           </main>
