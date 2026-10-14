@@ -94,8 +94,15 @@ function PullTab({ open, onToggle }) {
 // `open` and `onToggle` belong to PlantApp, so the panel stays hidden or
 // shown across a switch to Sim mode and back.
 export default function CataloguePanel({ open, onToggle }) {
+  // Floats over the canvas rather than squeezing it (issue #91 follow-up):
+  // opening or closing it used to resize the canvas's own container, which
+  // re-fit the viewport and made the whole scene visibly jump/zoom. Overlaid,
+  // it may cover machines underneath -- left to the user to pan around.
   return (
-    <div style={{ position: "relative", display: "flex", flex: "none", minHeight: 0, borderRight: `1px solid ${C.line}` }}>
+    <div style={{
+      position: "absolute", top: 0, left: 0, bottom: 0, zIndex: 5,
+      display: "flex", minHeight: 0, borderRight: `1px solid ${C.line}`,
+    }}>
       {/* Hidden, the list keeps its search and open groups, but Tab skips it. */}
       <div inert={!open} style={{ width: open ? CATALOGUE_PANEL_WIDTH : 0, overflow: "hidden", transition: SLIDE, display: "flex" }}>
         <CatalogueList />

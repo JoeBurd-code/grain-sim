@@ -301,8 +301,13 @@ export default function BuildPanel({
   // inner content keeps its full width throughout so it never squashes
   // mid-transition.
   const open = Boolean(settingsOpen || machine || connection || problemsOpen);
+  // Floats over the canvas rather than squeezing it: resizing the canvas's
+  // own container on open/close used to re-fit the viewport and make the
+  // whole scene visibly jump/zoom. Overlaid, it may cover machines
+  // underneath -- left to the user to pan around.
   return (
     <aside style={{
+      position: "absolute", top: 0, right: 0, bottom: 0, zIndex: 5,
       width: open ? BUILD_PANEL_WIDTH : 0, flex: "none",
       borderLeft: open ? `1px solid ${C.line}` : "none",
       background: C.panel, overflow: "hidden",

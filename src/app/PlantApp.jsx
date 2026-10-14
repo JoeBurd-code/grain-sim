@@ -751,7 +751,7 @@ export default function PlantApp() {
       </header>
 
       {validation.ok ? (
-        <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
+        <div style={{ flex: 1, minHeight: 0, display: "flex", position: "relative" }}>
           {building && <CataloguePanel open={catalogueOpen} onToggle={onToggleCatalogue} />}
           <main
             ref={containerRef}
