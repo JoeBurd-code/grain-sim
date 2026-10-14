@@ -60,3 +60,11 @@ export function lineBounds(line) {
 export function zoneBounds(line, zoneId) {
   return machinesBounds(line.machines.filter((m) => m.zone === zoneId));
 }
+
+// Issue #89: the bounds of one machine, to frame it when a problem is
+// clicked. A generous margin, since a lone machine with no neighbours to
+// anchor the view should still read as "framed", not "zoomed to its edges".
+export function machineBounds(line, machineId) {
+  const m = line.machines.find((mm) => mm.id === machineId);
+  return machinesBounds(m ? [m] : [], 120);
+}

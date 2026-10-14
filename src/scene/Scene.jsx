@@ -74,6 +74,18 @@ function OverlapOutline({ machine: m }) {
   ));
 }
 
+// Amber outline for a machine the Build mode problems list names (issue
+// #89): persistent (unlike OverlapOutline's momentary refusal flash) for as
+// long as the machine has a problem.
+function ProblemOutline({ machine: m }) {
+  return machineFootprint(m).map((r, i) => (
+    <rect
+      key={i} x={r.x - m.x - 6} y={r.y - m.y - 6} width={r.w + 12} height={r.h + 12}
+      fill="none" stroke={C.amber} strokeWidth="2" strokeDasharray="5 3" rx="4" pointerEvents="none"
+    />
+  ));
+}
+
 // Single point of resolution for a machine's dynamic (per-tick) values.
 // `simSnap` is the live sim's published snapshot (Map<machineId, {...}>,
 // shape varies per sim.kind's own `snapshot`, see behaviors.js); a machine
@@ -93,9 +105,12 @@ function resolveDynamic(machine, simSnap) {
 // to outline in red. `selectedConnectionKey`/`onSelectConnection` select a
 // connection for deletion (issue #88), also Build mode only.
 // `connectionDraft` is the in-progress drag's rubber-band line.
+// `problemMachineIds` (issue #89) is the set of machines the Build mode
+// problems list names, outlined in amber for as long as they have one.
 export default function Scene({
   line, vb, handlers, wasDrag, selectedId, onSelect, simSnap, running, speed, simTime,
   onMachinePointerDown, overlapId, onPortPointerDown, selectedConnectionKey, onSelectConnection, connectionDraft,
+  problemMachineIds,
 }) {
   const flowPathRef = useFlowAnimation(line, simSnap);
   const motion = useMachineMotion(running, speed);
@@ -225,6 +240,7 @@ export default function Scene({
             <Symbol machine={m} dynamic={resolveDynamic(m, simSnap)} motion={motion} simTime={simTime} />
             {m.type !== "stub" && <MachineLabel machine={m} />}
             {m.id === overlapId && <OverlapOutline machine={m} />}
+            {problemMachineIds?.has(m.id) && <ProblemOutline machine={m} />}
             {onPortPointerDown && <PortDots machine={m} onPortPointerDown={onPortPointerDown} />}
           </g>
         );

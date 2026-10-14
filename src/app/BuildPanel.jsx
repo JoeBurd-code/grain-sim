@@ -190,6 +190,37 @@ function MachineSettings({ line, machine, onEditField, onDeleteMachine }) {
   );
 }
 
+// Issue #89: the problems list. Each problem names the machine and the
+// problem (problems.js); clicking one jumps the canvas to that machine and
+// selects it, same as clicking the machine itself.
+function Problems({ problems, onGoToProblem }) {
+  return (
+    <>
+      <div style={headingStyle}>PROBLEMS</div>
+      {problems.length === 0 ? (
+        <div style={{ fontSize: 10, color: C.muted, marginTop: 16 }}>This line has no problems.</div>
+      ) : (
+        <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 6 }}>
+          {problems.map((p) => (
+            <div
+              key={p.id}
+              role={p.machineId ? "button" : undefined}
+              onClick={p.machineId ? () => onGoToProblem(p.machineId) : undefined}
+              style={{
+                fontSize: 10, color: C.text, padding: "6px 8px",
+                border: `1px solid ${C.line}`, borderRadius: 4,
+                cursor: p.machineId ? "pointer" : "default",
+              }}
+            >
+              {p.message}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 // Issue #88: a connection selected instead of a machine shows what it joins
 // and a way to delete it, the Delete key's own panel counterpart.
 function ConnectionSettings({ line, connection, onDeleteConnection }) {
@@ -217,7 +248,8 @@ function ConnectionSettings({ line, connection, onDeleteConnection }) {
 }
 
 export default function BuildPanel({
-  line, machine, connection, settingsOpen, lineName, onStartOver, onEditField, onDeleteMachine, onDeleteConnection,
+  line, machine, connection, settingsOpen, problemsOpen, problems, lineName,
+  onStartOver, onEditField, onDeleteMachine, onDeleteConnection, onGoToProblem,
 }) {
   return (
     <aside style={{
@@ -233,6 +265,8 @@ export default function BuildPanel({
         <MachineSettings key={machine.id} line={line} machine={machine} onEditField={onEditField} onDeleteMachine={onDeleteMachine} />
       ) : connection ? (
         <ConnectionSettings line={line} connection={connection} onDeleteConnection={onDeleteConnection} />
+      ) : problemsOpen ? (
+        <Problems problems={problems} onGoToProblem={onGoToProblem} />
       ) : (
         <div style={{ fontSize: 10, color: C.muted }}>Select a machine or a connection to see its settings.</div>
       )}

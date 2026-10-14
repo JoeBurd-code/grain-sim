@@ -10,7 +10,8 @@ import {
 } from "../line/lineDocument";
 import { catalogueItem } from "../catalogue/catalogue";
 import { placeMachine } from "../line/layout";
-import { lineBounds, zoneBounds } from "../line/bounds";
+import { lineBounds, zoneBounds, machineBounds } from "../line/bounds";
+import { lineProblems, problemMachineIds, hasGrainIn } from "../line/problems";
 import { plantControlsFor } from "../line/plantControls";
 import Scene from "../scene/Scene";
 import MachinePopup, { THUMB_PX, TRACK_PX } from "./MachinePopup";
@@ -143,6 +144,20 @@ export default function PlantApp() {
   // Build mode's right panel shows the line settings or the selected
   // machine, never both: one panel, always in the same place.
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Issue #89: the problems panel is a third state the right panel can be
+  // in, same rule as SETTINGS -- never shown at the same time as a selected
+  // machine or connection.
+  const [problemsOpen, setProblemsOpen] = useState(false);
+  const problems = useMemo(() => lineProblems(line), [line]);
+  const problemIds = useMemo(() => problemMachineIds(line), [line]);
+  const runDisabledReason = useMemo(() => (hasGrainIn(simLine) ? null : "Add a Grain in to start"), [simLine]);
+  const onGoToProblem = useCallback((machineId) => {
+    setSelectedId(machineId);
+    setSelectedConnectionKey(null);
+    setSettingsOpen(false);
+    setProblemsOpen(false);
+    fitTo(machineBounds(line, machineId));
+  }, [line, fitTo]);
   // NEW LINE's confirmation, shown when there is work to lose.
   const [confirmingNewLine, setConfirmingNewLine] = useState(false);
   // Whether the catalogue panel is shown. Remembered in this browser only,
@@ -177,6 +192,7 @@ export default function PlantApp() {
     setSelectedConnectionKey(null);
     setEventPanelOpen(false);
     setSettingsOpen(false);
+    setProblemsOpen(false);
     setOpenError(null);
     setConfirmingNewLine(false);
     setMode(next);
@@ -359,12 +375,16 @@ export default function PlantApp() {
   const onSelect = useCallback((id) => {
     setSelectedId(id);
     setSelectedConnectionKey(null);
-    if (id) setSettingsOpen(false);
+    if (id) {
+      setSettingsOpen(false);
+      setProblemsOpen(false);
+    }
   }, []);
   const onSelectConnection = useCallback((key) => {
     setSelectedConnectionKey(key);
     setSelectedId(null);
     setSettingsOpen(false);
+    setProblemsOpen(false);
   }, []);
 
   // Issue #81: the plant control panel is generated from the line the sim
@@ -517,11 +537,26 @@ export default function PlantApp() {
                 </button>
                 <button
                   className="zonebtn"
+                  style={problemsOpen
+                    ? zoneBtnActiveStyle
+                    : zoneBtnStyle}
+                  onClick={() => {
+                    setProblemsOpen((v) => !v);
+                    setSettingsOpen(false);
+                    setSelectedId(null);
+                    setSelectedConnectionKey(null);
+                  }}
+                >
+                  PROBLEMS{problems.length > 0 ? ` (${problems.length})` : ""}
+                </button>
+                <button
+                  className="zonebtn"
                   style={settingsOpen
                     ? zoneBtnActiveStyle
                     : zoneBtnStyle}
                   onClick={() => {
                     setSettingsOpen((v) => !v);
+                    setProblemsOpen(false);
                     setSelectedId(null);
                     setSelectedConnectionKey(null);
                   }}
@@ -539,6 +574,7 @@ export default function PlantApp() {
                 speed={engine.speed}
                 onSpeedChange={engine.setSpeed}
                 elapsed={engine.snap.t}
+                runDisabledReason={runDisabledReason}
               />
             )}
           </div>
@@ -646,6 +682,7 @@ export default function PlantApp() {
                 selectedConnectionKey={building ? selectedConnectionKey : null}
                 onSelectConnection={building ? onSelectConnection : undefined}
                 connectionDraft={building ? connectionDrag.draft : null}
+                problemMachineIds={building ? problemIds : null}
               />
             )}
             {selected && !building && (
@@ -683,11 +720,14 @@ export default function PlantApp() {
               machine={selected}
               connection={selectedConnection}
               settingsOpen={settingsOpen}
+              problemsOpen={problemsOpen}
+              problems={problems}
               lineName={current.name}
               onStartOver={onStartOver}
               onEditField={onEditField}
               onDeleteMachine={onDeleteMachine}
               onDeleteConnection={() => onDisconnect(selectedConnectionKey)}
+              onGoToProblem={onGoToProblem}
             />
           )}
         </div>

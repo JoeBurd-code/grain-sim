@@ -20,12 +20,27 @@ function btnStyle(active, disabled) {
   };
 }
 
-export default function TransportControls({ running, onStart, onPause, onStep, onRestart, speed, onSpeedChange, elapsed }) {
+// `runDisabledReason` (issue #89): the one problem that blocks RUN -- no
+// Grain in (or other source) on the line. Null means RUN is not blocked.
+export default function TransportControls({
+  running, onStart, onPause, onStep, onRestart, speed, onSpeedChange, elapsed, runDisabledReason,
+}) {
+  const runBlocked = !running && Boolean(runDisabledReason);
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-      <button style={btnStyle(running)} onClick={running ? onPause : onStart}>
+      <button
+        style={btnStyle(running, runBlocked)}
+        onClick={running ? onPause : onStart}
+        disabled={runBlocked}
+        title={runBlocked ? runDisabledReason : undefined}
+      >
         {running ? "■ PAUSE" : "▶ RUN"}
       </button>
+      {runBlocked && (
+        <span style={{ fontSize: 10, color: C.red, fontFamily: FONT_MONO, letterSpacing: "0.04em" }}>
+          {runDisabledReason}
+        </span>
+      )}
       <button style={btnStyle(false, running)} onClick={onStep} disabled={running}>
         ⏭ STEP
       </button>
