@@ -1,5 +1,5 @@
 // Issue #92: every interlock on the line as a sentence, Build mode only.
-// Docked on the left beside the catalogue. Each interlock reads as one plain
+// Docked on the right, where the Build panel sits. Each interlock reads as one plain
 // sentence; clicking it opens its editor, one at a time. Every choice offered
 // is one the engine accepts, and what it cannot do is said in plain words.
 import { useState } from "react";
@@ -339,8 +339,7 @@ function ruleMachines(rule) {
 }
 
 // `onEdit(fn)` applies `fn(line) => { ok, line }` as one undoable edit (PlantApp).
-// `left` is where the window's left edge sits, beside the catalogue.
-export default function InterlocksWindow({ line, onEdit, onHoverMachines, onClose, left }) {
+export default function InterlocksWindow({ line, onEdit, onHoverMachines, onClose }) {
   const [openId, setOpenId] = useState(null);
   const actionsFor = (id) => ({
     setField: (part, field, value) => onEdit((l) => setSentenceField(l, id, part, field, value)),
@@ -368,8 +367,8 @@ export default function InterlocksWindow({ line, onEdit, onHoverMachines, onClos
 
   return (
     <aside style={{
-      position: "absolute", top: 0, bottom: 0, left, zIndex: 6, width: INTERLOCKS_WINDOW_WIDTH, maxWidth: `calc(100% - ${left}px)`,
-      background: C.panel, borderRight: `1px solid ${C.line}`, boxShadow: "6px 0 18px rgba(0,0,0,0.35)",
+      position: "absolute", top: 0, bottom: 0, right: 0, zIndex: 6, width: INTERLOCKS_WINDOW_WIDTH, maxWidth: "100%",
+      background: C.panel, borderLeft: `1px solid ${C.line}`, boxShadow: "-6px 0 18px rgba(0,0,0,0.35)",
       display: "flex", flexDirection: "column", fontFamily: FONT_MONO,
     }}>
       <div style={{ padding: "12px 14px 10px", borderBottom: `1px solid ${C.line}` }}>

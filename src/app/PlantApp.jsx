@@ -22,7 +22,7 @@ import EventLogPanel from "./EventLogPanel";
 import ModeSwitch from "./ModeSwitch";
 import BuildPanel from "./BuildPanel";
 import InterlocksWindow from "./InterlocksWindow";
-import CataloguePanel, { CATALOGUE_DRAG_TYPE, CATALOGUE_PANEL_WIDTH } from "./CataloguePanel";
+import CataloguePanel, { CATALOGUE_DRAG_TYPE } from "./CataloguePanel";
 import { loadSavedWork, storeWork, clearSavedWork, hasUnsavedWork } from "./savedWork";
 import { emptyHistory, pushHistory, undoHistory, redoHistory } from "./editHistory";
 import { useViewport } from "../scene/useViewport";
@@ -864,8 +864,6 @@ export default function PlantApp() {
                 onEdit={onEditInterlocks}
                 onHoverMachines={setHoveredInterlockMachines}
                 onClose={() => setInterlocksOpen(false)}
-                // Beside the catalogue and its pull tab, never over them.
-                left={catalogueOpen ? CATALOGUE_PANEL_WIDTH + 19 : 19}
               />
             )}
           </main>
