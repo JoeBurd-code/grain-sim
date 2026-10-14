@@ -20,7 +20,8 @@ import {
   resetUtilitiesTrip,
 } from "./utilitiesTrip";
 import { plantControlsFor, switchesMachines } from "../line/plantControls";
-import { withoutOffRules } from "../line/interlocks";
+import { withoutOffRules, isSentence } from "../line/interlocks";
+import { validateSentence } from "./sentenceInterlock";
 
 export const DT = 0.05; // s, fixed sim timestep (matches the proven mock)
 
@@ -89,8 +90,14 @@ export function createSim(line) {
   const simEnabledIds = new Set(machines.keys());
   const downstream = buildDownstreamMap(line, simEnabledIds, machinesById);
   const order = topoOrder(simEnabledIds, downstream);
-  // A rule that names a deleted machine is off and does not run (issue #87).
-  const running = withoutOffRules(line);
+  // A rule that names a deleted machine is off and does not run (issue #87),
+  // and neither does a sentence still being filled in (issue #92): both are
+  // kept on the line and reported in the problems list.
+  const withoutOff = withoutOffRules(line);
+  const running = {
+    ...withoutOff,
+    interlocks: withoutOff.interlocks.filter((r) => !isSentence(r) || validateSentence(r, machinesById).length === 0),
+  };
   const control = initControl(running);
   // Issue #30: seed every rule's instrument state (setpoint, tripped) from
   // the sensor's initial level right away, so the very first published

@@ -11,6 +11,7 @@ import {
 } from "./engine";
 import { exportLine, importLine } from "../line/lineDocument";
 import { isRuleOff } from "../line/interlocks";
+import { lineProblems } from "../line/problems";
 
 function machine(id, sim, inputs, outputs) {
   return {
@@ -195,12 +196,22 @@ describe("interlock sentence in the line document", () => {
   }
 
   for (const [what, change, message] of malformed) {
-    it(`refuses a sentence with ${what}, with a message`, () => {
+    // Issue #92: a sentence not filled in correctly still loads, so a line
+    // being built is never lost over one. It does not run, and the problems
+    // list says why. Only one not shaped like a sentence is refused.
+    it(`loads a sentence with ${what}, does not run it, and reports it`, () => {
       const line = smallLine([sentence("broken", "stopped", 1, change)]);
       const result = importLine(exportLine(line, "small"));
-      expect(result.ok).toBe(false);
-      expect(result.errors.join("\n")).toMatch(message);
-      expect(result.errors.join("\n")).toContain('interlock "broken"');
+      if (what === "no when part") {
+        expect(result.ok).toBe(false);
+        expect(result.errors.join("\n")).toContain('interlock "broken" is not shaped like a sentence');
+        return;
+      }
+      expect(result.errors ?? []).toEqual([]);
+      const problems = lineProblems(result.line).map((p) => p.message).join("\n");
+      expect(problems).toMatch(message);
+      expect(problems).toContain('interlock "broken"');
+      expect(createSim(result.line).control.some((r) => r.id === "broken")).toBe(false);
     });
   }
 });
@@ -751,10 +762,11 @@ describe("interlock sentence: wait, if still true, trip the whole line, start, a
   }
 
   for (const [what, change, message] of malformed) {
-    it(`refuses a sentence with ${what}, with a message`, () => {
+    it(`loads a sentence with ${what}, does not run it, and reports it`, () => {
       const result = importLine(exportLine(smallLine([sentence("broken", "stopped", 1, change)]), "small"));
-      expect(result.ok).toBe(false);
-      expect(result.errors.join("\n")).toMatch(message);
+      expect(result.errors ?? []).toEqual([]);
+      expect(lineProblems(result.line).map((p) => p.message).join("\n")).toMatch(message);
+      expect(createSim(result.line).control.some((r) => r.id === "broken")).toBe(false);
     });
   }
 });

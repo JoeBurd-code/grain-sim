@@ -153,6 +153,10 @@ export function validateSentence(rule, machinesById) {
     }
   };
 
+  // A sentence's slot can only hold a machine stopped or closed, so "start"
+  // and "open" only undo a "stop" or "close" this same sentence gave first.
+  // One with nothing to undo would silently do nothing (issue #92).
+  const held = new Set();
   const checkSteps = (steps, after) => {
     if (!Array.isArray(steps) || steps.length === 0) {
       say(`needs at least one step after "${after}"`);
@@ -179,6 +183,10 @@ export function validateSentence(rule, machinesById) {
         say(`${where} commands unknown machine "${step.machine}"`);
       } else if (!behaviorOf(step.machine)?.[action.verb]) {
         say(`${where} cannot ${step.action} machine "${step.machine}"`);
+      } else if (action.value) {
+        held.add(`${step.machine} ${action.verb}`);
+      } else if (!held.has(`${step.machine} ${action.verb}`)) {
+        say(`${where} cannot ${step.action} machine "${step.machine}": this interlock never ${action.verb === "stop" ? "stopped" : "closed"} it`);
       }
       if (step.rampTimeSec !== undefined && !(isFiniteNumber(step.rampTimeSec) && step.rampTimeSec >= 0)) {
         say(`${where} needs a ramp time of zero or more seconds`);

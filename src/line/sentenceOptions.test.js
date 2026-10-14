@@ -1,45 +1,41 @@
 import { describe, it, expect } from "vitest";
-import { conditionOptions, machineActionOptions, stepTypeOptions } from "./sentenceOptions";
+import { conditionOptions, machineActionOptions, switchOptions, sentenceSummary } from "./sentenceOptions";
 import { emptyLine } from "./lineDocument";
 
 function lineWithMachines() {
   const line = emptyLine();
   line.machines.push(
-    { id: "bin1", name: "Bin 1", tag: "", x: 0, y: 0, w: 1, h: 1, ports: { inputs: [], outputs: [] }, sim: { kind: "accumulator" } },
-    { id: "valve1", name: "Valve 1", tag: "", x: 0, y: 0, w: 1, h: 1, ports: { inputs: [], outputs: [] }, sim: { kind: "gateValve" } },
+    { id: "bin1", name: "Bin 1", instruments: ["LT", "LSH", "LSL"], ports: { inputs: [], outputs: [] }, sim: { kind: "accumulator" } },
+    { id: "valve1", name: "Valve 1", ports: { inputs: [], outputs: [] }, sim: { kind: "gateValve" } },
   );
   return line;
 }
 
-describe("conditionOptions", () => {
+describe("sentence options", () => {
   it("offers above/below only for a machine with a level", () => {
-    const line = lineWithMachines();
-    expect(conditionOptions(line, "bin1")).toEqual(["above", "below"]);
+    expect(conditionOptions(lineWithMachines(), "bin1")).toEqual(["above", "below"]);
   });
 
-  it("offers stopped/running for a machine with confirmedRunning", () => {
-    const line = lineWithMachines();
-    expect(conditionOptions(line, "valve1")).toEqual(["stopped", "running"]);
-  });
-});
-
-describe("machineActionOptions", () => {
-  it("offers close/open for a valve, not stop/start", () => {
-    const line = lineWithMachines();
-    expect(machineActionOptions(line, "valve1")).toEqual(["close", "open"]);
+  it("offers stopped/running for a machine that confirms running", () => {
+    expect(conditionOptions(lineWithMachines(), "valve1")).toEqual(["stopped", "running"]);
   });
 
-  it("offers nothing for a plain accumulator", () => {
-    const line = lineWithMachines();
-    expect(machineActionOptions(line, "bin1")).toEqual([]);
+  it("offers close/open for a valve, and nothing for a bin", () => {
+    expect(machineActionOptions(lineWithMachines(), "valve1")).toEqual(["close", "open"]);
+    expect(machineActionOptions(lineWithMachines(), "bin1")).toEqual([]);
   });
-});
 
-describe("stepTypeOptions", () => {
-  it("includes the flow steps only after then", () => {
-    const line = lineWithMachines();
-    expect(stepTypeOptions(line, "then")).toContain("tripLine");
-    expect(stepTypeOptions(line, "whenClearsThen")).not.toContain("tripLine");
-    expect(stepTypeOptions(line, "whenClearsThen")).not.toContain("ifStillTrue");
+  it("offers only the level switches drawn on the machine", () => {
+    expect(switchOptions(lineWithMachines(), "bin1")).toEqual(["LSL", "LSH"]);
+  });
+
+  it("reads a sentence in plain words", () => {
+    const rule = {
+      when: { machine: "bin1", condition: "above", setpoint: 0.85, delaySec: 5 },
+      then: [{ action: "close", machine: "valve1" }],
+      reset: "auto",
+    };
+    const text = sentenceSummary(lineWithMachines(), rule).map((s) => s.text ?? `[${s.machine}]`).join("");
+    expect(text).toBe("When [bin1] is above 85 % for 5 s, close [valve1].");
   });
 });

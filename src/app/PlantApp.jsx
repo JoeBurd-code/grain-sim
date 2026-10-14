@@ -22,7 +22,7 @@ import EventLogPanel from "./EventLogPanel";
 import ModeSwitch from "./ModeSwitch";
 import BuildPanel from "./BuildPanel";
 import InterlocksWindow from "./InterlocksWindow";
-import CataloguePanel, { CATALOGUE_DRAG_TYPE } from "./CataloguePanel";
+import CataloguePanel, { CATALOGUE_DRAG_TYPE, CATALOGUE_PANEL_WIDTH } from "./CataloguePanel";
 import { loadSavedWork, storeWork, clearSavedWork, hasUnsavedWork } from "./savedWork";
 import { emptyHistory, pushHistory, undoHistory, redoHistory } from "./editHistory";
 import { useViewport } from "../scene/useViewport";
@@ -163,7 +163,11 @@ export default function PlantApp() {
   // together" rule PROBLEMS and SETTINGS already follow -- opening it drops
   // any selection, and selecting a machine closes it.
   const [interlocksOpen, setInterlocksOpen] = useState(false);
-  const [hoveredInterlockMachine, setHoveredInterlockMachine] = useState(null);
+  const [hoveredInterlockMachines, setHoveredInterlockMachines] = useState(null);
+  const highlightIds = useMemo(
+    () => (interlocksOpen && hoveredInterlockMachines ? new Set(hoveredInterlockMachines) : null),
+    [interlocksOpen, hoveredInterlockMachines],
+  );
   const problems = useMemo(() => lineProblems(line), [line]);
   const problemIds = useMemo(() => problemMachineIds(line), [line]);
   const runDisabledReason = useMemo(() => (hasGrainIn(simLine) ? null : "Add a Grain in to start"), [simLine]);
@@ -823,7 +827,7 @@ export default function PlantApp() {
                 onSelectConnection={building ? onSelectConnection : undefined}
                 connectionDraft={building ? connectionDrag.draft : null}
                 problemMachineIds={building ? problemIds : null}
-                highlightMachineIds={hoveredInterlockMachine ? new Set([hoveredInterlockMachine]) : null}
+                highlightMachineIds={building ? highlightIds : null}
               />
             )}
             {selected && !building && (
@@ -858,7 +862,10 @@ export default function PlantApp() {
               <InterlocksWindow
                 line={line}
                 onEdit={onEditInterlocks}
-                onHoverMachine={setHoveredInterlockMachine}
+                onHoverMachines={setHoveredInterlockMachines}
+                onClose={() => setInterlocksOpen(false)}
+                // Beside the catalogue and its pull tab, never over them.
+                left={catalogueOpen ? CATALOGUE_PANEL_WIDTH + 19 : 19}
               />
             )}
           </main>

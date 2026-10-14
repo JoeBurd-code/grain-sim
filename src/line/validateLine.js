@@ -6,7 +6,6 @@ import { isSimExempt } from "./simExempt";
 import { isLiveControlBind, isLiveReadBind } from "../sim/liveControls";
 import { adjustableFieldErrors } from "./adjustableFields";
 import { plantControlErrors } from "./plantControls";
-import { validateSentence } from "../sim/sentenceInterlock";
 import { isSentence, lineRules, interlockSensorMachine, ruleSwitches, SWITCH_FIELDS, isRuleOff, isFeedRateLinkOff } from "./interlocks";
 
 // The rules a machine runs that are not interlock sentences (issue #85).
@@ -110,16 +109,21 @@ export function validateLine(line) {
     fromSeen.add(fromKey);
   }
 
-  // Issue #85: every interlock is a sentence, which checks its own parts,
-  // and a malformed one is refused with a message rather than failing at
-  // run time (issue #82).
+  // Issue #85: every interlock is a sentence. One that is not even shaped
+  // like a sentence is refused. One that is shaped right but not filled in
+  // correctly (a set point out of range, an action the machine cannot take)
+  // still loads (issue #92): a line being built has those, and losing the
+  // whole line over one would lose the user's work. It does not run, and the
+  // problems list reports it (problems.js), as validateSentence words it.
   //
   // A rule that names a machine the line no longer has is off (issue #87):
   // it is kept, but not run or checked here.
   for (const rule of line.interlocks ?? []) {
     if (isRuleOff(line, rule)) continue;
     if (isSentence(rule)) {
-      errors.push(...validateSentence(rule, byId));
+      if (typeof rule.id !== "string" || rule.when === null || typeof rule.when !== "object" || !Array.isArray(rule.then)) {
+        errors.push(`interlock "${rule.id}" is not shaped like a sentence (it needs an id, a "when" part and a list of "then" steps)`);
+      }
     } else {
       errors.push(`interlock "${rule.id}" has kind "${rule.kind}"; every interlock is a sentence`);
     }
