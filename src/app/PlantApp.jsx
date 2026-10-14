@@ -23,6 +23,7 @@ import ModeSwitch from "./ModeSwitch";
 import BuildPanel from "./BuildPanel";
 import CataloguePanel, { CATALOGUE_DRAG_TYPE } from "./CataloguePanel";
 import { loadSavedWork, storeWork, clearSavedWork, hasUnsavedWork } from "./savedWork";
+import { emptyHistory, pushHistory, undoHistory, redoHistory } from "./editHistory";
 import { useViewport } from "../scene/useViewport";
 import { useMachineDrag, toWorld } from "../scene/useMachineDrag";
 import { useConnectionDrag } from "../scene/useConnectionDrag";
@@ -105,6 +106,15 @@ export default function PlantApp() {
   const { line } = current;
   const validation = current.fromFile ? { ok: true, errors: [] } : goldenValidation;
   const interlockedMachines = useMemo(() => interlockedMachinesOf(line), [line]);
+
+  // Issue #91: Build mode's undo/redo stack. One entry per edit (the line as
+  // it was just before), cleared on leaving Build mode or loading a
+  // different line (OPEN, START OVER, NEW LINE) -- an undo stack spanning
+  // two unrelated documents makes no sense.
+  const [history, setHistory] = useState(emptyHistory());
+  const recordEdit = useCallback((prevLine) => {
+    setHistory((h) => pushHistory(h, prevLine));
+  }, []);
 
   const [selectedId, setSelectedId] = useState(null);
   // Issue #88: a selected connection, keyed by its own output end
@@ -195,6 +205,7 @@ export default function PlantApp() {
     setProblemsOpen(false);
     setOpenError(null);
     setConfirmingNewLine(false);
+    setHistory(emptyHistory());
     setMode(next);
   }, [onRestart, line]);
 
@@ -207,6 +218,7 @@ export default function PlantApp() {
     setSelectedId(null);
     setSelectedConnectionKey(null);
     setOpenError(null);
+    setHistory(emptyHistory());
     fitTo(lineBounds(next.line));
   }, [fitTo]);
 
@@ -261,36 +273,41 @@ export default function PlantApp() {
   const onEditField = useCallback((machineId, fieldId, value) => {
     const result = setAdjustableValue(line, machineId, fieldId, value);
     if (result.ok) {
+      recordEdit(line);
       setCurrent((c) => {
         const next = setAdjustableValue(c.line, machineId, fieldId, value);
         return next.ok ? { ...c, line: next.line } : c;
       });
     }
     return result;
-  }, [line]);
+  }, [line, recordEdit]);
 
   // Issue #90: a machine's name or tag, the same double-apply pattern as
   // onEditField.
   const onEditText = useCallback((machineId, key, value) => {
     const result = setMachineText(line, machineId, key, value);
     if (result.ok) {
+      recordEdit(line);
       setCurrent((c) => {
         const next = setMachineText(c.line, machineId, key, value);
         return next.ok ? { ...c, line: next.line } : c;
       });
     }
     return result;
-  }, [line]);
+  }, [line, recordEdit]);
 
   // Issue #86: a machine dragged in Build mode moves in the current line.
   // The move is applied again inside the updater, as onEditField does. A
   // move the line refuses leaves it as it was.
   const onMoveMachine = useCallback((machineId, pos) => {
+    const result = moveMachine(line, machineId, pos);
+    if (!result.ok || result.line === line) return;
+    recordEdit(line);
     setCurrent((c) => {
       const next = moveMachine(c.line, machineId, pos);
       return next.ok && next.line !== c.line ? { ...c, line: next.line } : c;
     });
-  }, []);
+  }, [line, recordEdit]);
   const drag = useMachineDrag(line, onMoveMachine);
 
   // Issue #87: a catalogue item dropped on the canvas is added there, centred
@@ -311,6 +328,7 @@ export default function PlantApp() {
     const pos = { x: world.x - item.machine.w / 2, y: world.y - item.machine.h / 2, snap: !e.altKey };
     const result = addMachine(line, itemId, pos);
     if (!result.ok) return;
+    recordEdit(line);
     setCurrent((c) => {
       const next = addMachine(c.line, itemId, pos);
       return next.ok ? { ...c, line: next.line } : c;
@@ -318,17 +336,20 @@ export default function PlantApp() {
     setSelectedId(result.id);
     setSelectedConnectionKey(null);
     setSettingsOpen(false);
-  }, [building, containerRef, line]);
+  }, [building, containerRef, line, recordEdit]);
 
   // Issue #87: the Delete key or the right panel's button deletes the
   // selected machine and its connections.
   const onDeleteMachine = useCallback((machineId) => {
+    const result = deleteMachine(line, machineId);
+    if (!result.ok) return;
+    recordEdit(line);
     setCurrent((c) => {
       const next = deleteMachine(c.line, machineId);
       return next.ok ? { ...c, line: next.line } : c;
     });
     setSelectedId(null);
-  }, []);
+  }, [line, recordEdit]);
 
   // Issue #88: a press on a port dot connects it to the next one the drag
   // releases over; connectPorts decides whether it is refused. Run first
@@ -338,26 +359,32 @@ export default function PlantApp() {
   const onConnectPorts = useCallback((a, b) => {
     const result = connectPorts(line, a, b);
     if (result.ok) {
+      recordEdit(line);
       setCurrent((c) => {
         const next = connectPorts(c.line, a, b);
         return next.ok ? { ...c, line: next.line } : c;
       });
     }
     return result;
-  }, [line]);
+  }, [line, recordEdit]);
   const connectionDrag = useConnectionDrag(line, onConnectPorts);
 
   // The Delete key or the right panel's button removes the selected
   // connection, the same way it removes a selected machine.
   const onDisconnect = useCallback((key) => {
+    const conn = line.connections.find((x) => connectionKey(x) === key);
+    if (!conn) return;
+    const result = disconnectConnection(line, conn.from);
+    if (!result.ok) return;
+    recordEdit(line);
     setCurrent((c) => {
-      const conn = c.line.connections.find((x) => connectionKey(x) === key);
-      if (!conn) return c;
-      const next = disconnectConnection(c.line, conn.from);
+      const found = c.line.connections.find((x) => connectionKey(x) === key);
+      if (!found) return c;
+      const next = disconnectConnection(c.line, found.from);
       return next.ok ? { ...c, line: next.line } : c;
     });
     setSelectedConnectionKey(null);
-  }, []);
+  }, [line, recordEdit]);
 
   useEffect(() => {
     if (!building || (!selectedId && !selectedConnectionKey)) return undefined;
@@ -370,6 +397,41 @@ export default function PlantApp() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [building, selectedId, selectedConnectionKey, onDeleteMachine, onDisconnect]);
+
+  // Issue #91: undo/redo. Each gives back the exact earlier line document;
+  // the current selection is dropped since it may no longer exist in it.
+  const onUndo = useCallback(() => {
+    const result = undoHistory(history, line);
+    if (!result) return;
+    setHistory(result.history);
+    setCurrent((c) => ({ ...c, line: result.line }));
+    setSelectedId(null);
+    setSelectedConnectionKey(null);
+  }, [history, line]);
+  const onRedo = useCallback(() => {
+    const result = redoHistory(history, line);
+    if (!result) return;
+    setHistory(result.history);
+    setCurrent((c) => ({ ...c, line: result.line }));
+    setSelectedId(null);
+    setSelectedConnectionKey(null);
+  }, [history, line]);
+  useEffect(() => {
+    if (!building) return undefined;
+    const onKeyDown = (e) => {
+      if (isTyping(e.target) || !(e.ctrlKey || e.metaKey)) return;
+      const key = e.key.toLowerCase();
+      if (key === "z") {
+        e.preventDefault();
+        if (e.shiftKey) onRedo(); else onUndo();
+      } else if (key === "y") {
+        e.preventDefault();
+        onRedo();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [building, onUndo, onRedo]);
   const { onCanvasPointerDown, wasDrag: dragWasDrag } = drag;
   const handlers = useMemo(() => ({
     onPointerDown: (e) => {
@@ -547,6 +609,24 @@ export default function PlantApp() {
                 <input ref={fileInputRef} type="file" accept=".json,application/json" style={{ display: "none" }} onChange={onOpenFile} />
                 <button className="zonebtn" style={{ ...zoneBtnStyle, color: C.wheat }} onClick={() => downloadLine(line, current.name)}>
                   SAVE
+                </button>
+                <button
+                  className="zonebtn"
+                  style={{ ...zoneBtnStyle, opacity: history.past.length === 0 ? 0.4 : 1 }}
+                  disabled={history.past.length === 0}
+                  onClick={onUndo}
+                  title="Undo (Ctrl+Z)"
+                >
+                  UNDO
+                </button>
+                <button
+                  className="zonebtn"
+                  style={{ ...zoneBtnStyle, opacity: history.future.length === 0 ? 0.4 : 1 }}
+                  disabled={history.future.length === 0}
+                  onClick={onRedo}
+                  title="Redo (Ctrl+Y)"
+                >
+                  REDO
                 </button>
                 <button
                   className="zonebtn"
