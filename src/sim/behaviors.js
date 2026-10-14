@@ -257,9 +257,11 @@ function snapshotAccumulator(state) {
 // `gateThrottleTarget` at `gateThrottleRampPerSec` rather than snapping.
 // Both default fully open with an instant slew rate so a gated feeder with
 // no interlock commanding it yet behaves as if the gate were always wide
-// open. Issue #57 only establishes this state and its ramp mechanics —
-// nothing yet reads gateFraction/gateThrottleFraction into the commanded
-// rate; that rate-derivation step is issue #56's own job.
+// open. On a feeder a feed-rate derivation drives (control.js), the gate
+// reaches the flow through the derived `rate`, so `rateIncludesGate` is set
+// (engine.js createSim) and the gate is not applied a second time here. A
+// gated feeder with no derivation, such as one added in Build mode, runs at
+// `rate` times its effective gate (gateOpening below).
 function initMeteredFeeder(m) {
   return {
     kind: "meteredFeeder", rate: m.sim.rateM3PerSec, drawn: 0,
@@ -303,9 +305,13 @@ function initMeteredFeeder(m) {
 // restores whatever rate was last set rather than losing it. Both default
 // to true so a feeder neither selector nor interlock ever commands
 // (treatDrumFeeder) is unaffected.
+function gateOpening(state) {
+  if (state.gateFraction === undefined || state.rateIncludesGate) return 1;
+  return dialEffective(state, GATE_DIAL);
+}
 function capacityAvailableMeteredFeeder(state, dt, downstreamCap) {
   if (!state.enabled || !state.runPermit) return 0;
-  return Math.min(state.rate * dt, downstreamCap);
+  return Math.min(state.rate * gateOpening(state) * dt, downstreamCap);
 }
 function applyMeteredFeeder(state, dt, inflow, cap) {
   // Issue #57: only a gated feeder (state.gateThrottleFraction present) has

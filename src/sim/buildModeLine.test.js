@@ -4,7 +4,7 @@
 import { describe, it, expect } from "vitest";
 import { emptyLine, addMachine, connectPorts, setAdjustableValue } from "../line/lineDocument";
 import { validateLine } from "../line/validateLine";
-import { createSim, stepSim, getMachineState, DT } from "./engine";
+import { createSim, stepSim, getMachineState, setGateFraction, DT } from "./engine";
 import { assertConserved } from "./conservation";
 
 function add(line, itemId, pos) {
@@ -47,6 +47,50 @@ describe("a line built from the catalogue, port to port (issue #88)", () => {
 
     expect(getMachineState(sim, grainOut.id).total).toBeGreaterThan(0);
     expect(() => assertConserved(sim)).not.toThrow();
+  });
+
+  // A drum feeder on a built line has no feed-rate derivation, so its gate
+  // position dial must act on its own rate (found live on a user's line:
+  // closing the gate left the bin above it at 0 %).
+  describe("a drum feeder's gate, with no feed-rate derivation", () => {
+    function feederLine() {
+      const grainIn = add(emptyLine(), "grain-in", { x: 0, y: 0 });
+      const bin = add(grainIn.line, "metal-bin", { x: 0, y: 100 });
+      const feeder = add(bin.line, "drum-feeder", { x: 0, y: 300 });
+      const grainOut = add(feeder.line, "grain-out", { x: 0, y: 400 });
+      let line = connect(grainOut.line, { machine: grainIn.id, port: "out" }, { machine: bin.id, port: "in" });
+      line = connect(line, { machine: bin.id, port: "out" }, { machine: feeder.id, port: "in" });
+      line = connect(line, { machine: feeder.id, port: "out" }, { machine: grainOut.id, port: "in" });
+      return { line, bin: bin.id, feeder: feeder.id, grainOut: grainOut.id };
+    }
+
+    it("closed, stops the feeder, so the bin above it fills", () => {
+      const ids = feederLine();
+      const sim = createSim(ids.line);
+      setGateFraction(sim, ids.feeder, 0);
+      run(sim, 60);
+      expect(getMachineState(sim, ids.feeder).flowRateM3PerSec).toBe(0);
+      expect(getMachineState(sim, ids.grainOut).total).toBe(0);
+      const bin = getMachineState(sim, ids.bin);
+      expect(bin.stored).toBeCloseTo(getMachineState(sim, ids.feeder).rate * 60, 3);
+    });
+
+    it("half open, runs the feeder at half its rate", () => {
+      const ids = feederLine();
+      const sim = createSim(ids.line);
+      setGateFraction(sim, ids.feeder, 0.5);
+      run(sim, 60);
+      const feeder = getMachineState(sim, ids.feeder);
+      expect(feeder.flowRateM3PerSec).toBeCloseTo(feeder.rate * 0.5, 9);
+    });
+
+    it("untouched, runs the feeder at its full rate", () => {
+      const ids = feederLine();
+      const sim = createSim(ids.line);
+      run(sim, 60);
+      const feeder = getMachineState(sim, ids.feeder);
+      expect(feeder.flowRateM3PerSec).toBeCloseTo(feeder.rate, 9);
+    });
   });
 
   it("backs up into an unconnected output, and that machine's own upstream stops", () => {

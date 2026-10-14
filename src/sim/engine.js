@@ -113,6 +113,11 @@ export function createSim(line) {
   // comment on initFeedRateDerivations) but stepped unconditionally below
   // regardless — a rule-free list, unlike `control` above.
   const feedRateDerivations = initFeedRateDerivations(running);
+  // The derived rate already carries the feeder's gate (stepFeedRateDerivation).
+  for (const link of feedRateDerivations) {
+    const feeder = machines.get(link.feederId);
+    if (feeder) feeder.rateIncludesGate = true;
+  }
   // The declared output ports of every multi-output (splitter, and later
   // router) machine, so the passes below know the full port set to build
   // downstreamCap/hasDownstream objects over — including a port with
