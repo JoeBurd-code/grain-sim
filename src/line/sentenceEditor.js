@@ -5,14 +5,10 @@
 // A half-filled sentence is never refused here -- it is reported in the
 // problems list by validateSentence (sentenceInterlock.js) instead. Where a
 // choice would leave a blank invalid (a new machine that cannot be "above"),
-// the blank moves to the first valid choice rather than stay broken.
+// that blank goes back to empty rather than stay broken.
 import { RESETS, CONDITIONS } from "../sim/sentenceInterlock";
 import { SWITCH_FIELDS } from "./interlocks";
-import {
-  conditionOptions, machineActionOptions, watchableMachines, holdAction, suggestedTarget, FLIPPED,
-} from "./sentenceOptions";
-
-const DEFAULT_SETPOINT = 0.85;
+import { conditionOptions, machineActionOptions, holdAction, FLIPPED } from "./sentenceOptions";
 
 function refuse(error) {
   return { ok: false, error };
@@ -32,25 +28,14 @@ function freshId(line) {
   return `interlock-${n}`;
 }
 
-function machineStep(line, machine) {
-  return { action: holdAction(line, machine) ?? "stop", machine };
-}
-
-// A new interlock, already valid where the line allows: it watches the first
-// machine with a level (or any it can watch) and stops the first machine
-// that can be held.
+// A new interlock is blank: every blank is the user's to fill, and it does
+// not run until they have (the problems list says what is missing).
 export function addInterlock(line) {
-  const watched = watchableMachines(line);
-  const machine = (watched.find((m) => conditionOptions(line, m.id).includes("above")) ?? watched[0] ?? line.machines[0])?.id ?? "";
-  const condition = conditionOptions(line, machine)[0] ?? "above";
-  const when = { machine, condition, delaySec: 5 };
-  if (CONDITIONS[condition]?.level) when.setpoint = DEFAULT_SETPOINT;
-  const target = suggestedTarget(line, machine, condition);
   const rule = {
     id: freshId(line),
     kind: "sentence",
-    when,
-    then: target ? [machineStep(line, target)] : [],
+    when: { machine: null, condition: null },
+    then: [],
     reset: "auto",
   };
   const next = structuredClone(line);
@@ -72,13 +57,11 @@ function withRule(line, id, mutate) {
   return okLine(next);
 }
 
-// A level condition needs a set point; any other has none, and no switch.
+// A condition the machine cannot have goes back to blank, and only a level
+// condition keeps a set point and a switch.
 function fitCondition(line, part, machine) {
-  const options = conditionOptions(line, machine);
-  if (!options.includes(part.condition)) part.condition = options[0] ?? part.condition;
-  if (CONDITIONS[part.condition]?.level) {
-    part.setpoint ??= DEFAULT_SETPOINT;
-  } else {
+  if (part.condition && !conditionOptions(line, machine).includes(part.condition)) part.condition = null;
+  if (!CONDITIONS[part.condition]?.level) {
     delete part.setpoint;
     delete part.switch;
   }
@@ -122,10 +105,10 @@ export function setWhenClearsCondition(line, id, on) {
       for (const key of ["condition", "setpoint", "switch", "delaySec"]) delete rule.whenClears[key];
       return;
     }
-    const condition = FLIPPED[rule.when.condition] ?? rule.when.condition;
-    Object.assign(rule.whenClears, { condition, delaySec: rule.when.delaySec ?? 0 });
-    if (CONDITIONS[condition]?.level) {
-      rule.whenClears.setpoint = Math.max(0, Math.min(1, (rule.when.setpoint ?? DEFAULT_SETPOINT) + (condition === "below" ? -0.2 : 0.2)));
+    const condition = FLIPPED[rule.when.condition] ?? null;
+    Object.assign(rule.whenClears, { condition, delaySec: rule.when.delaySec ?? null });
+    if (CONDITIONS[condition]?.level && rule.when.setpoint != null) {
+      rule.whenClears.setpoint = Math.max(0, Math.min(1, rule.when.setpoint + (condition === "below" ? -0.2 : 0.2)));
     }
     fitCondition(next, rule.whenClears, rule.when.machine);
   });
@@ -163,16 +146,14 @@ function stepsOf(rule, part) {
   return rule.whenClears.then;
 }
 
-// `kind` is "machine", "wait", "ifStillTrue" or "tripLine". A machine step
-// starts on the first machine that can be held, held.
+// `kind` is "machine", "wait", "ifStillTrue" or "tripLine". A machine or a
+// wait step starts blank.
 export function addStep(line, id, part, kind) {
-  return withRule(line, id, (rule, next) => {
+  return withRule(line, id, (rule) => {
     let step;
-    if (kind === "wait") step = { action: "wait", seconds: 5 };
+    if (kind === "wait") step = { action: "wait", seconds: null };
     else if (kind === "ifStillTrue" || kind === "tripLine") step = { action: kind };
-    else {
-      step = machineStep(next, suggestedTarget(next, rule.when.machine, rule.when.condition) ?? "");
-    }
+    else step = { action: null, machine: null };
     stepsOf(rule, part).push(step);
   });
 }
@@ -193,13 +174,13 @@ export function moveStep(line, id, part, fromIndex, toIndex) {
 }
 
 // One field of a step. A new machine keeps the step's action if it can take
-// it, else moves to the machine's own hold action.
+// it, else the action goes back to blank.
 export function setStepField(line, id, part, index, field, value) {
   return withRule(line, id, (rule, next) => {
     const step = stepsOf(rule, part)[index];
     step[field] = value;
-    if (field === "machine" && !machineActionOptions(next, value).includes(step.action)) {
-      step.action = holdAction(next, value) ?? step.action;
+    if (field === "machine" && step.action && !machineActionOptions(next, value).includes(step.action)) {
+      step.action = null;
     }
   });
 }

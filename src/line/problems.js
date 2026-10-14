@@ -50,7 +50,7 @@ function ruleProblems(line) {
   for (const rule of lineRules(line)) {
     const sensorId = interlockSensorMachine(rule);
     const sensor = byId.get(sensorId);
-    const name = sensor?.name ?? sensorId ?? "the line";
+    const name = sensor?.name ?? sensorId ?? "New interlock";
     if (isRuleOff(line, rule)) {
       problems.push(problem(`${rule.id}:off`, sensor ? sensorId : null, `${name}: interlock lost a machine it depends on`));
       continue;

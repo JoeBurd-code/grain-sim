@@ -5,8 +5,8 @@ import {
   setSentenceReset, addStep, removeStep, moveStep, setStepField, rewriteAsHold,
 } from "./sentenceEditor";
 import { emptyLine, addMachine, connectPorts } from "./lineDocument";
-import { sentenceProblems, runStepHint } from "./sentenceOptions";
-import { validateSentence } from "../sim/sentenceInterlock";
+import { sentenceProblems, sentenceSummary, runStepHint } from "./sentenceOptions";
+import { lineProblems } from "./problems";
 import { createSim, stepSim, getMachineState, DT } from "../sim/engine";
 
 function add(line, item, pos) {
@@ -39,14 +39,39 @@ function binFeederLine() {
 
 const ruleOf = (result, id) => result.line.interlocks.find((r) => r.id === id);
 
+// Fills a blank interlock in, one blank at a time, as a user would:
+// "When the bin is above 85 % for 5 s, close Grain in."
+function filled() {
+  const ids = binFeederLine();
+  const { id, line: blank } = ok(addInterlock(ids.line));
+  let line = blank;
+  const edit = (r) => { line = ok(r).line; };
+  edit(setSentenceField(line, id, "when", "machine", ids.bin));
+  edit(setSentenceField(line, id, "when", "condition", "above"));
+  edit(setSentenceField(line, id, "when", "setpoint", 0.85));
+  edit(setSentenceField(line, id, "when", "delaySec", 5));
+  edit(addStep(line, id, "then", "machine"));
+  edit(setStepField(line, id, "then", 0, "machine", ids.grainIn));
+  edit(setStepField(line, id, "then", 0, "action", "close"));
+  return { ...ids, id, line };
+}
+
 describe("addInterlock", () => {
-  it("starts valid: watches the bin, closes what feeds it", () => {
+  it("adds a blank sentence that reads as blanks and does not run", () => {
     const ids = binFeederLine();
     const result = ok(addInterlock(ids.line));
     const rule = ruleOf(result, result.id);
-    expect(rule.when).toMatchObject({ machine: ids.bin, condition: "above", setpoint: 0.85 });
-    expect(rule.then).toEqual([{ action: "close", machine: ids.grainIn }]);
-    expect(sentenceProblems(result.line, rule)).toEqual([]);
+    expect(rule.when).toEqual({ machine: null, condition: null });
+    expect(rule.then).toEqual([]);
+    expect(sentenceSummary(result.line, rule).map((s) => s.text ?? "[m]").join("")).toBe("When [m] is … for … s, ….");
+    expect(sentenceProblems(result.line, rule)).toContain("needs a machine to watch");
+    expect(lineProblems(result.line).some((p) => p.message.startsWith("New interlock: incomplete interlock"))).toBe(true);
+    expect(createSim(result.line).control.some((r) => r.id === result.id)).toBe(false);
+  });
+
+  it("filled in, has no problems", () => {
+    const s = filled();
+    expect(sentenceProblems(s.line, s.line.interlocks[0])).toEqual([]);
   });
 
   it("never changes the line it is given, and gives each interlock its own id", () => {
@@ -66,93 +91,81 @@ describe("addInterlock", () => {
 });
 
 describe("setSentenceField", () => {
-  it("moves the condition to a valid one when the watched machine changes", () => {
-    const ids = binFeederLine();
-    const added = ok(addInterlock(ids.line));
-    const elevator = add(added.line, "bucket-elevator", { x: 400, y: 0 });
-    const rule = ruleOf(ok(setSentenceField(elevator.line, added.id, "when", "machine", elevator.id)), added.id);
-    // An elevator has no level; it can only be stopped or running.
-    expect(rule.when.condition).toBe("stopped");
+  it("empties a condition the newly watched machine cannot have, with its set point", () => {
+    const s = filled();
+    const elevator = add(s.line, "bucket-elevator", { x: 400, y: 0 });
+    const rule = ruleOf(ok(setSentenceField(elevator.line, s.id, "when", "machine", elevator.id)), s.id);
+    expect(rule.when.condition).toBeNull();
     expect(rule.when.setpoint).toBeUndefined();
   });
 
   it("mirrors a switch's set point onto the machine's levelSwitches", () => {
-    const ids = binFeederLine();
-    const added = ok(addInterlock(ids.line));
-    let result = ok(setSentenceField(added.line, added.id, "when", "switch", "LSH"));
-    const bin = result.line.machines.find((m) => m.id === ids.bin);
-    bin.sim.levelSwitches = { LSH: 0.85 };
-    result = ok(setSentenceField(result.line, added.id, "when", "setpoint", 0.4));
-    expect(result.line.machines.find((m) => m.id === ids.bin).sim.levelSwitches.LSH).toBe(0.4);
+    const s = filled();
+    let result = ok(setSentenceField(s.line, s.id, "when", "switch", "LSH"));
+    result.line.machines.find((m) => m.id === s.bin).sim.levelSwitches = { LSH: 0.85 };
+    result = ok(setSentenceField(result.line, s.id, "when", "setpoint", 0.4));
+    expect(result.line.machines.find((m) => m.id === s.bin).sim.levelSwitches.LSH).toBe(0.4);
   });
 
   it("removes a field when given null", () => {
-    const ids = binFeederLine();
-    const added = ok(addInterlock(ids.line));
-    const withSwitch = ok(setSentenceField(added.line, added.id, "when", "switch", "LSH"));
-    expect(ruleOf(ok(setSentenceField(withSwitch.line, added.id, "when", "switch", null)), added.id).when.switch).toBeUndefined();
+    const s = filled();
+    const withSwitch = ok(setSentenceField(s.line, s.id, "when", "switch", "LSH"));
+    expect(ruleOf(ok(setSentenceField(withSwitch.line, s.id, "when", "switch", null)), s.id).when.switch).toBeUndefined();
   });
 });
 
 describe("when it clears", () => {
   it("starts by undoing every machine the then steps hold", () => {
-    const ids = binFeederLine();
-    const added = ok(addInterlock(ids.line));
-    const rule = ruleOf(ok(addWhenClears(added.line, added.id)), added.id);
-    expect(rule.whenClears).toEqual({ then: [{ action: "open", machine: ids.grainIn }] });
-    expect(validateSentence(rule, new Map(added.line.machines.map((m) => [m.id, m])))).toEqual([]);
+    const s = filled();
+    const result = ok(addWhenClears(s.line, s.id));
+    const rule = ruleOf(result, s.id);
+    expect(rule.whenClears).toEqual({ then: [{ action: "open", machine: s.grainIn }] });
+    expect(sentenceProblems(result.line, rule)).toEqual([]);
   });
 
   it("can take its own opposite condition, and give it back", () => {
-    const ids = binFeederLine();
-    const added = ok(addInterlock(ids.line));
-    const withClear = ok(addWhenClears(added.line, added.id));
-    const on = ruleOf(ok(setWhenClearsCondition(withClear.line, added.id, true)), added.id);
+    const s = filled();
+    const withClear = ok(addWhenClears(s.line, s.id));
+    const on = ruleOf(ok(setWhenClearsCondition(withClear.line, s.id, true)), s.id);
     expect(on.whenClears).toMatchObject({ condition: "below", delaySec: 5 });
     expect(on.whenClears.setpoint).toBeCloseTo(0.65, 9);
-    const off = ruleOf(ok(setWhenClearsCondition(withClear.line, added.id, false)), added.id);
+    const off = ruleOf(ok(setWhenClearsCondition(withClear.line, s.id, false)), s.id);
     expect(off.whenClears.condition).toBeUndefined();
-    expect(ruleOf(ok(removeWhenClears(withClear.line, added.id)), added.id).whenClears).toBeUndefined();
+    expect(ruleOf(ok(removeWhenClears(withClear.line, s.id)), s.id).whenClears).toBeUndefined();
   });
 });
 
 describe("setSentenceReset", () => {
   it("accepts auto or latched, refuses anything else", () => {
-    const ids = binFeederLine();
-    const added = ok(addInterlock(ids.line));
-    expect(ruleOf(ok(setSentenceReset(added.line, added.id, "latched")), added.id).reset).toBe("latched");
-    expect(setSentenceReset(added.line, added.id, "manual").ok).toBe(false);
+    const s = filled();
+    expect(ruleOf(ok(setSentenceReset(s.line, s.id, "latched")), s.id).reset).toBe("latched");
+    expect(setSentenceReset(s.line, s.id, "manual").ok).toBe(false);
   });
 });
 
 describe("step blocks", () => {
-  it("adds, reorders and removes steps", () => {
-    const ids = binFeederLine();
-    const added = ok(addInterlock(ids.line));
-    let result = ok(addStep(added.line, added.id, "then", "wait"));
-    expect(ruleOf(result, added.id).then[1]).toEqual({ action: "wait", seconds: 5 });
-    result = ok(moveStep(result.line, added.id, "then", 0, 1));
-    expect(ruleOf(result, added.id).then.map((s) => s.action)).toEqual(["wait", "close"]);
-    result = ok(removeStep(result.line, added.id, "then", 0));
-    expect(ruleOf(result, added.id).then.map((s) => s.action)).toEqual(["close"]);
+  it("adds blank steps, which are problems until filled", () => {
+    const s = filled();
+    let result = ok(addStep(s.line, s.id, "then", "machine"));
+    result = ok(addStep(result.line, s.id, "then", "wait"));
+    const rule = ruleOf(result, s.id);
+    expect(rule.then.slice(1)).toEqual([{ action: null, machine: null }, { action: "wait", seconds: null }]);
+    expect(sentenceProblems(result.line, rule)).toEqual(["step 2 needs a machine", "step 3 needs a wait time"]);
   });
 
-  it("a new machine step holds what feeds the bin for above, what empties it for below", () => {
-    const ids = binFeederLine();
-    const added = ok(addInterlock(ids.line));
-    let result = ok(addStep(added.line, added.id, "whenClearsThen", "machine"));
-    expect(ruleOf(result, added.id).whenClears.then).toEqual([{ action: "close", machine: ids.grainIn }]);
-    result = ok(setSentenceField(added.line, added.id, "when", "condition", "below"));
-    result = ok(addStep(result.line, added.id, "then", "machine"));
-    expect(ruleOf(result, added.id).then[1]).toEqual({ action: "stop", machine: ids.feeder });
+  it("reorders and removes steps", () => {
+    const s = filled();
+    let result = ok(addStep(s.line, s.id, "then", "wait"));
+    result = ok(moveStep(result.line, s.id, "then", 0, 1));
+    expect(ruleOf(result, s.id).then.map((x) => x.action)).toEqual(["wait", "close"]);
+    result = ok(removeStep(result.line, s.id, "then", 0));
+    expect(ruleOf(result, s.id).then.map((x) => x.action)).toEqual(["close"]);
   });
 
-  it("moves to the new machine's own action when it cannot take the old one", () => {
-    const ids = binFeederLine();
-    const added = ok(addInterlock(ids.line));
-    let result = ok(setStepField(added.line, added.id, "then", 0, "action", "close"));
-    result = ok(setStepField(result.line, added.id, "then", 0, "machine", ids.feeder));
-    expect(ruleOf(result, added.id).then[0].action).toBe("stop");
+  it("empties the action when the new machine cannot take it", () => {
+    const s = filled();
+    const result = ok(setStepField(s.line, s.id, "then", 0, "machine", s.feeder));
+    expect(ruleOf(result, s.id).then[0]).toEqual({ action: null, machine: s.feeder });
   });
 });
 
@@ -160,12 +173,11 @@ describe("step blocks", () => {
 // drum feeder" never ran.
 describe("running a machine is rewritten as holding it", () => {
   function startWhenAbove() {
-    const ids = binFeederLine();
-    const added = ok(addInterlock(ids.line));
-    let line = ok(setSentenceField(added.line, added.id, "when", "setpoint", 0.49)).line;
-    line = ok(setStepField(line, added.id, "then", 0, "machine", ids.feeder)).line;
-    line = ok(setStepField(line, added.id, "then", 0, "action", "start")).line;
-    return { ...ids, line, id: added.id };
+    const s = filled();
+    let line = ok(setSentenceField(s.line, s.id, "when", "setpoint", 0.49)).line;
+    line = ok(setStepField(line, s.id, "then", 0, "machine", s.feeder)).line;
+    line = ok(setStepField(line, s.id, "then", 0, "action", "start")).line;
+    return { ...s, line };
   }
 
   it("a start with nothing to undo is a problem, with a hint", () => {
@@ -184,16 +196,11 @@ describe("running a machine is rewritten as holding it", () => {
     expect(sentenceProblems(line, rule)).toEqual([]);
 
     const sim = createSim(line);
-    const levels = [];
-    for (let i = 0; i < Math.round(900 / DT); i++) {
-      stepSim(sim, DT);
-      if (i % 20 === 0) levels.push(getMachineState(sim, s.bin));
-    }
+    for (let i = 0; i < Math.round(900 / DT); i++) stepSim(sim, DT);
     const bin = getMachineState(sim, s.bin);
     // Held stopped while filling, then running: the bin rides at about 49 %.
     expect(bin.stored / bin.capacity).toBeGreaterThan(0.45);
     expect(bin.stored / bin.capacity).toBeLessThan(0.55);
     expect(getMachineState(sim, s.grainOut).total).toBeGreaterThan(0);
-    expect(levels.length).toBeGreaterThan(0);
   });
 });

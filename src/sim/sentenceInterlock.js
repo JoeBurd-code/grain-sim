@@ -135,20 +135,29 @@ export function validateSentence(rule, machinesById) {
   // One condition on `machine`, the "when" part's own or the clear part's.
   const checkCondition = (part, machine, delayText) => {
     const condition = CONDITIONS[part.condition];
-    if (!machinesById.has(machine)) {
+    // Issue #92: a blank the user has not filled in yet, said plainly.
+    if (machine == null) {
+      say("needs a machine to watch");
+    } else if (part.condition == null) {
+      say("needs a condition");
+    } else if (!machinesById.has(machine)) {
       say(`watches unknown machine "${machine}"`);
     } else if (!condition) {
       say(`has unknown condition "${part.condition}" (expected one of ${quoted(Object.keys(CONDITIONS))})`);
     } else if (!condition.supports(behaviorOf(machine))) {
       say(`machine "${machine}" cannot be "${part.condition}"`);
     }
-    if (condition?.level && !(isFiniteNumber(part.setpoint) && part.setpoint >= 0 && part.setpoint <= 1)) {
+    if (condition?.level && part.setpoint == null) {
+      say("needs a set point");
+    } else if (condition?.level && !(isFiniteNumber(part.setpoint) && part.setpoint >= 0 && part.setpoint <= 1)) {
       say(`"${part.condition}" needs a set point from 0 to 100 %`);
     }
     if (part.switch !== undefined && !SWITCH_FIELDS[part.switch]) {
       say(`names level switch "${part.switch}" (expected one of ${quoted(Object.keys(SWITCH_FIELDS))})`);
     }
-    if (!isFiniteNumber(part.delaySec) || part.delaySec < 0) {
+    if (part.delaySec == null) {
+      say(`needs a ${delayText}`);
+    } else if (!isFiniteNumber(part.delaySec) || part.delaySec < 0) {
       say(`needs a ${delayText} of zero or more seconds`);
     }
   };
@@ -176,7 +185,11 @@ export function validateSentence(rule, machinesById) {
         return;
       }
       const action = ACTIONS[step.action];
-      if (!action) {
+      if (step.machine === null) {
+        say(`${where} needs a machine`);
+      } else if (step.action == null) {
+        say(`${where} needs an action`);
+      } else if (!action) {
         const expected = [...Object.keys(ACTIONS), ...Object.keys(FLOW_STEPS)];
         say(`${where} has unknown action "${step.action}" (expected one of ${quoted(expected)})`);
       } else if (!machinesById.has(step.machine)) {
@@ -324,7 +337,8 @@ const NEXT = "next", HOLD = "hold", END = "end";
 const FLOW_STEPS = {
   wait: {
     name: "wait",
-    check: (step) => (isFiniteNumber(step.seconds) && step.seconds >= 0 ? null : "needs a wait of zero or more seconds"),
+    check: (step) => (step.seconds == null ? "needs a wait time"
+      : isFiniteNumber(step.seconds) && step.seconds >= 0 ? null : "needs a wait of zero or more seconds"),
     // After a wait, the clock moves to the tick that passed it, so the next
     // wait counts from the step it follows.
     run: (rule, sim, seq, step) => {

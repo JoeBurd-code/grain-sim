@@ -64,7 +64,7 @@ function Stepper({ value, onCommit, min = 0, max = Infinity, step = 1, unit, lab
     setDraft(null);
     if (Number.isFinite(v) && clamp(v) !== value) onCommit(clamp(v));
   };
-  const nudge = (d) => commit(Math.round((value + d) * 100) / 100);
+  const nudge = (d) => commit(Math.round(((value ?? 0) + d) * 100) / 100);
   const btn = {
     width: 22, height: 24, background: C.panel2, color: C.text, border: `1px solid ${C.line}`,
     fontFamily: FONT_MONO, fontSize: 12, lineHeight: 1, cursor: "pointer", padding: 0,
@@ -75,7 +75,8 @@ function Stepper({ value, onCommit, min = 0, max = Infinity, step = 1, unit, lab
         <button className="zonebtn" aria-label={`less ${aria}`} style={{ ...btn, borderRadius: "4px 0 0 4px" }} onClick={() => nudge(-step)}>−</button>
         <input
           type="text" inputMode="decimal" aria-label={aria}
-          value={draft ?? String(value)}
+          value={draft ?? (value == null ? "" : String(value))}
+          placeholder="…"
           style={{
             width: 42, height: 24, boxSizing: "border-box", textAlign: "center", background: C.bg, color: C.text,
             border: `1px solid ${C.line}`, borderLeft: "none", borderRight: "none", fontFamily: FONT_MONO, fontSize: 11,
@@ -124,9 +125,13 @@ function ConditionRows({ line, machine, part, onField }) {
   return (
     <>
       <Row name="IS">
-        <Pills options={conditionOptions(line, machine)} value={part.condition} onPick={(v) => onField("condition", v)} />
+        {machine == null ? (
+          <span style={caption}>pick a machine first</span>
+        ) : (
+          <Pills options={conditionOptions(line, machine)} value={part.condition} onPick={(v) => onField("condition", v)} />
+        )}
         {level && (
-          <Stepper label="set point" value={Math.round((part.setpoint ?? 0) * 100)} min={0} max={100} unit="%"
+          <Stepper label="set point" value={part.setpoint == null ? null : Math.round(part.setpoint * 100)} min={0} max={100} unit="%"
             onCommit={(v) => onField("setpoint", v / 100)} />
         )}
       </Row>
@@ -136,7 +141,7 @@ function ConditionRows({ line, machine, part, onField }) {
         </Row>
       )}
       <Row name="FOR">
-        <Stepper label="delay" value={part.delaySec ?? 0} min={0} max={600} unit="s" onCommit={(v) => onField("delaySec", v)} />
+        <Stepper label="delay" value={part.delaySec} min={0} max={600} unit="s" onCommit={(v) => onField("delaySec", v)} />
       </Row>
     </>
   );
@@ -150,7 +155,7 @@ const STEP_LABEL = { ifStillTrue: "IF STILL TRUE, GO ON", tripLine: "TRIP THE WH
 function stepActions(line, step, held) {
   const options = machineActionOptions(line, step.machine).filter((a) =>
     a === step.action || a === "stop" || a === "close" || held.has(step.machine));
-  return options.includes(step.action) ? options : [step.action, ...options];
+  return step.action == null || options.includes(step.action) ? options : [step.action, ...options];
 }
 
 function StepList({ line, steps, part, heldBefore, actions, onHover }) {
@@ -191,14 +196,16 @@ function StepList({ line, steps, part, heldBefore, actions, onHover }) {
             <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", flex: 1, minWidth: 0 }}>
               {step.machine !== undefined ? (
                 <>
-                  <Pills options={offered} value={step.action} onPick={(a) => actions.setStepField(part, i, "action", a)} />
                   <MachineSelect machines={machines} line={line} value={step.machine} label="machine"
                     onChange={(v) => actions.setStepField(part, i, "machine", v)} />
+                  {step.machine != null && (
+                    <Pills options={offered} value={step.action} onPick={(a) => actions.setStepField(part, i, "action", a)} />
+                  )}
                 </>
               ) : step.action === "wait" ? (
                 <>
                   <span style={{ fontSize: 10, color: C.text, letterSpacing: "0.06em" }}>WAIT</span>
-                  <Stepper label="wait" value={step.seconds ?? 0} min={0} max={3600} unit="s"
+                  <Stepper label="wait" value={step.seconds} min={0} max={3600} unit="s"
                     onCommit={(v) => actions.setStepField(part, i, "seconds", v)} />
                 </>
               ) : (

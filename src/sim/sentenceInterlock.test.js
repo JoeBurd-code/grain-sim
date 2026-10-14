@@ -738,7 +738,7 @@ describe("interlock sentence: wait, if still true, trip the whole line, start, a
   });
 
   const malformed = [
-    ["a wait with no seconds", { then: [{ action: "wait" }] }, /step 1 needs a wait of zero or more seconds/],
+    ["a wait with no seconds", { then: [{ action: "wait" }] }, /step 1 needs a wait time/],
     ["a negative wait", { then: [wait(-1)] }, /step 1 needs a wait of zero or more seconds/],
     ["if still true in the when it clears steps", { whenClears: { then: [ifStillTrue] } }, /"if still true" only after "then"/],
     ["trip the whole line in the when it clears steps", { whenClears: { then: [tripLine] } }, /"trip the whole line" only after "then"/],

@@ -14,7 +14,7 @@ function behaviorOf(line, id) {
   return BEHAVIORS[machineOf(line, id)?.sim?.kind];
 }
 export function machineName(line, id) {
-  return machineOf(line, id)?.name ?? "(no machine)";
+  return machineOf(line, id)?.name ?? "…";
 }
 
 // Every condition this machine's behaviour supports, in CONDITIONS's order.
@@ -44,36 +44,14 @@ export function switchOptions(line, machineId) {
   return Object.keys(SWITCH_FIELDS).filter((code) => instruments.includes(code));
 }
 
-// The machine a new step most likely means: for "above", the nearest one
-// feeding the watched machine (stop filling it); for "below", the nearest one
-// emptying it (stop draining it). Falls back to any machine that can be held.
-export function suggestedTarget(line, watchedId, condition) {
-  const can = (id) => id !== watchedId && machineActionOptions(line, id).length > 0;
-  const walk = (from, next) => {
-    const seen = new Set([from]);
-    let frontier = [from];
-    while (frontier.length > 0) {
-      const found = frontier.flatMap(next).filter((id) => !seen.has(id));
-      found.forEach((id) => seen.add(id));
-      const hit = found.find(can);
-      if (hit) return hit;
-      frontier = found;
-    }
-    return null;
-  };
-  const up = () => walk(watchedId, (id) => line.connections.filter((c) => c.to.machine === id).map((c) => c.from.machine));
-  const down = () => walk(watchedId, (id) => line.connections.filter((c) => c.from.machine === id).map((c) => c.to.machine));
-  const order = condition === "below" ? [down, up] : [up, down];
-  return order[0]() ?? order[1]() ?? actionableMachines(line).find((m) => can(m.id))?.id ?? actionableMachines(line)[0]?.id ?? null;
-}
-
 // The hold action for a machine: what a sentence actually does to it.
 export function holdAction(line, machineId) {
   const options = machineActionOptions(line, machineId);
   return options.includes("stop") ? "stop" : options.includes("close") ? "close" : null;
 }
 
-const pct = (f) => `${Math.round((f ?? 0) * 100)} %`;
+const pct = (f) => (f == null ? "… %" : `${Math.round(f * 100)} %`);
+const secs = (s) => (s == null ? "… s" : `${s} s`);
 
 // The condition in words, without the machine: "above 85 %", "stopped".
 export function conditionText(part) {
@@ -82,28 +60,28 @@ export function conditionText(part) {
 }
 
 function stepText(line, step) {
-  if (step.action === "wait") return { text: `wait ${step.seconds ?? 0} s` };
+  if (step.action === "wait") return { text: `wait ${secs(step.seconds)}` };
   if (step.action === "ifStillTrue") return { text: "if still true" };
   if (step.action === "tripLine") return { text: "trip the whole line" };
-  return { text: `${step.action} `, machine: step.machine };
+  return { text: `${step.action ?? "…"} `, machine: step.machine };
 }
 
 // The sentence as segments, for its one-line summary: plain text, or a
 // machine name to set off. "When BIN is above 85 % for 5 s, stop FEEDER."
 export function sentenceSummary(line, rule) {
-  const segs = [{ text: "When " }, { machine: rule.when.machine }, { text: ` is ${conditionText(rule.when)} for ${rule.when.delaySec ?? 0} s, ` }];
+  const segs = [{ text: "When " }, { machine: rule.when.machine }, { text: ` is ${conditionText(rule.when)} for ${secs(rule.when.delaySec)}, ` }];
   const steps = (list) => list.forEach((step, i) => {
     if (i > 0) segs.push({ text: i === list.length - 1 ? " then " : ", " });
     const s = stepText(line, step);
     segs.push({ text: s.text });
     if (s.machine) segs.push({ machine: s.machine });
   });
-  if (rule.then.length === 0) segs.push({ text: "do nothing" });
+  if (rule.then.length === 0) segs.push({ text: "…" });
   steps(rule.then);
   segs.push({ text: "." });
   if (rule.whenClears) {
     const own = rule.whenClears.condition !== undefined;
-    segs.push({ text: own ? ` When ${conditionText(rule.whenClears)} for ${rule.whenClears.delaySec ?? 0} s, ` : " When it clears, " });
+    segs.push({ text: own ? ` When ${conditionText(rule.whenClears)} for ${secs(rule.whenClears.delaySec)}, ` : " When it clears, " });
     steps(rule.whenClears.then);
     segs.push({ text: "." });
   }
