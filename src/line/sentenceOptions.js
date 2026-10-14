@@ -119,18 +119,14 @@ export function runStepHint(line, rule) {
 
 export const FLIPPED = { above: "below", below: "above", running: "stopped", stopped: "running" };
 
-// The interlocks grouped by the machine each one watches, so a long list can
-// be read machine by machine: groups in the line's machine order, then the
+// The interlocks, and the suggestions waiting for a tick or a cross (issue
+// #93), grouped by the machine each one watches, so a long list can be read
+// machine by machine: groups in the line's machine order, then the
 // interlocks with no machine picked yet (`machine: null`) last.
-export function interlocksByMachine(line) {
-  const groups = new Map(line.machines.map((m) => [m.id, []]));
-  const unwatched = [];
-  for (const rule of line.interlocks ?? []) {
-    const id = rule.when?.machine;
-    if (groups.has(id)) groups.get(id).push(rule);
-    else unwatched.push(rule);
-  }
-  const out = [...groups].filter(([, rules]) => rules.length > 0).map(([machine, rules]) => ({ machine, rules }));
-  if (unwatched.length > 0) out.push({ machine: null, rules: unwatched });
-  return out;
+export function interlocksByMachine(line, suggestions = []) {
+  const groups = new Map(line.machines.map((m) => [m.id, { machine: m.id, rules: [], suggestions: [] }]));
+  const unwatched = { machine: null, rules: [], suggestions: [] };
+  for (const rule of line.interlocks) (groups.get(rule.when?.machine) ?? unwatched).rules.push(rule);
+  for (const rule of suggestions) groups.get(rule.when.machine)?.suggestions.push(rule);
+  return [...groups.values(), unwatched].filter((g) => g.rules.length + g.suggestions.length > 0);
 }

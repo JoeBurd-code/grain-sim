@@ -11,6 +11,7 @@ import {
   CONDITIONS, conditionOptions, machineActionOptions, watchableMachines, actionableMachines, switchOptions,
   sentenceSummary, sentenceProblems, runStepHint, machineName, interlocksByMachine,
 } from "../line/sentenceOptions";
+import { pendingSuggestions, acceptSuggestion, dismissSuggestion } from "../line/suggestedInterlocks";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 
 export const INTERLOCKS_WINDOW_WIDTH = 380;
@@ -452,7 +453,7 @@ export default function InterlocksWindow({ line, onEdit, onHoverMachines, onClos
         {line.interlocks.length === 0 && (
           <div style={{ ...caption, marginTop: 10 }}>This line has no interlocks. Press + ADD to make one.</div>
         )}
-        {interlocksByMachine(line).map(({ machine, rules }) => {
+        {interlocksByMachine(line, pendingSuggestions(line)).map(({ machine, rules, suggestions }) => {
           const okById = new Map(rules.map((r) => [r.id, sentenceProblems(line, r).length === 0]));
           const key = machine ?? "";
           // A group holding the open interlock is always shown.
@@ -477,6 +478,7 @@ export default function InterlocksWindow({ line, onEdit, onHoverMachines, onClos
                 {rules.some((r) => !okById.get(r.id)) && (
                   <span title="an interlock here will not run yet" style={{ width: 6, height: 6, borderRadius: 3, background: C.amber }} />
                 )}
+                {suggestions.length > 0 && <span style={{ fontSize: 9, color: C.wheat }}>+{suggestions.length} suggested</span>}
                 <span style={{ fontSize: 9, color: C.muted }}>{rules.length}</span>
               </button>
               {shown && rules.map((rule) => {
@@ -500,12 +502,6 @@ export default function InterlocksWindow({ line, onEdit, onHoverMachines, onClos
                       <span title={ok ? "will run" : "will not run yet"}
                         style={{ width: 7, height: 7, borderRadius: 4, marginTop: 5, flex: "none", background: ok ? C.green : C.amber }} />
                       <span style={{ flex: 1 }}>
-                        {rule.suggested && (
-                          <span title="Added when you connected these machines. Change it and it becomes your own."
-                            style={{ fontSize: 8, color: C.wheat, border: `1px solid ${C.wheat}`, borderRadius: 3, padding: "0 4px", marginRight: 6, letterSpacing: "0.08em" }}>
-                            SUGGESTED
-                          </span>
-                        )}
                         <Summary line={line} rule={rule} />
                       </span>
                       <span style={{ color: C.muted, fontSize: 9, marginTop: 3 }}>{open ? "▲" : "▼"}</span>
@@ -514,6 +510,25 @@ export default function InterlocksWindow({ line, onEdit, onHoverMachines, onClos
                   </div>
                 );
               })}
+              {shown && suggestions.map((rule) => (
+                <div
+                  key={rule.id}
+                  onMouseEnter={() => onHoverMachines(ruleMachines(rule))}
+                  onMouseLeave={() => onHoverMachines(null)}
+                  style={{ display: "flex", gap: 8, alignItems: "flex-start", border: `1px dashed ${C.line}`, borderRadius: 6, marginTop: 6, padding: "9px 10px" }}
+                >
+                  <span style={{ flex: 1, opacity: 0.75 }}>
+                    <span style={{ display: "block", fontSize: 8, color: C.wheat, letterSpacing: "0.1em", marginBottom: 2 }}>SUGGESTED</span>
+                    <Summary line={line} rule={rule} />
+                  </span>
+                  <button className="zonebtn" aria-label="add suggested interlock" title="Add this interlock"
+                    style={{ ...pill, color: C.green, border: `1px solid ${C.green}`, padding: "2px 7px" }}
+                    onClick={() => onEdit((l) => acceptSuggestion(l, rule.id))}>✓</button>
+                  <button className="zonebtn" aria-label="dismiss suggested interlock" title="Dismiss. It will not be suggested again."
+                    style={{ ...pill, padding: "2px 7px" }}
+                    onClick={() => { onEdit((l) => dismissSuggestion(l, rule.id)); onHoverMachines(null); }}>✕</button>
+                </div>
+              ))}
             </div>
           );
         })}

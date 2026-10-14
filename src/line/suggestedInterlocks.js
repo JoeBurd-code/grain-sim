@@ -1,15 +1,15 @@
-// Issue #93: the interlocks the editor proposes when the user connects
-// machines, so a built line protects itself without PLC knowledge. The
+// Issue #93: the interlocks the editor proposes for the connections on the
+// line, so a built line can protect itself without PLC knowledge. The
 // proposals are a pure function of the line document. One rule, the one the
 // golden line repeats on every bin it protects (metal bins 1 and 2, the
 // Flexicon pre-bin): when a machine with a level is above 85 % for 5 s, stop
 // the machine feeding it, latched.
 //
-// A suggestion is an ordinary sentence with `suggested: true`. The first
-// change the user makes to it takes the mark away (sentenceEditor.js), and
-// deleting one records its id in `line.dismissedSuggestions`, so it is not
-// proposed again. Only a new connection adds suggestions, and only for that
-// connection, so a line's existing interlocks never gain any after the fact.
+// A suggestion is never on the line by itself. The Interlocks window lists
+// it under its machine with a tick and a cross: the tick adds it as an
+// ordinary interlock (acceptSuggestion), the cross records its id in
+// `line.dismissedSuggestions` (dismissSuggestion), so it is not proposed
+// again.
 import { conditionOptions, holdAction } from "./sentenceOptions";
 
 export const HIGH_LEVEL_SETPOINT = 0.85;
@@ -34,7 +34,6 @@ export function suggestedInterlocks(line) {
     out.push({
       id,
       kind: "sentence",
-      suggested: true,
       when: { machine: bin, condition: "above", setpoint: HIGH_LEVEL_SETPOINT, delaySec: HIGH_LEVEL_DELAY_SEC },
       then: [{ action, machine: feeder }],
       reset: "latched",
@@ -44,28 +43,34 @@ export function suggestedInterlocks(line) {
 }
 
 // True when the line already has an interlock that holds `feeder` while
-// `bin` is above some level, the user's own or the golden line's.
+// `bin` is above some level: an accepted suggestion, the user's own or the
+// golden line's.
 function alreadyCovered(line, bin, feeder) {
   return (line.interlocks ?? []).some((r) => r.when?.machine === bin && r.when?.condition === "above"
     && (r.then ?? []).some((s) => s.machine === feeder && (s.action === "stop" || s.action === "close")));
 }
 
-// The line with the suggestions for `connection` added, unless the line has
-// them already, the user deleted them, or another interlock already does
-// the same job.
-export function addSuggestionsFor(line, connection) {
+// The suggestions still waiting for a tick or a cross.
+export function pendingSuggestions(line) {
   const dismissed = new Set(line.dismissedSuggestions ?? []);
   const ids = new Set((line.interlocks ?? []).map((r) => r.id));
-  const fresh = suggestedInterlocks({ ...line, connections: [connection] })
+  return suggestedInterlocks(line)
     .filter((r) => !ids.has(r.id) && !dismissed.has(r.id) && !alreadyCovered(line, r.when.machine, r.then[0].machine));
-  if (fresh.length === 0) return line;
-  return { ...line, interlocks: [...(line.interlocks ?? []), ...fresh] };
 }
 
-// The line without the unchanged suggestions its connections no longer call
-// for. A suggestion the user changed is their own, and stays.
-export function withoutStaleSuggestions(line) {
-  const wanted = new Set(suggestedInterlocks(line).map((r) => r.id));
-  const interlocks = (line.interlocks ?? []).filter((r) => !r.suggested || wanted.has(r.id));
-  return interlocks.length === (line.interlocks ?? []).length ? line : { ...line, interlocks };
+function findPending(line, id) {
+  return pendingSuggestions(line).find((r) => r.id === id);
+}
+
+// The tick: the suggestion becomes an ordinary interlock on the line.
+export function acceptSuggestion(line, id) {
+  const rule = findPending(line, id);
+  if (!rule) return { ok: false, error: `There is no suggestion "${id}".` };
+  return { ok: true, line: { ...line, interlocks: [...(line.interlocks ?? []), rule] }, id };
+}
+
+// The cross: the suggestion is not proposed again.
+export function dismissSuggestion(line, id) {
+  if (!findPending(line, id)) return { ok: false, error: `There is no suggestion "${id}".` };
+  return { ok: true, line: { ...line, dismissedSuggestions: [...(line.dismissedSuggestions ?? []), id] } };
 }

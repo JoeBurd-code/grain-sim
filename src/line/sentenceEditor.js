@@ -47,18 +47,13 @@ export function removeInterlock(line, id) {
   if (!findRule(line, id)) return refuse(`There is no interlock "${id}".`);
   const next = structuredClone(line);
   next.interlocks = next.interlocks.filter((r) => r.id !== id);
-  // Issue #93: a deleted suggestion is not proposed again.
-  if (findRule(line, id).suggested) next.dismissedSuggestions = [...(next.dismissedSuggestions ?? []), id];
   return okLine(next);
 }
 
 function withRule(line, id, mutate) {
   if (!findRule(line, id)) return refuse(`There is no interlock "${id}".`);
   const next = structuredClone(line);
-  const rule = findRule(next, id);
-  mutate(rule, next);
-  // Issue #93: a suggestion the user changes becomes their own.
-  if (rule.suggested && JSON.stringify(rule) !== JSON.stringify(findRule(line, id))) delete rule.suggested;
+  mutate(findRule(next, id), next);
   return okLine(next);
 }
 

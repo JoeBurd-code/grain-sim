@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { binFeederTestLine } from "./testLines";
 import { connectPorts, disconnectConnection } from "./connecting";
-import { suggestedInterlocks } from "./suggestedInterlocks";
-import { removeInterlock, setSentenceField, setSentenceReset } from "./sentenceEditor";
+import { suggestedInterlocks, pendingSuggestions, acceptSuggestion, dismissSuggestion } from "./suggestedInterlocks";
+import { removeInterlock } from "./sentenceEditor";
 import { validateLine } from "./validateLine";
 import { createSim, stepSim, getMachineState, DT } from "../sim/engine";
 
@@ -13,78 +13,75 @@ function unconnected() {
   line.connections = line.connections.filter((c) => c.to.machine !== "bin");
   return line;
 }
-const grainToBin = [{ machine: "grainIn", port: "out" }, { machine: "bin", port: "in" }];
+const from = { machine: "grainIn", port: "out" };
 const connect = (line) => {
-  const result = connectPorts(line, ...grainToBin);
+  const result = connectPorts(line, from, { machine: "bin", port: "in" });
   expect(result.ok).toBe(true);
   return result.line;
 };
 const ID = "suggested-high-bin-grainIn";
+const ok = (result) => {
+  expect(result.ok).toBe(true);
+  return result.line;
+};
 
 describe("suggested interlocks (issue #93)", () => {
-  it("connecting a feeder to a bin adds the latched high-level interlock, marked suggested", () => {
+  it("connecting a feeder to a bin proposes the latched high-level interlock, but adds nothing", () => {
     const line = connect(unconnected());
-    expect(line.interlocks).toEqual([{
-      id: ID, kind: "sentence", suggested: true,
+    expect(line.interlocks).toEqual([]);
+    expect(pendingSuggestions(line)).toEqual([{
+      id: ID, kind: "sentence",
       when: { machine: "bin", condition: "above", setpoint: 0.85, delaySec: 5 },
       then: [{ action: "close", machine: "grainIn" }],
       reset: "latched",
     }]);
-    expect(validateLine(line).ok).toBe(true);
   });
 
   it("proposes nothing for a connection into a machine without a level", () => {
     // feeder -> diverter is already connected; the diverter has no level.
-    expect(suggestedInterlocks(unconnected()).map((r) => r.id)).toEqual([]);
+    expect(suggestedInterlocks(unconnected())).toEqual([]);
   });
 
-  it("a changed suggestion loses its mark and keeps the change after more connects", () => {
-    let line = connect(unconnected());
-    line = setSentenceField(line, ID, "when", "setpoint", 0.7).line;
-    expect(line.interlocks[0].suggested).toBeUndefined();
-    line.connections = line.connections.filter((c) => c.to.machine !== "bin");
-    line = connect(line);
-    expect(line.interlocks).toHaveLength(1);
-    expect(line.interlocks[0].when.setpoint).toBe(0.7);
+  it("the tick adds it as an ordinary interlock, and it is no longer pending", () => {
+    const line = ok(acceptSuggestion(connect(unconnected()), ID));
+    expect(line.interlocks.map((r) => r.id)).toEqual([ID]);
+    expect(pendingSuggestions(line)).toEqual([]);
+    expect(validateLine(line).ok).toBe(true);
   });
 
-  it("an edit that changes nothing keeps the mark", () => {
-    const line = setSentenceReset(connect(unconnected()), ID, "latched").line;
-    expect(line.interlocks[0].suggested).toBe(true);
-  });
-
-  it("a deleted suggestion does not come back", () => {
-    let line = removeInterlock(connect(unconnected()), ID).line;
+  it("the cross records it, and it does not come back after a reconnect", () => {
+    let line = ok(dismissSuggestion(connect(unconnected()), ID));
     expect(line.dismissedSuggestions).toEqual([ID]);
-    line.connections = line.connections.filter((c) => c.to.machine !== "bin");
-    line = connect(line);
     expect(line.interlocks).toEqual([]);
+    line = connect(ok(disconnectConnection(line, from)));
+    expect(pendingSuggestions(line)).toEqual([]);
   });
 
-  it("deleting the user's own interlock records nothing", () => {
-    const line = { ...unconnected(), interlocks: [{ id: "mine", kind: "sentence", when: { machine: null, condition: null }, then: [], reset: "auto" }] };
-    expect(removeInterlock(line, "mine").line.dismissedSuggestions).toBeUndefined();
+  it("refuses a suggestion that is not pending", () => {
+    expect(acceptSuggestion(unconnected(), ID).ok).toBe(false);
+    expect(dismissSuggestion(unconnected(), ID).ok).toBe(false);
   });
 
-  it("disconnecting removes an unchanged suggestion, and keeps a changed one", () => {
-    const from = { machine: "grainIn", port: "out" };
-    const line = connect(unconnected());
-    expect(disconnectConnection(line, from).line.interlocks).toEqual([]);
-    const changed = setSentenceField(line, ID, "when", "delaySec", 9).line;
-    expect(disconnectConnection(changed, from).line.interlocks.map((r) => r.id)).toEqual([ID]);
+  it("disconnecting takes a pending suggestion away", () => {
+    expect(pendingSuggestions(ok(disconnectConnection(connect(unconnected()), from)))).toEqual([]);
   });
 
-  it("is not added where another interlock already does the job", () => {
+  it("an accepted interlock the user deletes is proposed again", () => {
+    const line = ok(removeInterlock(ok(acceptSuggestion(connect(unconnected()), ID)), ID));
+    expect(pendingSuggestions(line).map((r) => r.id)).toEqual([ID]);
+  });
+
+  it("is not proposed where another interlock already does the job", () => {
     const line = unconnected();
     line.interlocks = [{
       id: "own", kind: "sentence",
       when: { machine: "bin", condition: "above", setpoint: 0.9, delaySec: 2 },
       then: [{ action: "stop", machine: "grainIn" }], reset: "auto",
     }];
-    expect(connect(line).interlocks.map((r) => r.id)).toEqual(["own"]);
+    expect(pendingSuggestions(connect(line))).toEqual([]);
   });
 
-  it("engine: a line built by connects, with only suggested interlocks, never fills a bin", () => {
+  it("engine: a built line with only accepted suggestions never fills a bin", () => {
     // grain in -> bin -> feeder -> bin 2 (no outlet). Grain in outruns the
     // feeder, and bin 2 only fills, so both bins would reach 100 % unheld.
     const base = binFeederTestLine();
@@ -96,7 +93,9 @@ describe("suggested interlocks (issue #93)", () => {
       ["grainIn", "out", "bin", "in"], ["bin", "out", "feeder", "in"], ["feeder", "out", "bin2", "in"],
     ];
     let line = { ...base, connections: [] };
-    for (const [a, ap, b, bp] of pairs) line = connectPorts(line, { machine: a, port: ap }, { machine: b, port: bp }).line;
+    for (const [a, ap, b, bp] of pairs) line = ok(connectPorts(line, { machine: a, port: ap }, { machine: b, port: bp }));
+    expect(line.interlocks).toEqual([]);
+    for (const { id } of pendingSuggestions(line)) line = ok(acceptSuggestion(line, id));
     expect(line.interlocks.map((r) => r.id)).toEqual([ID, "suggested-high-bin2-feeder"]);
 
     const run = (l) => {

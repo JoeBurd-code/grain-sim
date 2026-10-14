@@ -46,8 +46,8 @@ describe("interlocksByMachine", () => {
     const line = binFeederTestLine();
     const rule = (id, machine) => ({ id, kind: "sentence", when: { machine, condition: null }, then: [], reset: "auto" });
     line.interlocks = [rule("a", "splitValve"), rule("b", null), rule("c", "bin"), rule("d", "splitValve"), rule("e", "gone")];
-    expect(interlocksByMachine(line).map((g) => [g.machine, g.rules.map((r) => r.id)])).toEqual([
-      ["bin", ["c"]], ["splitValve", ["a", "d"]], [null, ["b", "e"]],
-    ]);
+    const suggestion = rule("s", "bin");
+    expect(interlocksByMachine(line, [suggestion]).map((g) => [g.machine, g.rules.map((r) => r.id), g.suggestions.map((r) => r.id)]))
+      .toEqual([["bin", ["c"], ["s"]], ["splitValve", ["a", "d"], []], [null, ["b", "e"], []]]);
   });
 });
