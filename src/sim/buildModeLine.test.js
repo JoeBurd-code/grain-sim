@@ -1,0 +1,69 @@
+// Issue #88: a line built entirely with line document functions (catalogue
+// items, added and wired port to port, not hand-authored data) runs in the
+// engine exactly like the golden line.
+import { describe, it, expect } from "vitest";
+import { emptyLine, addMachine, connectPorts, setAdjustableValue } from "../line/lineDocument";
+import { validateLine } from "../line/validateLine";
+import { createSim, stepSim, getMachineState, DT } from "./engine";
+import { assertConserved } from "./conservation";
+
+function add(line, itemId, pos) {
+  const result = addMachine(line, itemId, pos);
+  if (!result.ok) throw new Error(result.error);
+  return result;
+}
+function connect(line, a, b) {
+  const result = connectPorts(line, a, b);
+  if (!result.ok) throw new Error(result.error);
+  return result.line;
+}
+function setField(line, id, field, value) {
+  const result = setAdjustableValue(line, id, field, value);
+  if (!result.ok) throw new Error(result.error);
+  return result.line;
+}
+function run(sim, seconds) {
+  for (let i = 0; i < Math.round(seconds / DT); i++) {
+    stepSim(sim, DT);
+    assertConserved(sim);
+  }
+}
+
+describe("a line built from the catalogue, port to port (issue #88)", () => {
+  it("runs end to end and grain reaches Grain out, volume conserved", () => {
+    const grainIn = add(emptyLine(), "grain-in", { x: 0, y: 0 });
+    const bin = add(grainIn.line, "metal-bin", { x: 0, y: 200 });
+    const elevator = add(bin.line, "bucket-elevator", { x: 0, y: 500 });
+    const grainOut = add(elevator.line, "grain-out", { x: 500, y: 500 });
+
+    let line = connect(grainOut.line, { machine: grainIn.id, port: "out" }, { machine: bin.id, port: "in" });
+    line = connect(line, { machine: bin.id, port: "out" }, { machine: elevator.id, port: "in" });
+    line = connect(line, { machine: elevator.id, port: "out" }, { machine: grainOut.id, port: "in" });
+
+    expect(validateLine(line).errors).toEqual([]);
+
+    const sim = createSim(line);
+    run(sim, 300);
+
+    expect(getMachineState(sim, grainOut.id).total).toBeGreaterThan(0);
+    expect(() => assertConserved(sim)).not.toThrow();
+  });
+
+  it("backs up into an unconnected output, and that machine's own upstream stops", () => {
+    const grainIn = add(emptyLine(), "grain-in", { x: 0, y: 0 });
+    const bin = add(grainIn.line, "metal-bin", { x: 0, y: 200 });
+    // The bin's own minimum capacity and the source's own maximum rate,
+    // so the bin fills (and the source stops) well inside the test run.
+    let line = setField(bin.line, bin.id, "capacity", 1.5);
+    line = setField(line, grainIn.id, "rate", 20);
+    line = connect(line, { machine: grainIn.id, port: "out" }, { machine: bin.id, port: "in" });
+    // The bin's own "out" is left unconnected.
+
+    const sim = createSim(line);
+    run(sim, 260);
+
+    const binState = getMachineState(sim, bin.id);
+    expect(binState.stored).toBeCloseTo(binState.capacity, 6);
+    expect(getMachineState(sim, grainIn.id).flowRateM3PerSec).toBeLessThan(1e-6);
+  });
+});

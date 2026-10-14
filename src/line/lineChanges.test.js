@@ -2,7 +2,10 @@
 // made, not as a copy of the line, so every value they never touched comes
 // fresh from the golden line on the next load.
 import { describe, it, expect } from "vitest";
-import { diffFromBase, applyChanges, setAdjustableValue, moveMachine, addMachine, deleteMachine } from "./lineDocument";
+import {
+  diffFromBase, applyChanges, setAdjustableValue, moveMachine, addMachine, deleteMachine,
+  connectPorts, disconnectConnection,
+} from "./lineDocument";
 import { readAdjustableValue } from "./adjustableFields";
 import { goldenLine } from "./goldenLine";
 
@@ -217,5 +220,66 @@ describe("adds and deletes as changes", () => {
     const loaded = applyChanges(updatedGolden, changes);
     expect(loaded.machines.some((m) => m.id === "discardBin")).toBe(false);
     expect(readAdjustableValue(loaded, "metalBin1", "capacity")).toBe(12);
+  });
+});
+
+// Issue #88: a rewiring on the golden line (a connect or a disconnect) is
+// saved work too, like a move, an add or a delete.
+describe("connects and disconnects as changes", () => {
+  function connect(line, from, to) {
+    const result = connectPorts(line, from, to);
+    if (!result.ok) throw new Error(result.error);
+    return result.line;
+  }
+  function disconnect(line, from) {
+    const result = disconnectConnection(line, from);
+    if (!result.ok) throw new Error(result.error);
+    return result.line;
+  }
+  function add(line, itemId, pos) {
+    const result = addMachine(line, itemId, pos);
+    if (!result.ok) throw new Error(result.error);
+    return result;
+  }
+  function remove(line, id) {
+    const result = deleteMachine(line, id);
+    if (!result.ok) throw new Error(result.error);
+    return result.line;
+  }
+
+  const bufferBinOut = { machine: "treaterBufferBin", port: "out" };
+  const drumFeederIn = { machine: "treatDrumFeeder", port: "in" };
+  const wasteOut = { machine: "batchTreater", port: "wasteOut" };
+
+  it("lists a disconnect for a connection the user removed", () => {
+    const edited = disconnect(goldenLine, bufferBinOut);
+    expect(diffFromBase(goldenLine, edited)).toEqual([{ disconnect: { from: bufferBinOut } }]);
+  });
+
+  it("lists a connect for a connection the user made", () => {
+    const edited = add(goldenLine, "grain-out", { x: 0, y: -400 });
+    const line = connect(edited.line, wasteOut, { machine: edited.id, port: "in" });
+    expect(diffFromBase(goldenLine, line)).toEqual([
+      { add: line.machines.find((m) => m.id === edited.id) },
+      { connect: { from: wasteOut, to: { machine: edited.id, port: "in" }, kind: "waste" } },
+    ]);
+  });
+
+  it("lists nothing for a disconnect immediately reconnected the same way", () => {
+    const edited = connect(disconnect(goldenLine, bufferBinOut), bufferBinOut, drumFeederIn);
+    expect(diffFromBase(goldenLine, edited)).toEqual([]);
+  });
+
+  it("lists no disconnect for a connection lost only because its own machine was deleted", () => {
+    const edited = remove(goldenLine, "treatDrumFeeder");
+    const changes = diffFromBase(goldenLine, edited);
+    expect(changes).toEqual([{ delete: "treatDrumFeeder" }]);
+  });
+
+  it("reproduces the rewired line from the base and its changes", () => {
+    const added = add(goldenLine, "grain-out", { x: 0, y: -400 });
+    const edited = connect(disconnect(added.line, bufferBinOut), bufferBinOut, { machine: added.id, port: "in" });
+    const changes = diffFromBase(goldenLine, edited);
+    expect(applyChanges(goldenLine, changes)).toEqual(edited);
   });
 });

@@ -98,6 +98,18 @@ export function validateLine(line) {
     }
   }
 
+  // Issue #88: an output port drives at most one connection — the same rule
+  // connectPorts enforces when the user makes one, checked here too for a
+  // line loaded from a file. An input port has no such limit: a router or a
+  // Diverter legitimately lands more than one of its own output ports on
+  // the same input, since only one is ever actually selected at a time.
+  const fromSeen = new Set();
+  for (const c of line.connections) {
+    const fromKey = `${c.from.machine}:${c.from.port}`;
+    if (fromSeen.has(fromKey)) errors.push(`output port "${c.from.port}" on machine "${c.from.machine}" has more than one connection`);
+    fromSeen.add(fromKey);
+  }
+
   // Issue #85: every interlock is a sentence, which checks its own parts,
   // and a malformed one is refused with a message rather than failing at
   // run time (issue #82).

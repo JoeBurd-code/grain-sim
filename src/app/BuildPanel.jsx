@@ -190,7 +190,35 @@ function MachineSettings({ line, machine, onEditField, onDeleteMachine }) {
   );
 }
 
-export default function BuildPanel({ line, machine, settingsOpen, lineName, onStartOver, onEditField, onDeleteMachine }) {
+// Issue #88: a connection selected instead of a machine shows what it joins
+// and a way to delete it, the Delete key's own panel counterpart.
+function ConnectionSettings({ line, connection, onDeleteConnection }) {
+  const nameOf = (id) => line.machines.find((m) => m.id === id)?.name ?? id;
+  return (
+    <>
+      <div style={headingStyle}>CONNECTION</div>
+      <div style={{ fontSize: 11, color: C.text, marginTop: 14 }}>
+        {nameOf(connection.from.machine)} &rarr; {nameOf(connection.to.machine)}
+      </div>
+      <div style={{ fontSize: 9, color: C.muted, marginTop: 4 }}>
+        {connection.kind === "waste" ? "Waste connection" : "Product connection"}
+      </div>
+      <div style={{ marginTop: 22 }}>
+        <button
+          className="zonebtn"
+          style={{ ...btnStyle, color: C.red, borderColor: C.red }}
+          onClick={onDeleteConnection}
+        >
+          DELETE CONNECTION
+        </button>
+      </div>
+    </>
+  );
+}
+
+export default function BuildPanel({
+  line, machine, connection, settingsOpen, lineName, onStartOver, onEditField, onDeleteMachine, onDeleteConnection,
+}) {
   return (
     <aside style={{
       width: BUILD_PANEL_WIDTH, flex: "none", borderLeft: `1px solid ${C.line}`,
@@ -203,8 +231,10 @@ export default function BuildPanel({ line, machine, settingsOpen, lineName, onSt
         // Keyed by machine, so a half-typed value or a refusal never carries
         // over to the next machine selected.
         <MachineSettings key={machine.id} line={line} machine={machine} onEditField={onEditField} onDeleteMachine={onDeleteMachine} />
+      ) : connection ? (
+        <ConnectionSettings line={line} connection={connection} onDeleteConnection={onDeleteConnection} />
       ) : (
-        <div style={{ fontSize: 10, color: C.muted }}>Select a machine to see its settings.</div>
+        <div style={{ fontSize: 10, color: C.muted }}>Select a machine or a connection to see its settings.</div>
       )}
     </aside>
   );

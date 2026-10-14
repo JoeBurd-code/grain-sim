@@ -2,14 +2,26 @@
 // list of { machine, field, value }, with values in plant units, and (issue
 // #86) { machine, position: { x, y } } for each machine the user moved, and
 // (issue #87) { delete: id } for each machine the user deleted and
-// { add: machine } for each machine the user added, stored whole. Browser
+// { add: machine } for each machine the user added, stored whole, and
+// (issue #88) { connect: { from, to, kind } } for each connection the user
+// made and { disconnect: { from } } for each one they removed. Browser
 // autosave stores this list for the golden line, never the whole line, so
 // every value the user did not change comes from the golden line in the
 // repo on the next load.
 import { adjustableFields, readAdjustableValue, setAdjustableValue, closeTo } from "./adjustableFields";
 import { moveMachine, overlappingMachine } from "./layout";
 import { deleteMachine } from "./editing";
+import { connectPorts, disconnectConnection } from "./connecting";
 import { REGISTERED_KINDS } from "../sim/behaviors";
+
+// A connection's identity for comparing a line against its base: its own
+// from/to/kind, ignoring drawing-only fields (`via`, `tbc`, `coupling`) that
+// a user-made connection never carries, so re-making the same connection by
+// hand never diffs as changed just because the hand-authored one had a bend
+// point.
+function connectionSignature(c) {
+  return `${c.from.machine}.${c.from.port}>${c.to.machine}.${c.to.port}:${c.kind}`;
+}
 
 function sameValue(a, b) {
   if (typeof a === "number" && typeof b === "number") {
@@ -49,6 +61,25 @@ export function diffFromBase(base, line) {
   for (const m of line.machines) {
     if (!baseById.has(m.id)) changes.push({ add: m });
   }
+
+  // Issue #88: connections are compared by their own signature, not
+  // position in the array, so a reconnect elsewhere in the list never
+  // reads as every later connection having changed.
+  const baseSignatures = new Set(base.connections.map(connectionSignature));
+  const lineSignatures = new Set(line.connections.map(connectionSignature));
+  for (const c of line.connections) {
+    if (!baseSignatures.has(connectionSignature(c))) {
+      changes.push({ connect: { from: c.from, to: c.to, kind: c.kind } });
+    }
+  }
+  const machineIds = new Set(line.machines.map((m) => m.id));
+  for (const c of base.connections) {
+    if (lineSignatures.has(connectionSignature(c))) continue;
+    // A connection lost only because one of its machines was deleted is
+    // already accounted for by that machine's own `delete` change above.
+    if (!machineIds.has(c.from.machine) || !machineIds.has(c.to.machine)) continue;
+    changes.push({ disconnect: { from: c.from } });
+  }
   return changes;
 }
 
@@ -65,10 +96,18 @@ function isMachine(m) {
     && isObject(m.anchors) && (m.sim === undefined || REGISTERED_KINDS.has(m.sim?.kind));
 }
 
+function isEndpoint(end) {
+  return isObject(end) && typeof end.machine === "string" && typeof end.port === "string";
+}
+
 function isChange(c) {
   if (!isObject(c)) return false;
   if (c.delete !== undefined) return typeof c.delete === "string";
   if (c.add !== undefined) return isMachine(c.add);
+  if (c.connect !== undefined) {
+    return isEndpoint(c.connect.from) && isEndpoint(c.connect.to) && typeof c.connect.kind === "string";
+  }
+  if (c.disconnect !== undefined) return isEndpoint(c.disconnect.from);
   return typeof c.machine === "string" && (typeof c.field === "string" || isObject(c.position));
 }
 
@@ -84,6 +123,8 @@ function addStoredMachine(line, machine) {
 function applyChange(line, c) {
   if (c.delete !== undefined) return deleteMachine(line, c.delete);
   if (c.add !== undefined) return addStoredMachine(line, c.add);
+  if (c.connect !== undefined) return connectPorts(line, c.connect.from, c.connect.to);
+  if (c.disconnect !== undefined) return disconnectConnection(line, c.disconnect.from);
   return c.position ? moveMachine(line, c.machine, c.position) : setAdjustableValue(line, c.machine, c.field, c.value);
 }
 

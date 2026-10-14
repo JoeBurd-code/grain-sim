@@ -4,7 +4,10 @@
 // provisional form from issue #5.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { goldenLine, goldenLineErrors, GOLDEN_LINE_NAME } from "../line/goldenLine";
-import { exportLine, importLineFile, setAdjustableValue, moveMachine, addMachine, deleteMachine, emptyLine } from "../line/lineDocument";
+import {
+  exportLine, importLineFile, setAdjustableValue, moveMachine, addMachine, deleteMachine, emptyLine,
+  connectPorts, disconnectConnection, connectionKey,
+} from "../line/lineDocument";
 import { catalogueItem } from "../catalogue/catalogue";
 import { placeMachine } from "../line/layout";
 import { lineBounds, zoneBounds } from "../line/bounds";
@@ -21,6 +24,7 @@ import CataloguePanel, { CATALOGUE_DRAG_TYPE } from "./CataloguePanel";
 import { loadSavedWork, storeWork, clearSavedWork, hasUnsavedWork } from "./savedWork";
 import { useViewport } from "../scene/useViewport";
 import { useMachineDrag, toWorld } from "../scene/useMachineDrag";
+import { useConnectionDrag } from "../scene/useConnectionDrag";
 import { useSimEngine } from "../sim/useSimEngine";
 import { readLiveControl } from "../sim/liveControls";
 import { isSeriesPlotted } from "../sim/plotHistory";
@@ -102,10 +106,14 @@ export default function PlantApp() {
   const interlockedMachines = useMemo(() => interlockedMachinesOf(line), [line]);
 
   const [selectedId, setSelectedId] = useState(null);
+  // Issue #88: a selected connection, keyed by its own output end
+  // (connectionKey), never at the same time as a selected machine.
+  const [selectedConnectionKey, setSelectedConnectionKey] = useState(null);
   const [eventPanelOpen, setEventPanelOpen] = useState(false);
   const [eventJump, setEventJump] = useState(null);
   const jumpTokenRef = useRef(0);
   const selected = line.machines.find((m) => m.id === selectedId);
+  const selectedConnection = line.connections.find((c) => connectionKey(c) === selectedConnectionKey);
 
   const home = useMemo(() => lineBounds(line), [line]);
   const { containerRef, vb, fitTo, wasDrag: viewportWasDrag, handlers: viewportHandlers } = useViewport(home);
@@ -166,6 +174,7 @@ export default function PlantApp() {
     onRestart();
     setSimLine(line);
     setSelectedId(null);
+    setSelectedConnectionKey(null);
     setEventPanelOpen(false);
     setSettingsOpen(false);
     setOpenError(null);
@@ -180,6 +189,7 @@ export default function PlantApp() {
     setSimLine(next.line);
     setParamValues({});
     setSelectedId(null);
+    setSelectedConnectionKey(null);
     setOpenError(null);
     fitTo(lineBounds(next.line));
   }, [fitTo]);
@@ -277,6 +287,7 @@ export default function PlantApp() {
       return next.ok ? { ...c, line: next.line } : c;
     });
     setSelectedId(result.id);
+    setSelectedConnectionKey(null);
     setSettingsOpen(false);
   }, [building, containerRef, line]);
 
@@ -289,16 +300,47 @@ export default function PlantApp() {
     });
     setSelectedId(null);
   }, []);
+
+  // Issue #88: a press on a port dot connects it to the next one the drag
+  // releases over; connectPorts decides whether it is refused. Run first
+  // against the current line so the refusal (if any) reaches the drag hook
+  // synchronously, then applied again inside the updater, as every other
+  // Build mode edit here does.
+  const onConnectPorts = useCallback((a, b) => {
+    const result = connectPorts(line, a, b);
+    if (result.ok) {
+      setCurrent((c) => {
+        const next = connectPorts(c.line, a, b);
+        return next.ok ? { ...c, line: next.line } : c;
+      });
+    }
+    return result;
+  }, [line]);
+  const connectionDrag = useConnectionDrag(line, onConnectPorts);
+
+  // The Delete key or the right panel's button removes the selected
+  // connection, the same way it removes a selected machine.
+  const onDisconnect = useCallback((key) => {
+    setCurrent((c) => {
+      const conn = c.line.connections.find((x) => connectionKey(x) === key);
+      if (!conn) return c;
+      const next = disconnectConnection(c.line, conn.from);
+      return next.ok ? { ...c, line: next.line } : c;
+    });
+    setSelectedConnectionKey(null);
+  }, []);
+
   useEffect(() => {
-    if (!building || !selectedId) return undefined;
+    if (!building || (!selectedId && !selectedConnectionKey)) return undefined;
     const onKeyDown = (e) => {
       if (e.key !== "Delete" || isTyping(e.target)) return;
       e.preventDefault();
-      onDeleteMachine(selectedId);
+      if (selectedId) onDeleteMachine(selectedId);
+      else onDisconnect(selectedConnectionKey);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [building, selectedId, onDeleteMachine]);
+  }, [building, selectedId, selectedConnectionKey, onDeleteMachine, onDisconnect]);
   const { onCanvasPointerDown, wasDrag: dragWasDrag } = drag;
   const handlers = useMemo(() => ({
     onPointerDown: (e) => {
@@ -316,7 +358,13 @@ export default function PlantApp() {
 
   const onSelect = useCallback((id) => {
     setSelectedId(id);
+    setSelectedConnectionKey(null);
     if (id) setSettingsOpen(false);
+  }, []);
+  const onSelectConnection = useCallback((key) => {
+    setSelectedConnectionKey(key);
+    setSelectedId(null);
+    setSettingsOpen(false);
   }, []);
 
   // Issue #81: the plant control panel is generated from the line the sim
@@ -475,6 +523,7 @@ export default function PlantApp() {
                   onClick={() => {
                     setSettingsOpen((v) => !v);
                     setSelectedId(null);
+                    setSelectedConnectionKey(null);
                   }}
                 >
                   SETTINGS
@@ -518,10 +567,15 @@ export default function PlantApp() {
             {selected
               ? selected.name
               : building
-                ? "drag from the catalogue to add · drag to move · Alt places off the grid · Delete removes"
+                ? "drag a port dot to connect · drag from the catalogue to add · drag to move · Alt places off the grid · Delete removes"
                 : "click a machine · drag to pan · wheel to zoom"}
           </div>
         </div>
+        {building && connectionDrag.error && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 10, color: C.red }}>
+            {connectionDrag.error}
+          </div>
+        )}
         {building && confirmingNewLine && (
           <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 10, color: C.text }}>
             <div>Discard the work on {current.name} and start a new line?</div>
@@ -588,6 +642,10 @@ export default function PlantApp() {
                 simTime={engine.snap.t}
                 onMachinePointerDown={building ? drag.onMachinePointerDown : undefined}
                 overlapId={drag.flashId}
+                onPortPointerDown={building ? connectionDrag.onPortPointerDown : undefined}
+                selectedConnectionKey={building ? selectedConnectionKey : null}
+                onSelectConnection={building ? onSelectConnection : undefined}
+                connectionDraft={building ? connectionDrag.draft : null}
               />
             )}
             {selected && !building && (
@@ -623,11 +681,13 @@ export default function PlantApp() {
             <BuildPanel
               line={line}
               machine={selected}
+              connection={selectedConnection}
               settingsOpen={settingsOpen}
               lineName={current.name}
               onStartOver={onStartOver}
               onEditField={onEditField}
               onDeleteMachine={onDeleteMachine}
+              onDeleteConnection={() => onDisconnect(selectedConnectionKey)}
             />
           )}
         </div>

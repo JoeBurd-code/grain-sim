@@ -13,6 +13,38 @@ import { useFlowAnimation, FLOW_DASH_PATTERN } from "./useFlowAnimation";
 import { useMachineMotion } from "./useMachineMotion";
 import { connectionPoints } from "../line/routing";
 import { machineFootprint } from "../line/layout";
+import { connectionKey } from "../line/connecting";
+
+// Port dots (issue #88): shown only in Build mode (`onPortPointerDown` set).
+// An output port is filled solid (wheat, or the waste colour for a port
+// whose name starts with "waste"); an input port is an open ring, so the
+// two read apart from each other at a glance, the same way the stream style
+// table below already tells a product line from a waste one.
+const PORT_RADIUS = 5;
+function PortDots({ machine: m, onPortPointerDown }) {
+  const dot = (port, isOutput) => {
+    const a = m.anchors[port];
+    const waste = isOutput && port.toLowerCase().startsWith("waste");
+    const color = waste ? STREAM_STYLE.waste.stroke : C.wheat;
+    return (
+      <circle
+        key={`${isOutput ? "out" : "in"}-${port}`}
+        cx={a.x} cy={a.y} r={PORT_RADIUS}
+        fill={isOutput ? color : C.bg}
+        stroke={color}
+        strokeWidth={isOutput ? 0 : 1.5}
+        style={{ cursor: "crosshair" }}
+        onPointerDown={(e) => onPortPointerDown(e, m, port)}
+      />
+    );
+  };
+  return (
+    <>
+      {m.ports.inputs.map((p) => dot(p, false))}
+      {m.ports.outputs.map((p) => dot(p, true))}
+    </>
+  );
+}
 
 // Temporary direction markers: flip to false (or delete usages) when the
 // animated flow shimmer replaces them. One flag = the one-step removal.
@@ -56,10 +88,15 @@ function resolveDynamic(machine, simSnap) {
   return { ...live, fill: live.fill ?? machine.fill };
 }
 
-// `onMachinePointerDown` is set only in Build mode, where a press on a
-// machine drags it (useMachineDrag.js); `overlapId` names the machine to
-// outline in red.
-export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelect, simSnap, running, speed, simTime, onMachinePointerDown, overlapId }) {
+// `onMachinePointerDown` and `onPortPointerDown` are set only in Build mode
+// (useMachineDrag.js, useConnectionDrag.js); `overlapId` names the machine
+// to outline in red. `selectedConnectionKey`/`onSelectConnection` select a
+// connection for deletion (issue #88), also Build mode only.
+// `connectionDraft` is the in-progress drag's rubber-band line.
+export default function Scene({
+  line, vb, handlers, wasDrag, selectedId, onSelect, simSnap, running, speed, simTime,
+  onMachinePointerDown, overlapId, onPortPointerDown, selectedConnectionKey, onSelectConnection, connectionDraft,
+}) {
   const flowPathRef = useFlowAnimation(line, simSnap);
   const motion = useMachineMotion(running, speed);
   return (
@@ -110,8 +147,13 @@ export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelec
         const dim = c.tbc || c.inactive;
         const s = STREAM_STYLE[c.kind];
         const d = connectionPath(line, c);
+        const key = connectionKey(c);
+        const selected = key === selectedConnectionKey;
         return (
           <g key={i}>
+            {selected && (
+              <path d={d} fill="none" stroke={SELECT_STROKE} strokeWidth={s.width + 6} strokeLinecap="round" opacity="0.5" />
+            )}
             <path
               d={d}
               fill="none"
@@ -139,6 +181,19 @@ export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelec
                 strokeDasharray={FLOW_DASH_PATTERN}
                 opacity="0"
                 pointerEvents="none"
+              />
+            )}
+            {/* Issue #88: a wide, invisible stroke along the same path, so a
+                thin 1.5-2px connection is still easy to click to select it.
+                Build mode only — onSelectConnection is unset otherwise. */}
+            {onSelectConnection && (
+              <path
+                d={d}
+                fill="none"
+                stroke="transparent"
+                strokeWidth={14}
+                style={{ cursor: "pointer" }}
+                onClick={(e) => { e.stopPropagation(); onSelectConnection(key); }}
               />
             )}
           </g>
@@ -170,9 +225,18 @@ export default function Scene({ line, vb, handlers, wasDrag, selectedId, onSelec
             <Symbol machine={m} dynamic={resolveDynamic(m, simSnap)} motion={motion} simTime={simTime} />
             {m.type !== "stub" && <MachineLabel machine={m} />}
             {m.id === overlapId && <OverlapOutline machine={m} />}
+            {onPortPointerDown && <PortDots machine={m} onPortPointerDown={onPortPointerDown} />}
           </g>
         );
       })}
+
+      {/* Issue #88: the rubber-band line while a port drag is in progress. */}
+      {connectionDraft && (
+        <path
+          d={`M${connectionDraft.from.x},${connectionDraft.from.y} L${connectionDraft.to.x},${connectionDraft.to.y}`}
+          fill="none" stroke={C.wheat} strokeWidth="2" strokeDasharray="4 4" opacity="0.8" pointerEvents="none"
+        />
+      )}
     </svg>
   );
 }

@@ -19,6 +19,8 @@ export { diffFromBase, applyChanges } from "./lineChanges";
 export { moveMachine } from "./layout";
 // Adding and deleting machines, and NEW LINE (issue #87).
 export { addMachine, deleteMachine, emptyLine } from "./editing";
+// Connecting and disconnecting ports (issue #88).
+export { connectPorts, disconnectConnection, connectionKey } from "./connecting";
 
 export const LINE_FORMAT = "grain-sim-line";
 // Version 2 (issue #85): every interlock is a sentence, and the rules that
