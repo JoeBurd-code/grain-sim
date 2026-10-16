@@ -66,13 +66,13 @@ describe("a line built from the catalogue, port to port (issue #88)", () => {
     };
     const branded = outAfter("bucket-elevator");
     expect(branded).toBeGreaterThan(0);
-    expect(outAfter("bucket-elevator-custom")).toBe(branded);
+    expect(outAfter("custom-bucket-elevator")).toBe(branded);
   });
 
   // Issue #94: a custom machine's widened limits are values the engine can
   // run. Every custom field, at each end of its range, on a line of its own.
   const customFields = CATALOGUE
-    .filter((item) => item.customOf !== undefined)
+    .filter((item) => item.customFrom !== undefined)
     .flatMap((item) => adjustableFields(item.machine)
       .filter((f) => f.kind === "number" && f.unit !== "%")
       .flatMap((f) => [[item.id, f.id, f.min], [item.id, f.id, f.max]]));

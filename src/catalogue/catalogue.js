@@ -12,8 +12,8 @@
 // fields, because those values live on the interlocks, and an added machine
 // has none yet.
 //
-// Each machine also has a custom version (issue #94), made here rather than
-// kept as a file.
+// Custom items (issue #94) are made here from the files, and some real items
+// are not listed in the panel; see CUSTOM_ITEMS below.
 
 const files = import.meta.glob("./items/*.json", { eager: true, import: "default" });
 
@@ -28,12 +28,11 @@ export const CATALOGUE_GROUPS = [
 
 const groupOrder = new Map(CATALOGUE_GROUPS.map((g, i) => [g.id, i]));
 
-// Issue #94: each machine also comes as a custom item, the same machine
-// with no maker, whose settings reach far past the real machine's own
-// limits. A real item keeps the limits of the machine it stands for; a
-// custom one is for a line that needs a machine no one has measured yet.
-// Custom items are made here rather than kept as files, so a change to an
-// item reaches its custom version too.
+// Issue #94: a real item is a specific machine and keeps the limits of the
+// machine it stands for. Each kind of machine also has one custom item: no
+// maker, and settings that reach far past any real machine's limits, for a
+// line that needs a machine no one has measured yet. A bin's a bin, so the
+// seven golden bins share one custom Bin.
 //
 // The limits a custom machine's settings reach, by plant unit. A real limit
 // already wider stays, and so does a minimum of 0. A percentage (speed,
@@ -61,7 +60,7 @@ function widened(entry, limits) {
   };
 }
 
-function customVersion(item) {
+function customVersion(item, id, name) {
   const machine = structuredClone(item.machine);
   if (machine.params) machine.params = machine.params.map((p) => widened(p, CUSTOM_LIMITS[p.unit]));
   if (machine.adjustable) {
@@ -69,20 +68,62 @@ function customVersion(item) {
       a.kind === "number" ? widened(a, CUSTOM_RESIZE_LIMITS[a.bind] ?? CUSTOM_LIMITS[a.unit]) : a
     ));
   }
-  return { ...item, id: `${item.id}-custom`, maker: "", model: "", customOf: item.id, machine };
+  return { ...item, id, name, maker: "", model: "", customFrom: item.id, machine };
 }
 
-const fileItems = Object.values(files);
+// One custom item for each kind of machine: [the real item it is made from,
+// its name]. The edges (Grain in, Grain out, the pro-box station) have
+// none. Nor does the pendulum conveyor: its three routed outlets make
+// it one plant's machine, and Conveyor covers a plain run.
+const CUSTOM_ITEMS = [
+  ["treater-pre-bin", "Bin"],
+  ["metal-bin", "Metal bin"],
+  ["discard-bin", "Discard bin"],
+  ["belt-conveyor", "Conveyor"],
+  ["bucket-elevator", "Bucket elevator"],
+  ["vibrating-conveyor", "Vibrating conveyor"],
+  ["drum-feeder", "Drum feeder"],
+  ["diverter", "Diverter"],
+  ["outlet-valve", "Outlet valve"],
+  ["grain-break", "Grain break"],
+  ["auto-sampler", "Auto sampler"],
+  ["roller-conveyors", "Roller conveyors"],
+  ["scalping-screen", "Scalping screen"],
+  ["metal-remover", "Metal remover"],
+  ["batch-treater", "Batch treater"],
+  ["bagging-scale", "Bagging scale"],
+  ["filling-head", "Big bag filling head"],
+  ["filling-sewing", "Filling and sewing"],
+  ["palletiser", "Palletiser"],
+];
 
-// Grouped in panel order, then by name, each custom item right after the
-// real one it copies.
-export const CATALOGUE = [...fileItems, ...fileItems.filter((item) => item.group !== "edges").map(customVersion)].sort(
+const fileItems = Object.values(files);
+const fileById = new Map(fileItems.map((item) => [item.id, item]));
+const customItems = CUSTOM_ITEMS.map(([from, name]) => (
+  customVersion(fileById.get(from), `custom-${name.toLowerCase().replaceAll(" ", "-")}`, name)
+));
+
+// Every item a line can name: the real items and the custom ones.
+export const ALL_ITEMS = [...fileItems, ...customItems];
+
+// A real item is listed when it is a specific machine: it has a maker, or
+// sensors. A plain one is listed only as its kind's custom item.
+function listed(item) {
+  if (item.customFrom !== undefined || item.group === "edges") return true;
+  return item.maker !== "" || (item.machine.instruments ?? []).length > 0;
+}
+
+// The items the panel lists, grouped in panel order, then by name, a custom
+// item after a real one of the same name.
+export const CATALOGUE = ALL_ITEMS.filter(listed).sort(
   (a, b) => groupOrder.get(a.group) - groupOrder.get(b.group)
     || a.name.localeCompare(b.name)
-    || Number(a.customOf !== undefined) - Number(b.customOf !== undefined),
+    || Number(a.customFrom !== undefined) - Number(b.customFrom !== undefined),
 );
 
-const byId = new Map(CATALOGUE.map((item) => [item.id, item]));
+// Every item, listed or not: a line made before an item stopped being
+// listed, and the golden line itself, still name it.
+const byId = new Map(ALL_ITEMS.map((item) => [item.id, item]));
 
 export function catalogueItem(id) {
   return byId.get(id);
@@ -92,7 +133,7 @@ export function catalogueItem(id) {
 // "Custom" for a custom item, else its maker and model, empty when the item
 // has neither.
 export function makerLabel(item) {
-  if (item.customOf !== undefined) return "Custom";
+  if (item.customFrom !== undefined) return "Custom";
   return [item.maker, item.model].filter(Boolean).join(" ");
 }
 
