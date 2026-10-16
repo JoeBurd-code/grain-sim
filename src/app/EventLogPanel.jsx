@@ -4,7 +4,7 @@
 // this panel is a pure view over that one source of truth, independent of
 // each machine's own popup event log (MachinePopup.jsx), which is left as-is.
 //
-// Each machine's tag color comes from plotColorFor (plotColors.js), the same
+// Each machine's tag color comes from `colorFor` (plotColors.js's roster), the same
 // lookup ChartDock.jsx uses for that machine's line -- not a color list of
 // this panel's own -- so a machine's tag here always matches its line color
 // on the chart, letting a presenter associate the two at a glance.
@@ -20,9 +20,8 @@
 // -- see https://react.dev/learn/you-might-not-need-an-effect.
 import { useLayoutEffect, useRef, useState } from "react";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
-import { plotColorFor } from "./plotColors";
 
-export default function EventLogPanel({ machines, events, onClose, jumpTo }) {
+export default function EventLogPanel({ machines, colorFor, events, onClose, jumpTo }) {
   const [hidden, setHidden] = useState(() => new Set());
   const [handledJumpToken, setHandledJumpToken] = useState(null);
   const scrollRef = useRef(null);
@@ -132,7 +131,7 @@ export default function EventLogPanel({ machines, events, onClose, jumpTo }) {
         <div style={sectionTitle}>machines</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
           {machines.map((m) => {
-            const color = plotColorFor(m.id);
+            const color = colorFor(m.id);
             const active = !hidden.has(m.id);
             return (
               <button
@@ -162,7 +161,7 @@ export default function EventLogPanel({ machines, events, onClose, jumpTo }) {
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
             {ordered.map((e) => {
-              const color = plotColorFor(e.machineId);
+              const color = colorFor(e.machineId);
               return (
                 <div
                   key={e._idx}

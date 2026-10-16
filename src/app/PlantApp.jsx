@@ -33,7 +33,7 @@ import { useBoxSelect } from "../scene/useBoxSelect";
 import { useSimEngine } from "../sim/useSimEngine";
 import { readLiveControl } from "../sim/liveControls";
 import { isSeriesPlotted } from "../sim/plotHistory";
-import { plotColorFor } from "./plotColors";
+import { plotRosterOf } from "./plotColors";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 import { lineRules, interlockSensorMachine, isRuleOff } from "../line/interlocks";
 import { setpointSliders } from "../line/setpointSliders";
@@ -628,6 +628,7 @@ export default function PlantApp() {
   // Issue #81: the plant control panel is generated from the line the sim
   // runs, so its buttons always name machines that sim has.
   const plantControls = useMemo(() => plantControlsFor(simLine), [simLine]);
+  const plotRoster = useMemo(() => plotRosterOf(simLine), [simLine]);
 
   const closePopup = useCallback(() => setSelectedId(null), [setSelectedId]);
   // Slider values reach the sim through sim/liveControls.js. A drag that
@@ -974,7 +975,7 @@ export default function PlantApp() {
                 dynamic={engine.snap.machines.get(selected.id)}
                 levelPlotted={isSeriesPlotted(engine.history, selected.id, "level")}
                 ratePlotted={isSeriesPlotted(engine.history, selected.id, "rate")}
-                plotColor={plotColorFor(selected.id)}
+                plotColor={plotRoster.colorFor(selected.id)}
                 onToggleSeries={(kind) => engine.togglePlotSeries(selected.id, kind)}
                 onClose={closePopup}
                 paramValues={paramValues}
@@ -986,6 +987,7 @@ export default function PlantApp() {
             {eventPanelOpen && !building && (
               <EventLogPanel
                 machines={interlockedMachines}
+                colorFor={plotRoster.colorFor}
                 events={engine.snap.events}
                 onClose={() => setEventPanelOpen(false)}
                 jumpTo={eventJump}
@@ -1030,7 +1032,7 @@ export default function PlantApp() {
       )}
 
       {validation.ok && !building && (
-        <ChartDock history={engine.history} events={engine.snap.events} onEventClick={onEventMarkerClick} />
+        <ChartDock roster={plotRoster} history={engine.history} events={engine.snap.events} onEventClick={onEventMarkerClick} />
       )}
     </div>
   );

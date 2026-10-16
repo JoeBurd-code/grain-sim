@@ -30,7 +30,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 import { m3PerSecToTPerHour, m3ToTonnes } from "../sim/units";
 import { sampleValueAt } from "../sim/plotHistory";
-import { PLOTTABLE_MACHINES, plotColorFor } from "./plotColors";
 import { useChartRange } from "./useChartRange";
 import { useMeasure } from "./useMeasure";
 
@@ -138,12 +137,13 @@ const HOVER_SNAP_PX = 14; // cursor must be within this many px of a series' poi
 // instead of running past the edge.
 const HOVER_LABEL_RESERVE_PX = 110;
 
-export default function ChartDock({ history, events, onEventClick }) {
+export default function ChartDock({ roster, history, events, onEventClick }) {
   const [plotRef, size] = usePlotSize();
   const [open, setOpen] = useState(true);
   const [hover, setHover] = useState(null); // { t, mx, my, tx, series, value, py } | null
 
-  // Derived together, keyed only on `history` (referentially stable while
+  // Derived together, keyed on `roster` (plotRosterOf, rebuilt only when the
+  // sim's line changes) and `history` (referentially stable while
   // nothing is plotted -- see plotHistory.js's recordSample no-op fast path
   // -- and otherwise changes exactly when a new sample lands). `dataBounds`
   // needs a stable identity across renders that don't change its values: it
@@ -152,14 +152,14 @@ export default function ChartDock({ history, events, onEventClick }) {
   // render would re-trigger that effect every render, looping forever.
   const { activeSeries, plottedMachines, dataBounds } = useMemo(() => {
     const series = [];
-    for (const m of PLOTTABLE_MACHINES) {
+    for (const m of roster.machines) {
       const entry = history.get(m.id);
       if (!entry) continue;
-      const color = plotColorFor(m.id);
+      const color = roster.colorFor(m.id);
       if (entry.level) series.push({ machine: m, kind: "level", color, samples: entry.level });
       if (entry.rate) series.push({ machine: m, kind: "rate", color, samples: entry.rate });
     }
-    const plotted = PLOTTABLE_MACHINES.filter((m) => history.has(m.id));
+    const plotted = roster.machines.filter((m) => history.has(m.id));
 
     let dataMin = Infinity, dataMax = -Infinity;
     for (const s of series) {
@@ -170,7 +170,7 @@ export default function ChartDock({ history, events, onEventClick }) {
     }
     const bounds = dataMin > dataMax ? { start: 0, end: 1 } : { start: dataMin, end: dataMax };
     return { activeSeries: series, plottedMachines: plotted, dataBounds: bounds };
-  }, [history]);
+  }, [roster, history]);
 
   // Issue #38: one dot per event, anchored to its own machine's level line --
   // interlock events are level-threshold crossings, so a rate-only view (no
@@ -194,10 +194,10 @@ export default function ChartDock({ history, events, onEventClick }) {
       // line actually starts. Skipping it here keeps every dot genuinely on
       // its machine's line rather than floating beside it.
       if (e.t < level[0].t || e.t > level[level.length - 1].t) continue;
-      dots.push({ idx, t: e.t, value: sampleValueAt(level, e.t), color: plotColorFor(e.machineId) });
+      dots.push({ idx, t: e.t, value: sampleValueAt(level, e.t), color: roster.colorFor(e.machineId) });
     }
     return dots;
-  }, [events, history]);
+  }, [roster, events, history]);
 
   let rateMaxRawTph = 0;
   for (const s of activeSeries) {
@@ -466,7 +466,7 @@ export default function ChartDock({ history, events, onEventClick }) {
           ) : (
             plottedMachines.map((m) => {
               const entry = history.get(m.id);
-              const color = plotColorFor(m.id);
+              const color = roster.colorFor(m.id);
               return (
                 <div key={m.id} style={{ marginBottom: 8 }}>
                   <div style={{ color: C.text, fontSize: 9, marginBottom: 3 }}>{m.name}</div>
