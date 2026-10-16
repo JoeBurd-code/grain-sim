@@ -12,8 +12,8 @@
 // fields, because those values live on the interlocks, and an added machine
 // has none yet.
 //
-// Each item with a maker also has a generic version (issue #94), made here
-// rather than kept as a file.
+// Each machine also has a custom version (issue #94), made here rather than
+// kept as a file.
 
 const files = import.meta.glob("./items/*.json", { eager: true, import: "default" });
 
@@ -28,25 +28,58 @@ export const CATALOGUE_GROUPS = [
 
 const groupOrder = new Map(CATALOGUE_GROUPS.map((g, i) => [g.id, i]));
 
-// Issue #94: each item with a maker also comes as a generic item, the same
-// machine with no maker or model, so a user can build a line without
-// choosing a brand. Generic items are made here rather than kept as files,
-// so a maker's change to an item reaches its generic version too.
-function genericVersion(item) {
+// Issue #94: each machine also comes as a custom item, the same machine
+// with no maker, whose settings reach far past the real machine's own
+// limits. A real item keeps the limits of the machine it stands for; a
+// custom one is for a line that needs a machine no one has measured yet.
+// Custom items are made here rather than kept as files, so a change to an
+// item reaches its custom version too.
+//
+// The limits a custom machine's settings reach, by plant unit. A real limit
+// already wider stays, and so does a minimum of 0. A percentage (speed,
+// level, gate) keeps its real 0 to 100 limits.
+const CUSTOM_LIMITS = {
+  "t/h": { min: 0.5, max: 200 },
+  "m³": { min: 0.01, max: 100 },
+  "m/min": { min: 0.5, max: 120 },
+  kg: { min: 1, max: 5000 },
+  s: { min: 1, max: 600 },
+};
+// Length and height are both in metres but draw the machine at that size,
+// so each has a limit of its own.
+const CUSTOM_RESIZE_LIMITS = {
+  length: { min: 1, max: 150 },
+  height: { min: 2, max: 50 },
+};
+
+function widened(entry, limits) {
+  if (!limits) return entry;
   return {
-    ...item, id: `${item.id}-generic`, maker: "", model: "",
-    genericOf: item.id, machine: structuredClone(item.machine),
+    ...entry,
+    min: entry.min === 0 ? 0 : Math.min(entry.min, limits.min),
+    max: Math.max(entry.max, limits.max),
   };
+}
+
+function customVersion(item) {
+  const machine = structuredClone(item.machine);
+  if (machine.params) machine.params = machine.params.map((p) => widened(p, CUSTOM_LIMITS[p.unit]));
+  if (machine.adjustable) {
+    machine.adjustable = machine.adjustable.map((a) => (
+      a.kind === "number" ? widened(a, CUSTOM_RESIZE_LIMITS[a.bind] ?? CUSTOM_LIMITS[a.unit]) : a
+    ));
+  }
+  return { ...item, id: `${item.id}-custom`, maker: "", model: "", customOf: item.id, machine };
 }
 
 const fileItems = Object.values(files);
 
-// Grouped in panel order, then by name, each generic item right after the
-// branded one it copies.
-export const CATALOGUE = [...fileItems, ...fileItems.filter((item) => item.maker !== "").map(genericVersion)].sort(
+// Grouped in panel order, then by name, each custom item right after the
+// real one it copies.
+export const CATALOGUE = [...fileItems, ...fileItems.filter((item) => item.group !== "edges").map(customVersion)].sort(
   (a, b) => groupOrder.get(a.group) - groupOrder.get(b.group)
     || a.name.localeCompare(b.name)
-    || Number(a.genericOf !== undefined) - Number(b.genericOf !== undefined),
+    || Number(a.customOf !== undefined) - Number(b.customOf !== undefined),
 );
 
 const byId = new Map(CATALOGUE.map((item) => [item.id, item]));
@@ -55,12 +88,12 @@ export function catalogueItem(id) {
   return byId.get(id);
 }
 
-// The maker line an item shows in the catalogue and the Build panel: its
-// maker and model, or "Generic" for a machine with no maker. Grain in and
-// Grain out are plant edges, not machines anyone makes, and show nothing.
+// The maker line an item shows in the catalogue and the Build panel:
+// "Custom" for a custom item, else its maker and model, empty when the item
+// has neither.
 export function makerLabel(item) {
-  if (item.maker !== "") return [item.maker, item.model].filter(Boolean).join(" ");
-  return item.group === "edges" ? "" : "Generic";
+  if (item.customOf !== undefined) return "Custom";
+  return [item.maker, item.model].filter(Boolean).join(" ");
 }
 
 // The items whose name contains `query`, ignoring case.

@@ -6,6 +6,8 @@ import { emptyLine, addMachine, connectPorts, setAdjustableValue } from "../line
 import { validateLine } from "../line/validateLine";
 import { createSim, stepSim, getMachineState, setGateFraction, DT } from "./engine";
 import { assertConserved } from "./conservation";
+import { CATALOGUE } from "../catalogue/catalogue";
+import { adjustableFields } from "../line/adjustableFields";
 
 function add(line, itemId, pos) {
   const result = addMachine(line, itemId, pos);
@@ -49,8 +51,9 @@ describe("a line built from the catalogue, port to port (issue #88)", () => {
     expect(() => assertConserved(sim)).not.toThrow();
   });
 
-  // Issue #94: a generic item runs exactly like the branded one it copies.
-  it("runs a generic elevator the same as the branded one", () => {
+  // Issue #94: a custom item at its defaults runs exactly like the real one
+  // it copies.
+  it("runs a custom elevator at its defaults the same as the real one", () => {
     const outAfter = (elevatorItem) => {
       const grainIn = add(emptyLine(), "grain-in", { x: 0, y: 0 });
       const elevator = add(grainIn.line, elevatorItem, { x: 0, y: 200 });
@@ -63,7 +66,26 @@ describe("a line built from the catalogue, port to port (issue #88)", () => {
     };
     const branded = outAfter("bucket-elevator");
     expect(branded).toBeGreaterThan(0);
-    expect(outAfter("bucket-elevator-generic")).toBe(branded);
+    expect(outAfter("bucket-elevator-custom")).toBe(branded);
+  });
+
+  // Issue #94: a custom machine's widened limits are values the engine can
+  // run. Every custom field, at each end of its range, on a line of its own.
+  const customFields = CATALOGUE
+    .filter((item) => item.customOf !== undefined)
+    .flatMap((item) => adjustableFields(item.machine)
+      .filter((f) => f.kind === "number" && f.unit !== "%")
+      .flatMap((f) => [[item.id, f.id, f.min], [item.id, f.id, f.max]]));
+
+  it.each(customFields)("runs %s with %s at %s", (itemId, fieldId, value) => {
+    const grainIn = add(emptyLine(), "grain-in", { x: 0, y: 0 });
+    const machine = add(grainIn.line, itemId, { x: 0, y: 200 });
+    let line = machine.line;
+    const input = line.machines.find((m) => m.id === machine.id).ports.inputs[0];
+    if (input) line = connect(line, { machine: grainIn.id, port: "out" }, { machine: machine.id, port: input });
+    line = setField(line, machine.id, fieldId, value);
+    expect(validateLine(line).errors).toEqual([]);
+    run(createSim(line), 60);
   });
 
   // A drum feeder on a built line has no feed-rate derivation, so its gate
