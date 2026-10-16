@@ -13,7 +13,7 @@ Shows the latest run of each combo.
 | S1 Edges & Storage smoke | #97 | 2026-10-16 | 0cae43a | 106 | 8 | 4 | #123 #124 #125 #126 |
 | S2 Conveying smoke | #98 | 2026-10-16 | 862a656 | 88 | 7 | 3 | #128 #129 |
 | S3 Cleaning & treating smoke | #99 | 2026-10-16 | 6e8dedb | 38 | 7 | 3 | #128 #130 |
-| S4 Packaging smoke | #100 | | | | | | |
+| S4 Packaging smoke | #100 | 2026-10-16 | 6e8dedb | 67 | 10 | 3 | #128 #132 |
 | G1 Golden: treating section | #101 | 2026-10-16 | 6e8dedb | 48 | 5 | 7 | #131 |
 | G2 Golden: outload | #102 | | | | | | |
 | G3 Golden: packaging | #103 | | | | | | |
@@ -53,6 +53,8 @@ Each session keeps this list current, so later sessions know what to work around
 | No real catalogue item for the golden metal remover, drum feeder, outlet valve, scalping screen or discard bin; only the custom ones are listed. Use the custom items as stand-ins | #131 | G1 | No |
 | Metal remover, auto sampler, scalping screen and batch treater popups have no live readouts (only sliders, or nothing). Same on the golden line | #128 | S3 | No |
 | A batch treater fed through a drum feeder (or starved) draws an empty drum with its chute discharging while it fills. The sim itself is right | #130 | S3 | No |
+| Bagging scale, filling head, filling and sewing, palletiser and roller conveyors popups have no live readouts (the batch machines show only their two sliders). Same on the golden line | #128 | S4 | No |
+| A bagging scale or filling head whose bag is bigger than its feed bin (e.g. a 1500 kg bag behind the default 1.17 t custom Bin) deadlocks the line with no message. Enlarge the Bin or keep the bag under its capacity | #132 | S4 | No |
 
 ## Entries
 
@@ -363,3 +365,74 @@ Screenshots: [S3-1 screen with the waste open](findings-img/S3-1.png) · [S3-2 s
 - Treater pre-bin → batch treater in Build mode, to compare a one-tick charge with the drum-feeder fill (pairs with #123 and T8).
 - A scalping screen whose waste goes to a Discard bin that fills, to see whether the screen throttles (pairs with #124).
 - Two batch treaters in series (B4), now that a single one is known to cycle correctly.
+
+## S4 Packaging smoke
+
+### S4 — 2026-10-16 — 6e8dedb
+
+**Result:** 67 PASS · 10 FAIL · 3 QUESTION · blocked by: none (#126 hides the last hop into Grain out, as in S1 and S2)
+**Tool:** Standalone Playwright scripts (Node, headless Chromium 1243) driving the app through real mouse and keyboard events, because another session held the shared Playwright MCP browser. Dev server on port 5182. Viewport 1600 × 1000.
+
+**Steps**
+1. Cleared localStorage, reloaded, BUILD. Each item got its own NEW LINE (DISCARD AND START NEW).
+2. Batch machines (bagging scale, filling head): Grain in → Bin (Custom) → item → Grain out, as the ticket asks. Pass-through machines (filling and sewing, palletiser, roller conveyors): Grain in → item → Grain out. Items came from the catalogue by HTML5 drag (search box, then drag onto the canvas). Wiring was by dragging from port dot to port dot. Then I read PROBLEMS.
+3. Right panel: for each number field I typed 2× the max, below the min, −1 (or 0), then the max, the min and the default, pressing Enter each time. Escape, reselect, read the value back.
+4. SIM → FIT ALL → wheel out → 5× → RUN. Plotted the rates (Grain in, Bin, item, Grain out) and the levels (Bin, item) from each popup. Read the chart polylines (read-only) to get batch periods (the Bin's level sawtooth), end values and integrated tonnes.
+5. Batch controls: dragged the popup sliders with the keyboard (focus, arrow keys). Bagging scale 50 → 100 kg, then fill time 15 → 60 s. Custom bagging scale 50 → 200 kg. Filling head 1000 → 1500 kg.
+6. SETTINGS → DISCARD AND START OVER, then SIM → destination CONCETTI → 20× to 1521 s. Read the golden BAGGING SCALE, FILLING & SEWING, FLEXICON FILLING HEAD and PALLETISING popups and the bag counters.
+7. Collected console messages all session: no errors or warnings, only Vite debug lines and the React DevTools notice.
+
+**Checks.** Check numbers follow the ticket: 1 lands/name/maker · 2 wiring/problems · 3 flows and animates · 4 popup controls and readouts · 5 right-panel limits · 6 ports · 7 conservation · 8 console.
+
+| Item | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | Evidence |
+|------|---|---|---|---|---|---|---|---|----------|
+| Bagging scale (Concetti) | PASS | PASS | PASS | **FAIL** #128 | PASS | PASS | PASS | PASS | "Concetti" in the right panel. Bag size 10–100 kg, fill time 5–60 s. Typing 200, 5, −1 / 120, 2, 0 is refused, and the max, min and default are accepted. A 50 kg batch every 15.0 s (Bin peaks 4.15 % ≈ 49 kg, gaps 15.0 ± 0.4 s), Grain in 12.00 t/h = scale out 11.98 t/h at 456 s ([S4-1](findings-img/S4-1.png)). The popup has working sliders but no live value (see extras). |
+| Bagging scale (Custom) | PASS | PASS | PASS | **FAIL** #128 | PASS | PASS | PASS | PASS | "Custom". 1–5000 kg and 1–600 s. Typing 10000, 0.5, −1, 0 / 1200, 0.5, 0 is refused, and 5000, 1 / 600, 1 are accepted. In 0.772 t over 303 s = Bin out 0.747 + Bin 0.011; scale in 0.747 = scale out 0.697 + 0.050 held. |
+| Big bag filling head (Flexicon) | PASS | PASS | PASS | **FAIL** #128 | PASS | PASS | PASS | PASS | "Flexicon". 500–1500 kg and 15–120 s. Typing 3000, 250, −1 / 240, 7, 0 is refused. At 1000 kg the Bin collects to 85.2 % (1000 kg) and dumps into the head every 299.5 s ([S4-3](findings-img/S4-3.png)). The Bin side balances: in 2.095 t = out 1.790 + Bin 0.335 t at 700 s. At 1500 kg the line deadlocks (extra X5, #132). |
+| Big bag filling head (Custom) | PASS | PASS | PASS | **FAIL** #128 | PASS | PASS | PASS | PASS | "Custom". 1–5000 kg and 1–600 s, out-of-range refused. Same 300 s cycle at 1000 kg (Bin peaks 85.18 / 85.08 %). By 653 s: 12 t/h × 653 s = 2.18 t in = 2 full bags + 0.176 t in the Bin. The plotted head rate lags its pulses, so the cycle count is the better reading. |
+| Filling and sewing (Concetti) | PASS | PASS | PASS | **FAIL** #128 | PASS | PASS | PASS | PASS | "Concetti". "This machine has no adjustable settings" (the real one has none either). One in, one out. In 0.4392 t = out 0.4392 t at 203 s. The popup has only EVENT LOG and PLOT RATE ([S4-4](findings-img/S4-4.png)). |
+| Filling and sewing (Custom) | PASS | PASS | PASS | **FAIL** #128 | PASS | PASS | PASS | PASS | "Custom", no adjustable settings. In 0.4365 = out 0.4365 t at 202 s. Popup as above. |
+| Palletiser (Concetti) | PASS | PASS | PASS | **FAIL** #128 | PASS | PASS | PASS | PASS | "Concetti", no adjustable settings. In 0.4365 = out 0.4365 t at 202 s. Popup: EVENT LOG and PLOT RATE only. |
+| Palletiser (Custom) | PASS | PASS | PASS | **FAIL** #128 | PASS | PASS | PASS | PASS | "Custom", no adjustable settings. In 0.4362 = out 0.4362 t at 202 s. |
+| Roller conveyors and belt scale (real) | – | – | – | – | – | – | – | – | Not listed: no maker and no sensors, so only the custom item is shown (#94, same rule as S1 and S2). Not counted. |
+| Roller conveyors (Custom) | PASS | PASS | PASS | **FAIL** #128 | PASS | PASS | PASS | PASS | "Custom", no adjustable settings. The in port is at the top centre and the out port on the right end of the roller row. Plotted at 202 s, it reached 9.7 t/h by 306 s and was still rising alongside Grain in's lagged curve. Only a roller circle or the base line selects it ([S4-5](findings-img/S4-5.png)). |
+
+On check 1: as in S1 to S3, the maker shows in the catalogue and the right panel, not on the canvas. On check 3: grain reaches Grain out on every line and the connectors dash. No packaging symbol changes while it works. #64 leaves the pass-through ones (filler, palletiser, roller scale) static on purpose, so they pass. The bagging scale and filling head are the open question below. On check 5: the pass-through items have no settings, real or custom, so there is no limit to check (see questions). On check 7: Grain out still plots 0 (#126), so the last hop is read from the item's own plotted rate.
+
+**Packaging extras**
+
+| # | Check | Expected | Actual | Result |
+|---|-------|----------|--------|--------|
+| X1 | Bagging scale weighs a batch, discharges it and repeats | Repeating batches of the bag size | The Bin's level saws up to 4.15 % (≈ 49 kg of its 1.17 t) and drops every 15.0 s, with the scale holding 100 % of its charge in between | PASS |
+| X2 | Changing the bag size changes the batch | Batch follows the slider | Real 50 → 100 kg: Bin peaks 8.49 % (≈ 100 kg), period 30 s. Custom 50 → 200 kg: peaks 16.9 % (≈ 198 kg), period 60 s ([S4-7](findings-img/S4-7.png)) | PASS |
+| X3 | Fill time slider changes the cycle | Longer fill, slower line | 15 → 60 s at 100 kg: period 60 s, so the line takes 6 t/h and the Bin fills 8 → 42 % in 240 s | PASS |
+| X4 | Filling head weighs a batch, discharges it and repeats | Repeating 1000 kg batches | Real and custom: 1000 kg every 300 s (Bin peaks 85.2 %) | PASS |
+| X5 | Filling head bag size at its real max (1500 kg) | Fills 1500 kg bags, or explains why it can't | The custom Bin holds about 1.17 t, so it fills to 100 % (red) and the head stays at 0 %. Grain in falls to 0 t/h and nothing is logged or listed in PROBLEMS: the line has deadlocked ([S4-2](findings-img/S4-2.png)) | **FAIL** #132 |
+| X6 | Each popup shows bags or batches completed | A count, or a QUESTION | No packaging popup counts anything, real or custom, Build mode or golden. Only the golden line's end stubs count ("76 bags · bagged product · pallets out" at 1521 s, [S4-6](findings-img/S4-6.png)). A Build-mode Grain out shows no count | QUESTION |
+| X7 | Bagging scale and filling head show they're working | Lit or moving while weighing | Their symbols never change (the scale's SVG is identical across 40 sim-seconds of cycling). The golden ones are static too | QUESTION |
+| X8 | Pass-through packaging machines have a capacity to reach | A real limit, and a custom one that reaches the wide limits | Filling and sewing, palletiser and roller conveyors have no settings and no capacity, real or custom. 12 t/h passes with nothing to tune | QUESTION |
+
+Screenshots: [S4-1 bagging scale cycling, Bin sawtooth](findings-img/S4-1.png) · [S4-2 filling head at 1500 kg, deadlocked](findings-img/S4-2.png) · [S4-3 filling head at 1000 kg, 300 s cycle](findings-img/S4-3.png) · [S4-4 filling and sewing popup, no values](findings-img/S4-4.png) · [S4-5 roller conveyors wired](findings-img/S4-5.png) · [S4-6 golden packaging, 76 bags](findings-img/S4-6.png) · [S4-7 custom bagging scale at 200 kg](findings-img/S4-7.png). Saved line: [S4.json](findings-lines/S4.json) (Grain in → Bin → Bagging scale (Concetti) → Grain out).
+
+**Bugs filed / commented**
+- #132 A batch machine whose bag is bigger than its feed bin deadlocks the line with no message (new)
+- #128 Belt, chain, grain break, diverter and outlet valve popups show no values while running (existing, commented: all five packaging kinds, real and custom, same on golden)
+
+**Questions for the user**
+- Nothing counts bags or batches in Build mode. The bagging scale and filling head popups have no count, and a Grain out after them shows none, while the golden line's end stubs do ("76 bags"). Should a batch machine's popup show bags completed, or should a Grain out fed by a batch machine count bags the way the golden stubs do?
+- The bagging scale and filling head symbols stay the same while they fill, hold and discharge. The batch treater lights and turns its paddles from its phase (#66), and #64 leaves only the pass-through packaging machines static. Should the scale and the filling head light up (or show their fill) while they're working?
+- Filling and sewing, palletiser and roller conveyors have no settings and no capacity, real or custom, so they pass any rate (the custom roller conveyors have no length or speed either). Is that what you want, or should they get a rate limit (t/h or bags/h), at least on the custom versions?
+
+**Observations**
+- An out-of-range value reverts silently on Enter, as S1 noted. Nothing says why.
+- The bagging scale's level plot sits at 100 % throughout, because it charges in the same tick it discharges. The chart only shows the cycle through the feed Bin's sawtooth.
+- The batch machines' plotted rate is a lagging filter of their pulses, so the integrated tonnes trail by up to one batch. The 1000 kg filling head trails by most of a bag for about 100 s after each dump.
+- The roller conveyors' out port sits on the right end of the roller row. With Grain out placed below, the connector leaves sideways and runs down across the "ROLLER CONVEYORS 1" label ([S4-5](findings-img/S4-5.png)).
+- The roller conveyors' and filling head's bodies are mostly hollow: a click on the label side or between the rollers doesn't select them.
+- The batch line's throughput is capped by bag size ÷ fill time with no warning. The Concetti scale's defaults (50 kg / 15 s) give exactly 12 t/h, the Grain in default, so any faster feed fills the Bin.
+- The golden packaging popups match the Build-mode ones exactly, so nothing here is specific to Build mode, apart from #132, which can't happen with the golden Flexicon pre-bin (2.5 m³).
+
+**Follow-up combo ideas**
+- Bagging scale → filling and sewing → palletiser → Grain out in series behind a Concetti pre-bin, as on the golden line (pairs with G3 and B4).
+- A filling head at 1500 kg behind a Bin enlarged to 3 m³, to confirm #132 is only the bin size.
+- Grain in at 20 t/h into the Concetti bagging scale (capped at 12 t/h), to watch the Bin fill and see whether #125 also applies here.
