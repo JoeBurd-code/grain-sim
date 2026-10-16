@@ -263,6 +263,37 @@ function Problems({ problems, onGoToProblem }) {
   );
 }
 
+// Issue #95: several machines selected. Their values stay on each
+// machine's own panel; the group is moved, copied and deleted together.
+function GroupSettings({ group, onDeleteGroup }) {
+  return (
+    <>
+      <div style={headingStyle}>{group.length} MACHINES</div>
+      <div style={{ marginTop: 14 }}>
+        {group.map((m) => (
+          <div key={m.id} style={{ fontSize: 10, color: C.text, marginBottom: 3 }}>{m.name}</div>
+        ))}
+      </div>
+      <div style={{ fontSize: 9, color: C.muted, marginTop: 12, lineHeight: 1.6 }}>
+        Drag any one of them to move them all. Ctrl+C copies them with the
+        connections and interlocks between them; Ctrl+V pastes the copy.
+      </div>
+      <div style={{ marginTop: 22 }}>
+        <button
+          className="zonebtn"
+          style={{ ...btnStyle, color: C.red, borderColor: C.red }}
+          onClick={onDeleteGroup}
+        >
+          DELETE {group.length} MACHINES
+        </button>
+        <div style={{ fontSize: 9, color: C.muted, marginTop: 6 }}>
+          Removes the machines and their connections.
+        </div>
+      </div>
+    </>
+  );
+}
+
 // Issue #88: a connection selected instead of a machine shows what it joins
 // and a way to delete it, the Delete key's own panel counterpart.
 function ConnectionSettings({ line, connection, onDeleteConnection }) {
@@ -290,15 +321,15 @@ function ConnectionSettings({ line, connection, onDeleteConnection }) {
 }
 
 export default function BuildPanel({
-  line, machine, connection, settingsOpen, problemsOpen, problems, lineName,
-  onStartOver, onEditField, onEditText, onDeleteMachine, onDeleteConnection, onGoToProblem,
+  line, machine, group, connection, settingsOpen, problemsOpen, problems, lineName,
+  onStartOver, onEditField, onEditText, onDeleteMachine, onDeleteGroup, onDeleteConnection, onGoToProblem,
 }) {
   // Nothing selected and neither SETTINGS nor PROBLEMS open: the panel
   // takes no width at all, so the canvas gets the room back. Opening it
   // slides it in from the right edge rather than popping into place; the
   // inner content keeps its full width throughout so it never squashes
   // mid-transition.
-  const open = Boolean(settingsOpen || machine || connection || problemsOpen);
+  const open = Boolean(settingsOpen || machine || group || connection || problemsOpen);
   // Floats over the canvas rather than squeezing it: resizing the canvas's
   // own container on open/close used to re-fit the viewport and make the
   // whole scene visibly jump/zoom. Overlaid, it may cover machines
@@ -318,6 +349,8 @@ export default function BuildPanel({
           // Keyed by machine, so a half-typed value or a refusal never
           // carries over to the next machine selected.
           <MachineSettings key={machine.id} line={line} machine={machine} onEditField={onEditField} onEditText={onEditText} onDeleteMachine={onDeleteMachine} />
+        ) : group ? (
+          <GroupSettings group={group} onDeleteGroup={onDeleteGroup} />
         ) : connection ? (
           <ConnectionSettings line={line} connection={connection} onDeleteConnection={onDeleteConnection} />
         ) : problemsOpen ? (

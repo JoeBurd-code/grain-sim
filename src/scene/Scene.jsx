@@ -113,16 +113,20 @@ function resolveDynamic(machine, simSnap) {
 }
 
 // `onMachinePointerDown` and `onPortPointerDown` are set only in Build mode
-// (useMachineDrag.js, useConnectionDrag.js); `overlapId` names the machine
-// to outline in red. `selectedConnectionKey`/`onSelectConnection` select a
-// connection for deletion (issue #88), also Build mode only.
+// (useMachineDrag.js, useConnectionDrag.js); `overlapIds` names the machines
+// to outline in red. `selectedIds` (issue #95) is every selected machine,
+// and `onSelect` is told whether Shift was held, so a Shift+click can add
+// to the selection; `selectionBox` is the box select being drawn, and
+// `canvasCursor` shows what a press on empty canvas will do.
+// `selectedConnectionKey`/`onSelectConnection` select a connection for
+// deletion (issue #88), also Build mode only.
 // `connectionDraft` is the in-progress drag's rubber-band line.
 // `problemMachineIds` (issue #89) is the set of machines the Build mode
 // problems list names, outlined in amber for as long as they have one.
 export default function Scene({
-  line, vb, handlers, wasDrag, selectedId, onSelect, simSnap, running, speed, simTime,
-  onMachinePointerDown, overlapId, onPortPointerDown, selectedConnectionKey, onSelectConnection, connectionDraft,
-  problemMachineIds, highlightMachineIds,
+  line, vb, handlers, wasDrag, selectedIds, onSelect, simSnap, running, speed, simTime,
+  onMachinePointerDown, overlapIds, onPortPointerDown, selectedConnectionKey, onSelectConnection, connectionDraft,
+  problemMachineIds, highlightMachineIds, selectionBox, canvasCursor = "grab",
 }) {
   const flowPathRef = useFlowAnimation(line, simSnap);
   const motion = useMachineMotion(running, speed);
@@ -134,7 +138,7 @@ export default function Scene({
       preserveAspectRatio="xMidYMid meet"
       style={{
         touchAction: "none",
-        cursor: "grab",
+        cursor: canvasCursor,
         display: "block",
         userSelect: "none",
         WebkitUserSelect: "none",
@@ -230,7 +234,7 @@ export default function Scene({
       {/* machines */}
       {line.machines.map((m) => {
         const Symbol = symbolFor(m.type);
-        const selected = m.id === selectedId;
+        const selected = selectedIds?.includes(m.id);
         return (
           <g
             key={m.id}
@@ -240,7 +244,7 @@ export default function Scene({
             onPointerDown={onMachinePointerDown ? (e) => onMachinePointerDown(e, m) : undefined}
             onClick={(e) => {
               e.stopPropagation();
-              if (!wasDrag()) onSelect(m.id);
+              if (!wasDrag()) onSelect(m.id, e.shiftKey);
             }}
           >
             {selected && (
@@ -251,13 +255,24 @@ export default function Scene({
             )}
             <Symbol machine={m} dynamic={resolveDynamic(m, simSnap)} motion={motion} simTime={simTime} />
             {m.type !== "stub" && <MachineLabel machine={m} />}
-            {m.id === overlapId && <OverlapOutline machine={m} />}
+            {overlapIds?.includes(m.id) && <OverlapOutline machine={m} />}
             {problemMachineIds?.has(m.id) && <ProblemOutline machine={m} />}
             {highlightMachineIds?.has(m.id) && <HighlightOutline machine={m} />}
             {onPortPointerDown && <PortDots machine={m} onPortPointerDown={onPortPointerDown} />}
           </g>
         );
       })}
+
+      {/* Issue #95: the box select being drawn. */}
+      {selectionBox && (
+        <rect
+          x={Math.min(selectionBox.x, selectionBox.x + selectionBox.w)}
+          y={Math.min(selectionBox.y, selectionBox.y + selectionBox.h)}
+          width={Math.abs(selectionBox.w)} height={Math.abs(selectionBox.h)}
+          fill={SELECT_STROKE} fillOpacity="0.08" stroke={SELECT_STROKE} strokeWidth="1"
+          strokeDasharray="4 3" vectorEffect="non-scaling-stroke" pointerEvents="none"
+        />
+      )}
 
       {/* Issue #88: the rubber-band line while a port drag is in progress. */}
       {connectionDraft && (

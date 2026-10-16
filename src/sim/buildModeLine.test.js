@@ -2,7 +2,9 @@
 // items, added and wired port to port, not hand-authored data) runs in the
 // engine exactly like the golden line.
 import { describe, it, expect } from "vitest";
-import { emptyLine, addMachine, connectPorts, setAdjustableValue } from "../line/lineDocument";
+import { emptyLine, addMachine, connectPorts, setAdjustableValue, copyMachines, pasteMachines } from "../line/lineDocument";
+import { acceptSuggestion, pendingSuggestions } from "../line/suggestedInterlocks";
+import { removeInterlock } from "../line/sentenceEditor";
 import { validateLine } from "../line/validateLine";
 import { createSim, stepSim, getMachineState, setGateFraction, DT } from "./engine";
 import { assertConserved } from "./conservation";
@@ -148,5 +150,61 @@ describe("a line built from the catalogue, port to port (issue #88)", () => {
     const binState = getMachineState(sim, bin.id);
     expect(binState.stored).toBeCloseTo(binState.capacity, 6);
     expect(getMachineState(sim, grainIn.id).flowRateM3PerSec).toBeLessThan(1e-6);
+  });
+
+  // Issue #95: a lane copied and pasted is a second lane that runs.
+  describe("a pasted lane", () => {
+    function laneLine() {
+      const ids = {};
+      let line = emptyLine();
+      for (const [key, item, y] of [["src", "grain-in", 0], ["bin", "metal-bin", 100], ["feeder", "drum-feeder", 320],
+        ["belt", "belt-conveyor", 400], ["out", "grain-out", 480]]) {
+        const r = add(line, item, { x: 0, y });
+        line = r.line;
+        ids[key] = r.id;
+      }
+      const chain = ["src", "bin", "feeder", "belt", "out"];
+      for (let i = 0; i < chain.length - 1; i++) {
+        line = connect(line, { machine: ids[chain[i]], port: "out" }, { machine: ids[chain[i + 1]], port: "in" });
+      }
+      return { line, ids: chain.map((k) => ids[k]) };
+    }
+    function paste(line, ids) {
+      const result = pasteMachines(line, copyMachines(line, ids), { x: 600, y: 0 });
+      if (!result.ok) throw new Error(result.error);
+      return result;
+    }
+
+    it("runs beside the lane it was copied from, the same as it", () => {
+      const lane = laneLine();
+      const copy = paste(lane.line, lane.ids);
+      expect(validateLine(copy.line).errors).toEqual([]);
+      const sim = createSim(copy.line);
+      run(sim, 300);
+      const delivered = getMachineState(sim, lane.ids[4]).total;
+      expect(delivered).toBeGreaterThan(0);
+      expect(getMachineState(sim, copy.ids[4]).total).toBeCloseTo(delivered, 9);
+    });
+
+    it("brings the bin's high level interlock, and it stops the copy's own Grain in", () => {
+      const grainIn = add(emptyLine(), "grain-in", { x: 0, y: 0 });
+      const bin = add(grainIn.line, "metal-bin", { x: 0, y: 200 });
+      let line = setField(bin.line, bin.id, "capacity", 1.5);
+      line = setField(line, grainIn.id, "rate", 20);
+      line = connect(line, { machine: grainIn.id, port: "out" }, { machine: bin.id, port: "in" });
+      const suggestion = pendingSuggestions(line)[0];
+      line = acceptSuggestion(line, suggestion.id).line;
+      const copy = paste(line, [grainIn.id, bin.id]);
+      // The original lane loses its interlock, so only the copy is protected.
+      line = removeInterlock(copy.line, suggestion.id).line;
+
+      const sim = createSim(line);
+      run(sim, 260);
+      const original = getMachineState(sim, bin.id);
+      const pasted = getMachineState(sim, copy.ids[1]);
+      expect(original.stored).toBeCloseTo(original.capacity, 6);
+      expect(pasted.stored / pasted.capacity).toBeLessThan(0.9);
+      expect(pasted.stored / pasted.capacity).toBeGreaterThan(0.85);
+    });
   });
 });

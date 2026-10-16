@@ -1,15 +1,18 @@
 // Build mode machine dragging (issue #86). A press on a machine drags that
-// machine instead of panning the view. While it moves, `preview` holds where
-// it would land (snapped to the grid unless Alt is held) and which machine
-// it would sit on, if any. On release the move is handed to `onMove`; a
-// drop on top of another machine lands at the last free position the drag
-// passed through instead, and `flashId` outlines the machine in red for a
-// moment.
+// machine instead of panning the view, or, when the machine is part of the
+// selected group (issue #95), the whole group. While it moves, `preview`
+// holds the ids moving and the step they would move by (snapped so the
+// pressed machine lands on the grid unless Alt is held) and which machine
+// they would sit on, if any. On release the move is handed to `onMove`; a
+// drop on top of another machine lands at the last free step the drag
+// passed through instead, and `flashIds` outlines the moved machines in
+// red for a moment.
 //
 // Like useViewport's pan, tracking uses window listeners, not pointer
 // capture, so the click that ends a press still reaches the machine.
 import { useCallback, useEffect, useRef, useState } from "react";
-import { overlappingMachine, snapPosition } from "../line/layout";
+import { snapPosition } from "../line/layout";
+import { overlappingGroup } from "../line/groups";
 
 const DRAG_THRESHOLD_PX = 4;
 const FLASH_MS = 600;
@@ -22,19 +25,21 @@ export function toWorld(svg, e) {
   return p.matrixTransform(svg.getScreenCTM().inverse());
 }
 
-export function useMachineDrag(line, onMove) {
+export function useMachineDrag(line, onMove, selectedIds) {
   const lineRef = useRef(line);
   const onMoveRef = useRef(onMove);
+  const selectedRef = useRef(selectedIds);
   useEffect(() => {
     lineRef.current = line;
     onMoveRef.current = onMove;
-  }, [line, onMove]);
+    selectedRef.current = selectedIds;
+  }, [line, onMove, selectedIds]);
 
   const dragRef = useRef(null); // the drag in progress
   const pressRef = useRef(null); // the last press on a machine, kept after release
   const previewRef = useRef(null);
   const [preview, setPreview] = useState(null);
-  const [flashId, setFlashId] = useState(null);
+  const [flashIds, setFlashIds] = useState(null);
   const flashTimerRef = useRef(0);
   useEffect(() => () => clearTimeout(flashTimerRef.current), []);
 
@@ -54,9 +59,10 @@ export function useMachineDrag(line, onMove) {
         { x: drag.origin.x + world.x - drag.start.x, y: drag.origin.y + world.y - drag.start.y },
         !e.altKey,
       );
-      const overlaps = overlappingMachine(lineRef.current, drag.id, pos);
-      if (!overlaps) drag.lastFree = pos;
-      showPreview({ id: drag.id, pos, overlaps });
+      const delta = { x: pos.x - drag.origin.x, y: pos.y - drag.origin.y };
+      const overlaps = overlappingGroup(lineRef.current, drag.ids, delta);
+      if (!overlaps) drag.lastFree = delta;
+      showPreview({ ids: drag.ids, delta, overlaps });
     };
     const onPointerUp = () => {
       const drag = dragRef.current;
@@ -66,10 +72,10 @@ export function useMachineDrag(line, onMove) {
       if (!drag?.moved || !last) return;
       if (last.overlaps) {
         clearTimeout(flashTimerRef.current);
-        setFlashId(drag.id);
-        flashTimerRef.current = setTimeout(() => setFlashId(null), FLASH_MS);
+        setFlashIds(drag.ids);
+        flashTimerRef.current = setTimeout(() => setFlashIds(null), FLASH_MS);
       }
-      onMoveRef.current(drag.id, last.overlaps ? drag.lastFree : last.pos);
+      onMoveRef.current(drag.ids, last.overlaps ? drag.lastFree : last.delta);
     };
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);
@@ -85,8 +91,10 @@ export function useMachineDrag(line, onMove) {
     e.stopPropagation();
     const svg = e.currentTarget.ownerSVGElement;
     const origin = { x: machine.x, y: machine.y };
+    const selected = selectedRef.current ?? [];
+    const ids = selected.includes(machine.id) ? selected : [machine.id];
     dragRef.current = {
-      id: machine.id, svg, origin, lastFree: origin, moved: false,
+      ids, svg, origin, lastFree: { x: 0, y: 0 }, moved: false,
       start: toWorld(svg, e), screen: { x: e.clientX, y: e.clientY },
     };
     pressRef.current = dragRef.current;
@@ -102,5 +110,5 @@ export function useMachineDrag(line, onMove) {
     [],
   );
 
-  return { preview, flashId, onMachinePointerDown, onCanvasPointerDown, wasDrag };
+  return { preview, flashIds, onMachinePointerDown, onCanvasPointerDown, wasDrag };
 }

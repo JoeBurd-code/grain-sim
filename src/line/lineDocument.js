@@ -21,6 +21,8 @@ export { moveMachine } from "./layout";
 export { addMachine, deleteMachine, emptyLine, setMachineText } from "./editing";
 // Connecting and disconnecting ports (issue #88).
 export { connectPorts, disconnectConnection, connectionKey } from "./connecting";
+// Moving, deleting, copying and pasting a group of machines (issue #95).
+export { moveMachines, deleteMachines, copyMachines, pasteMachines } from "./groups";
 
 export const LINE_FORMAT = "grain-sim-line";
 // Version 2 (issue #85): every interlock is a sentence, and the rules that

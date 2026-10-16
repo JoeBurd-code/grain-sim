@@ -2,7 +2,7 @@
 // value edits and moveMachine, each function returns a new line and never
 // changes the line it is given.
 import { catalogueItem } from "../catalogue/catalogue";
-import { GRID, overlappingMachine, snapPosition } from "./layout";
+import { nearestFree, overlappingMachine, snapPosition } from "./layout";
 
 // NEW LINE. A built line has no zones (FIT only) and no declared plant
 // controls: its panel is generated (plantControls.js).
@@ -11,34 +11,16 @@ export function emptyLine() {
 }
 
 // The first `${base}${sep}${n}`, from n = 1, that `taken` does not hold.
-function firstFree(base, taken, sep = " ") {
+export function firstFree(base, taken, sep = " ") {
   let n = 1;
   while (taken.has(`${base}${sep}${n}`)) n += 1;
   return `${base}${sep}${n}`;
 }
 
-// How far from the drop point an overlapping drop looks for a free place.
-const SEARCH_RINGS = 60;
-
-// The free place on the grid nearest `pos`, searched ring by ring outwards.
-// Null when there is none within the search.
+// The free place on the grid nearest `pos` for `machine`, or null.
 function nearestFreePosition(line, machine, pos) {
   const withMachine = { ...line, machines: [...line.machines, machine] };
-  const fits = (p) => !overlappingMachine(withMachine, machine.id, p);
-  if (fits(pos)) return pos;
-  for (let ring = 1; ring <= SEARCH_RINGS; ring++) {
-    const candidates = [];
-    for (let i = -ring; i <= ring; i++) {
-      for (let j = -ring; j <= ring; j++) {
-        if (Math.max(Math.abs(i), Math.abs(j)) !== ring) continue;
-        candidates.push({ x: pos.x + i * GRID, y: pos.y + j * GRID });
-      }
-    }
-    candidates.sort((a, b) => Math.hypot(a.x - pos.x, a.y - pos.y) - Math.hypot(b.x - pos.x, b.y - pos.y));
-    const free = candidates.find(fits);
-    if (free) return free;
-  }
-  return null;
+  return nearestFree(pos, (p) => !overlappingMachine(withMachine, machine.id, p));
 }
 
 // Adds a machine from catalogue item `itemId` with its top-left corner at

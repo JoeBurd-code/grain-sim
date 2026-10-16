@@ -34,6 +34,28 @@ function rectsOverlap(a, b) {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }
 
+// How far from the drop point an overlapping drop looks for a free place.
+const SEARCH_RINGS = 60;
+
+// The place on the grid nearest `pos` that `fits` accepts, searched ring by
+// ring outwards. Null when there is none within the search.
+export function nearestFree(pos, fits) {
+  if (fits(pos)) return pos;
+  for (let ring = 1; ring <= SEARCH_RINGS; ring++) {
+    const candidates = [];
+    for (let i = -ring; i <= ring; i++) {
+      for (let j = -ring; j <= ring; j++) {
+        if (Math.max(Math.abs(i), Math.abs(j)) !== ring) continue;
+        candidates.push({ x: pos.x + i * GRID, y: pos.y + j * GRID });
+      }
+    }
+    candidates.sort((a, b) => Math.hypot(a.x - pos.x, a.y - pos.y) - Math.hypot(b.x - pos.x, b.y - pos.y));
+    const free = candidates.find(fits);
+    if (free) return free;
+  }
+  return null;
+}
+
 // The id of the first machine that `id` would overlap at `pos`, or null.
 export function overlappingMachine(line, id, pos) {
   const m = line.machines.find((x) => x.id === id);

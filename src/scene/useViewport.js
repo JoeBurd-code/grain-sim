@@ -86,8 +86,12 @@ export function useViewport(homeBounds) {
     };
   }, []);
 
+  // The middle button pans too (issue #95): in Build mode the left button
+  // on empty canvas draws a box select instead. preventDefault stops the
+  // browser's own middle-button autoscroll.
   const onPointerDown = useCallback((e) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 && e.button !== 1) return;
+    if (e.button === 1) e.preventDefault();
     dragRef.current = { x: e.clientX, y: e.clientY };
     didDragRef.current = false;
   }, []);

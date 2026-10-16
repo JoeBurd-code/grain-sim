@@ -5,11 +5,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { goldenLine, goldenLineErrors, GOLDEN_LINE_NAME } from "../line/goldenLine";
 import {
-  exportLine, importLineFile, setAdjustableValue, moveMachine, addMachine, deleteMachine, emptyLine,
+  exportLine, importLineFile, setAdjustableValue, addMachine, emptyLine,
   connectPorts, disconnectConnection, connectionKey, setMachineText,
+  moveMachines, deleteMachines, copyMachines, pasteMachines,
 } from "../line/lineDocument";
 import { catalogueItem } from "../catalogue/catalogue";
-import { placeMachine } from "../line/layout";
+import { placeMachines, groupCorner } from "../line/groups";
 import { lineBounds, zoneBounds, machineBounds } from "../line/bounds";
 import { lineProblems, problemMachineIds, hasGrainIn } from "../line/problems";
 import { plantControlsFor } from "../line/plantControls";
@@ -28,6 +29,7 @@ import { emptyHistory, pushHistory, undoHistory, redoHistory } from "./editHisto
 import { useViewport } from "../scene/useViewport";
 import { useMachineDrag, toWorld } from "../scene/useMachineDrag";
 import { useConnectionDrag } from "../scene/useConnectionDrag";
+import { useBoxSelect } from "../scene/useBoxSelect";
 import { useSimEngine } from "../sim/useSimEngine";
 import { readLiveControl } from "../sim/liveControls";
 import { isSeriesPlotted } from "../sim/plotHistory";
@@ -52,6 +54,15 @@ const SCROLL_THUMB_HOVER = "#566064";
 function isTyping(target) {
   return target instanceof HTMLElement
     && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+}
+
+// Issue #95: a pasted group lands this far to the right of the group it
+// was copied from, so a copied lane sits beside it as a second lane.
+const PASTE_GAP = 60;
+
+// The width of the box around the machines.
+function groupWidth(machines) {
+  return Math.max(...machines.map((m) => m.x + m.w)) - groupCorner(machines).x;
 }
 
 // "golden line" -> "golden-line.json".
@@ -117,7 +128,12 @@ export default function PlantApp() {
     setHistory((h) => pushHistory(h, prevLine));
   }, []);
 
-  const [selectedId, setSelectedId] = useState(null);
+  // Issue #95: every selected machine, in the order selected. One machine
+  // selected is `selectedId`, the one the right panel and the Sim mode
+  // popup show; several are a group, moved, deleted and copied together.
+  const [selectedIds, setSelectedIds] = useState([]);
+  const selectedId = selectedIds.length === 1 ? selectedIds[0] : null;
+  const setSelectedId = useCallback((id) => setSelectedIds(id ? [id] : []), []);
   // Issue #88: a selected connection, keyed by its own output end
   // (connectionKey), never at the same time as a selected machine.
   const [selectedConnectionKey, setSelectedConnectionKey] = useState(null);
@@ -125,6 +141,10 @@ export default function PlantApp() {
   const [eventJump, setEventJump] = useState(null);
   const jumpTokenRef = useRef(0);
   const selected = line.machines.find((m) => m.id === selectedId);
+  const selectedGroup = useMemo(
+    () => (selectedIds.length > 1 ? line.machines.filter((m) => selectedIds.includes(m.id)) : null),
+    [line, selectedIds],
+  );
   const selectedConnection = line.connections.find((c) => connectionKey(c) === selectedConnectionKey);
 
   const home = useMemo(() => lineBounds(line), [line]);
@@ -178,7 +198,7 @@ export default function PlantApp() {
     setProblemsOpen(false);
     setInterlocksOpen(false);
     fitTo(machineBounds(line, machineId));
-  }, [line, fitTo]);
+  }, [line, fitTo, setSelectedId]);
   // NEW LINE's confirmation, shown when there is work to lose.
   const [confirmingNewLine, setConfirmingNewLine] = useState(false);
   // Whether the catalogue panel is shown. Remembered in this browser only,
@@ -219,7 +239,7 @@ export default function PlantApp() {
     setConfirmingNewLine(false);
     setHistory(emptyHistory());
     setMode(next);
-  }, [onRestart, line]);
+  }, [onRestart, line, setSelectedId]);
 
   // OPEN and START OVER both replace the current line and rebuild the sim
   // from it. They exist only in Build mode, where the sim is already reset.
@@ -232,7 +252,7 @@ export default function PlantApp() {
     setOpenError(null);
     setHistory(emptyHistory());
     fitTo(lineBounds(next.line));
-  }, [fitTo]);
+  }, [fitTo, setSelectedId]);
 
   const fileInputRef = useRef(null);
   const onOpenFile = useCallback(async (e) => {
@@ -326,19 +346,20 @@ export default function PlantApp() {
     return result;
   }, [line, recordEdit]);
 
-  // Issue #86: a machine dragged in Build mode moves in the current line.
-  // The move is applied again inside the updater, as onEditField does. A
-  // move the line refuses leaves it as it was.
-  const onMoveMachine = useCallback((machineId, pos) => {
-    const result = moveMachine(line, machineId, pos);
+  // Issue #86: a machine dragged in Build mode moves in the current line,
+  // and (issue #95) a selected group moves with it, as one undo step. The
+  // move is applied again inside the updater, as onEditField does. A move
+  // the line refuses leaves it as it was.
+  const onMoveMachines = useCallback((ids, delta) => {
+    const result = moveMachines(line, ids, delta);
     if (!result.ok || result.line === line) return;
     recordEdit(line);
     setCurrent((c) => {
-      const next = moveMachine(c.line, machineId, pos);
+      const next = moveMachines(c.line, ids, delta);
       return next.ok && next.line !== c.line ? { ...c, line: next.line } : c;
     });
   }, [line, recordEdit]);
-  const drag = useMachineDrag(line, onMoveMachine);
+  const drag = useMachineDrag(line, onMoveMachines, selectedIds);
 
   // Issue #87: a catalogue item dropped on the canvas is added there, centred
   // on the pointer, and selected so its values show in the right panel. Alt
@@ -366,20 +387,23 @@ export default function PlantApp() {
     setSelectedId(result.id);
     setSelectedConnectionKey(null);
     setSettingsOpen(false);
-  }, [building, containerRef, line, recordEdit]);
+  }, [building, containerRef, line, recordEdit, setSelectedId]);
 
   // Issue #87: the Delete key or the right panel's button deletes the
-  // selected machine and its connections.
-  const onDeleteMachine = useCallback((machineId) => {
-    const result = deleteMachine(line, machineId);
+  // selected machine, or (issue #95) the selected group, and their
+  // connections, as one undo step.
+  const onDeleteMachines = useCallback((ids) => {
+    const result = deleteMachines(line, ids);
     if (!result.ok) return;
     recordEdit(line);
     setCurrent((c) => {
-      const next = deleteMachine(c.line, machineId);
+      const next = deleteMachines(c.line, ids);
       return next.ok ? { ...c, line: next.line } : c;
     });
-    setSelectedId(null);
+    setSelectedIds([]);
   }, [line, recordEdit]);
+  const onDeleteMachine = useCallback((machineId) => onDeleteMachines([machineId]), [onDeleteMachines]);
+  const onDeleteGroup = useCallback(() => onDeleteMachines(selectedIds), [onDeleteMachines, selectedIds]);
 
   // Issue #88: a press on a port dot connects it to the next one the drag
   // releases over; connectPorts decides whether it is refused. Run first
@@ -417,16 +441,65 @@ export default function PlantApp() {
   }, [line, recordEdit]);
 
   useEffect(() => {
-    if (!building || (!selectedId && !selectedConnectionKey)) return undefined;
+    if (!building || (selectedIds.length === 0 && !selectedConnectionKey)) return undefined;
     const onKeyDown = (e) => {
       if (e.key !== "Delete" || isTyping(e.target)) return;
       e.preventDefault();
-      if (selectedId) onDeleteMachine(selectedId);
+      if (selectedIds.length > 0) onDeleteMachines(selectedIds);
       else onDisconnect(selectedConnectionKey);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [building, selectedId, selectedConnectionKey, onDeleteMachine, onDisconnect]);
+  }, [building, selectedIds, selectedConnectionKey, onDeleteMachines, onDisconnect]);
+
+  // Issue #95: Ctrl+C copies the selected machines, the connections between
+  // them and the interlocks that sit entirely inside them. Ctrl+V pastes a
+  // copy to the right of the last one, at the nearest free place, and
+  // selects it, so a lane copied once and pasted twice gives three lanes.
+  // The clipboard is the app's own, not the system's: it holds line
+  // document data, and it survives a paste so the same group pastes again.
+  const clipboardRef = useRef(null);
+  const onCopy = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    const clip = copyMachines(line, selectedIds);
+    const corner = groupCorner(clip.machines);
+    clipboardRef.current = { clip, next: { x: corner.x + groupWidth(clip.machines) + PASTE_GAP, y: corner.y } };
+  }, [line, selectedIds]);
+  const onPaste = useCallback(() => {
+    const held = clipboardRef.current;
+    if (!held) return;
+    const result = pasteMachines(line, held.clip, held.next);
+    if (!result.ok) return;
+    recordEdit(line);
+    setCurrent((c) => {
+      const next = pasteMachines(c.line, held.clip, held.next);
+      return next.ok ? { ...c, line: next.line } : c;
+    });
+    const pasted = result.line.machines.filter((m) => result.ids.includes(m.id));
+    const corner = groupCorner(pasted);
+    clipboardRef.current = { clip: held.clip, next: { x: corner.x + groupWidth(pasted) + PASTE_GAP, y: corner.y } };
+    setSelectedIds(result.ids);
+    setSelectedConnectionKey(null);
+    setSettingsOpen(false);
+    setProblemsOpen(false);
+    setInterlocksOpen(false);
+  }, [line, recordEdit]);
+  useEffect(() => {
+    if (!building) return undefined;
+    const onKeyDown = (e) => {
+      if (isTyping(e.target) || !(e.ctrlKey || e.metaKey)) return;
+      const key = e.key.toLowerCase();
+      if (key === "c" && selectedIds.length > 0) {
+        e.preventDefault();
+        onCopy();
+      } else if (key === "v" && clipboardRef.current) {
+        e.preventDefault();
+        onPaste();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [building, selectedIds, onCopy, onPaste]);
 
   // Issue #91: undo/redo. Each gives back the exact earlier line document.
   // The selection stays as it was so the right panel keeps showing the same
@@ -437,11 +510,14 @@ export default function PlantApp() {
     if (!result) return;
     setHistory(result.history);
     setCurrent((c) => ({ ...c, line: result.line }));
-    if (selectedId && !result.line.machines.some((m) => m.id === selectedId)) setSelectedId(null);
+    setSelectedIds((ids) => {
+      const kept = ids.filter((id) => result.line.machines.some((m) => m.id === id));
+      return kept.length === ids.length ? ids : kept;
+    });
     if (selectedConnectionKey && !result.line.connections.some((c) => connectionKey(c) === selectedConnectionKey)) {
       setSelectedConnectionKey(null);
     }
-  }, [selectedId, selectedConnectionKey]);
+  }, [selectedConnectionKey]);
   const onUndo = useCallback(() => {
     applyHistoryResult(undoHistory(history, line));
   }, [history, line, applyHistoryResult]);
@@ -464,43 +540,96 @@ export default function PlantApp() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [building, onUndo, onRedo]);
+  // Issue #95: in Build mode a left press on empty canvas draws a box
+  // select; holding Space, or the middle button, pans instead. In Sim mode
+  // the left button pans, as before.
+  const onSelectBox = useCallback((ids, additive) => {
+    setSelectedIds((prev) => (additive ? [...prev, ...ids.filter((id) => !prev.includes(id))] : ids));
+    setSelectedConnectionKey(null);
+    if (ids.length > 0) {
+      setSettingsOpen(false);
+      setProblemsOpen(false);
+      setInterlocksOpen(false);
+    }
+  }, []);
+  const boxSelect = useBoxSelect(line, onSelectBox);
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  useEffect(() => {
+    if (!building) return undefined;
+    const onKeyDown = (e) => {
+      if (e.code !== "Space" || isTyping(e.target)) return;
+      e.preventDefault();
+      setSpaceHeld(true);
+    };
+    const onKeyUp = (e) => { if (e.code === "Space") setSpaceHeld(false); };
+    const onBlur = () => setSpaceHeld(false);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", onBlur);
+      setSpaceHeld(false);
+    };
+  }, [building]);
+  const boxing = building && !spaceHeld;
+  // What the last press on empty canvas was, so its closing click is
+  // judged by the hook that tracked it.
+  const canvasPressRef = useRef("pan");
   const { onCanvasPointerDown, wasDrag: dragWasDrag } = drag;
+  const { onCanvasPointerDown: onBoxPointerDown, wasDrag: boxWasDrag } = boxSelect;
   const handlers = useMemo(() => ({
     onPointerDown: (e) => {
       onCanvasPointerDown();
-      viewportHandlers.onPointerDown(e);
+      if (boxing && e.button === 0) {
+        canvasPressRef.current = "box";
+        onBoxPointerDown(e);
+      } else {
+        canvasPressRef.current = "pan";
+        viewportHandlers.onPointerDown(e);
+      }
     },
-  }), [onCanvasPointerDown, viewportHandlers]);
-  const wasDrag = useCallback(() => dragWasDrag(viewportWasDrag), [dragWasDrag, viewportWasDrag]);
-  // While a drag is in progress the scene draws the machine where it would
-  // land; the current line changes only on release.
+  }), [onCanvasPointerDown, onBoxPointerDown, boxing, viewportHandlers]);
+  const wasDrag = useCallback(
+    () => dragWasDrag(canvasPressRef.current === "box" ? boxWasDrag : viewportWasDrag),
+    [dragWasDrag, boxWasDrag, viewportWasDrag],
+  );
+  // While a drag is in progress the scene draws the machines where they
+  // would land; the current line changes only on release.
   const shownLine = useMemo(
-    () => (drag.preview ? placeMachine(line, drag.preview.id, drag.preview.pos) : line),
+    () => (drag.preview ? placeMachines(line, drag.preview.ids, drag.preview.delta) : line),
     [line, drag.preview],
   );
 
-  const onSelect = useCallback((id) => {
-    setSelectedId(id);
+  // Issue #95: Shift+click in Build mode adds a machine to the selection,
+  // or takes it out if it is already in.
+  const onSelect = useCallback((id, additive) => {
+    if (id && additive && building) {
+      setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    } else {
+      setSelectedId(id);
+    }
     setSelectedConnectionKey(null);
     if (id) {
       setSettingsOpen(false);
       setProblemsOpen(false);
       setInterlocksOpen(false);
     }
-  }, []);
+  }, [building, setSelectedId]);
   const onSelectConnection = useCallback((key) => {
     setSelectedConnectionKey(key);
     setSelectedId(null);
     setSettingsOpen(false);
     setProblemsOpen(false);
     setInterlocksOpen(false);
-  }, []);
+  }, [setSelectedId]);
 
   // Issue #81: the plant control panel is generated from the line the sim
   // runs, so its buttons always name machines that sim has.
   const plantControls = useMemo(() => plantControlsFor(simLine), [simLine]);
 
-  const closePopup = useCallback(() => setSelectedId(null), []);
+  const closePopup = useCallback(() => setSelectedId(null), [setSelectedId]);
   // Slider values reach the sim through sim/liveControls.js. A drag that
   // lands back on a dial's live cap is released by the sim itself
   // (setDial, sim/dial.js), so this only records the position and forwards it.
@@ -743,11 +872,13 @@ export default function PlantApp() {
               </button>
             )}
           </div>
-          <div style={{ fontSize: 9, color: selected ? C.wheat : C.muted, textAlign: "right", minWidth: 170 }}>
+          <div style={{ fontSize: 9, color: selected || selectedGroup ? C.wheat : C.muted, textAlign: "right", minWidth: 170 }}>
             {selected
               ? selected.name
-              : building
-                ? "drag a port dot to connect · drag from the catalogue to add · drag to move · Alt places off the grid · Delete removes"
+              : selectedGroup
+                ? `${selectedGroup.length} machines · drag one to move them all · Ctrl+C copies · Delete removes`
+                : building
+                ? "drag a port dot to connect · drag from the catalogue to add · drag to move · Alt places off the grid · drag the canvas to select · Shift+click adds · Space+drag pans · Ctrl+C / Ctrl+V copies · Delete removes"
                 : "click a machine · drag to pan · wheel to zoom"}
           </div>
         </div>
@@ -814,20 +945,22 @@ export default function PlantApp() {
                 vb={vb}
                 handlers={handlers}
                 wasDrag={wasDrag}
-                selectedId={selectedId}
+                selectedIds={selectedIds}
                 onSelect={onSelect}
                 simSnap={engine.snap.machines}
                 running={engine.running}
                 speed={engine.speed}
                 simTime={engine.snap.t}
                 onMachinePointerDown={building ? drag.onMachinePointerDown : undefined}
-                overlapId={drag.flashId}
+                overlapIds={drag.flashIds}
                 onPortPointerDown={building ? connectionDrag.onPortPointerDown : undefined}
                 selectedConnectionKey={building ? selectedConnectionKey : null}
                 onSelectConnection={building ? onSelectConnection : undefined}
                 connectionDraft={building ? connectionDrag.draft : null}
                 problemMachineIds={building ? problemIds : null}
                 highlightMachineIds={building ? highlightIds : null}
+                selectionBox={building ? boxSelect.box : null}
+                canvasCursor={boxing ? "crosshair" : "grab"}
               />
             )}
             {selected && !building && (
@@ -871,6 +1004,7 @@ export default function PlantApp() {
             <BuildPanel
               line={line}
               machine={selected}
+              group={selectedGroup}
               connection={selectedConnection}
               settingsOpen={settingsOpen}
               problemsOpen={problemsOpen}
@@ -880,6 +1014,7 @@ export default function PlantApp() {
               onEditField={onEditField}
               onEditText={onEditText}
               onDeleteMachine={onDeleteMachine}
+              onDeleteGroup={onDeleteGroup}
               onDeleteConnection={() => onDisconnect(selectedConnectionKey)}
               onGoToProblem={onGoToProblem}
             />
