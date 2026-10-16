@@ -11,7 +11,7 @@ Shows the latest run of each combo.
 | Combo | Ticket | Last run | SHA | PASS | FAIL | QUESTION | Bugs |
 |-------|--------|----------|-----|------|------|----------|------|
 | S1 Edges & Storage smoke | #97 | 2026-10-16 | 0cae43a | 106 | 8 | 4 | #123 #124 #125 #126 |
-| S2 Conveying smoke | #98 | | | | | | |
+| S2 Conveying smoke | #98 | 2026-10-16 | 862a656 | 88 | 7 | 3 | #128 #129 |
 | S3 Cleaning & treating smoke | #99 | | | | | | |
 | S4 Packaging smoke | #100 | | | | | | |
 | G1 Golden: treating section | #101 | | | | | | |
@@ -48,6 +48,8 @@ Each session keeps this list current, so later sessions know what to work around
 | A bin at 100 % blocks its feed with no event-log or problems entry | #125 | S1 | No |
 | Custom Discard bin has no capacity field (user decided to add one) | #127 | S1 | No |
 | Grain out shows no amount received and plots 0 t/h, so conservation can't be read at the end of a line. Discard bin popup also empty | #126 | S1 | No |
+| Belt, chain, conveyor, grain break, diverter and outlet valve popups show no values. The outlet valve has no manual open/close (only interlocks, CONTROLLED STOP, TRIP UTILITIES) | #128 | S2 | No |
+| A pendulum shortened below about 20 m draws outlet 2 before outlet 1 (the sim is right) | #129 | S2 | No |
 
 ## Entries
 
@@ -132,3 +134,84 @@ Screenshots: [S1-1 full buffer bin, empty event log](findings-img/S1-1.png) · [
 - Pre-bin → drum feeder or batch treater, to confirm the pre-bins work in Build mode when something pulls (pairs with #123).
 - Bin → a conveyor that's stopped, to see the level rise with the outlet still connected.
 - The golden Discard bin filled to 100 % (high scalpings fraction), to see whether #124 also happens on the golden line.
+
+## S2 Conveying smoke
+
+### S2 — 2026-10-16 — 862a656
+
+**Result:** 88 PASS · 7 FAIL · 3 QUESTION · blocked by: none
+**Tool:** Playwright only. Dev server on port 5180.
+
+**Steps**
+1. Cleared localStorage, reloaded, BUILD → NEW LINE. Each item got its own NEW LINE (DISCARD AND START NEW).
+2. Plain runs (belt, chain, conveyor, elevators, grain break): Grain in → item → Grain out. Feeders and valve: Grain in → custom Bin → item → Grain out. Diverter: both outlets to their own Grain out. Pendulum: Grain in → inlet 1, and each of the three outlets to its own Grain out. Machines were dragged from the catalogue and wired by dragging port dots. The PROBLEMS button was read after wiring.
+3. Right panel: for every number field, typed 2× the max, half the min, −1, the max, the min, then the default, pressing Enter each time. After each entry I deselected (Escape), reselected and read the value back. For length and height I also read the machine's drawn size (getBBox, read-only).
+4. SIM → 5× → RUN. Plotted the rates (and the Bin's level) from the popups and read the chart polylines (read-only). Transit is the gap between the Grain in curve and the item's curve at the same value (0.25, 0.5 and 1 t/h). The chart's rate lag is the same on both curves, so it cancels. Conservation integrates both curves over sim time to get tonnes. Grain out still plots 0 (#126), so the last hop is read from the item's own rate.
+5. Exercised each control: popup sliders (elevator and pendulum speed, drum gate, vibrating feed rate), the plant-control selectors (diverter, pendulum), and, for the outlet valve, an interlock built in the Interlocks window ("When BIN 1 is below 50 % for 1 s, close OUTLET VALVE 1"), since nothing else closes it.
+6. Which outlet gets grain was read from the connector flow overlay (opacity, read-only), the flapper line's coordinates, and the transit times.
+7. START OVER to compare the golden GRAIN BREAK, DIVERTER, AFTER-BIN OUTLET VALVE and BUCKET ELEVATOR popups.
+8. Checked console messages after every stage: no errors or warnings all session.
+
+**Checks.** Check numbers follow the ticket: 1 lands/name/maker · 2 wiring/problems · 3 flows and animates · 4 popup controls and readouts · 5 right-panel limits · 6 ports · 7 conservation · 8 console.
+
+| Item | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | Evidence |
+|------|---|---|---|---|---|---|---|---|----------|
+| Belt conveyor (Simatek B100) | PASS | PASS | PASS | **FAIL** #128 | PASS | PASS | PASS | PASS | 5–40 t/h, 2–60 m/min, 2–40 m. Typing 80, 2.5 or −1 is refused; the max and min are accepted. Flights dash while running. 12.00 in / 11.99 t/h out at 300 s. Popup: EVENT LOG and PLOT RATE only. |
+| Chain conveyor (Simatek E100) | PASS | PASS | PASS | **FAIL** #128 | PASS | PASS | PASS | PASS | 5–40 t/h, 2–30 m/min (default 10.08), 2–40 m, out-of-range refused. Flights lit while running ([S2-1](findings-img/S2-1.png)). 12.00 in / 11.97 out at 300 s. Popup empty, as for the belt. |
+| Bucket elevator (Simatek E200) | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | 5–40 t/h, 2–30 m/min, 4–20 m (default 8.731), out-of-range refused. Popup speed slider at 50 %: ST and canvas read 5.0 m/min with OVERRIDE, and the line throttles to its rating (Grain in and elevator both 10.0 t/h at 650 s, [S2-4](findings-img/S2-4.png)). 12.00 in / 11.98 out at 300 s. |
+| Pendulum conveyor (Simatek E200) | PASS | QUESTION | PASS | PASS | PASS | PASS | PASS | PASS | Lands far larger than the view (2073 px wide). With all three outlets and inlet 1 wired, PROBLEMS keeps "PENDULUM CONVEYOR 1: input not connected" for the unused inlet 2 (see questions). 5–40 t/h, 2–30 m/min, 15–60 m, out-of-range refused. Speed 50 % reads 5.0 m/min. Selector GRAIN OUT 1/2/3 in the top bar. In 1.7509 t, out 1.6662 t at 700 s; the gap, 0.0847 t, equals what sits on the 4.28 m path to outlet 1 (0.0848 t). |
+| Drum feeder (real) | – | – | – | – | – | – | – | – | Not listed: no maker and no sensors, so only the custom item is shown (#94, same rule as the S1 Discard bin answer). Not counted. |
+| Vibrating conveyor (real) | – | – | – | – | – | – | – | – | Not listed, same reason. Not counted. |
+| Outlet valve (real) | – | – | – | – | – | – | – | – | Not listed, same reason. Not counted. |
+| Diverter (real) | – | – | – | – | – | – | – | – | Not listed, same reason. Not counted. |
+| Grain break (real) | – | – | – | – | – | – | – | – | Not listed, same reason. Not counted. |
+| Conveyor (Custom) | PASS | PASS | PASS | **FAIL** #128 | PASS | PASS | PASS | PASS | "Custom". 0.5–200 t/h, 0.5–120 m/min, 1–150 m (4530 px at 150 m), out-of-range refused. In 0.2996 t, out 0.2059 t at 160 s; the gap is 30 s of transit at about 11.3 t/h (0.094 t). |
+| Bucket elevator (Custom) | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | "Custom". 0.5–200 t/h, 0.5–120 m/min, 2–50 m (1553 px tall at 50 m), out-of-range refused. Speed 0 %: ST 0.0 and the flow stops, Grain in held back. |
+| Vibrating conveyor (Custom) | PASS | PASS | PASS | PASS | PASS | PASS | PASS | PASS | "Custom". Feed rate 0–200 t/h (a minimum of 0 is kept, by the catalogue rule); 400 and −1 refused. The bed lights while conveying (by design it doesn't shake, #64). |
+| Drum feeder (Custom) | PASS | PASS | PASS | PASS | QUESTION | PASS | PASS | PASS | "Custom". The right panel has "no adjustable settings", so its capacity is fixed at about 12.5 t/h (see questions). The drum rotates while running (107° → 94° in 0.7 s). With the feeder pulling, the custom Bin passes grain through (level 0 %, 11.39 t/h everywhere), so #123 doesn't block this chain. |
+| Diverter (Custom) | PASS | PASS | PASS | **FAIL** #128 | PASS | PASS | PASS | PASS | No adjustable settings. Two outlets, both connect. In 0.2662 t = out 0.2662 t at 150 s. The selector works (see extras), but the popup is empty; the golden DIVERTER's is too. |
+| Outlet valve (Custom) | PASS | PASS | PASS | **FAIL** #128 | PASS | PASS | PASS | PASS | Maximum flow 0.5–200 t/h, out-of-range refused. Popup empty, with no open/close control anywhere; the golden AFTER-BIN OUTLET VALVE's is the same. Passes 11.39 t/h with the bin at 0 %. |
+| Grain break (Custom) | PASS | PASS | PASS | **FAIL** #128 | PASS | PASS | PASS | PASS | No adjustable settings. In 0.2665 t = out 0.2665 t at 150 s. Popup empty; the golden GRAIN BREAK's is too. |
+
+On check 1: as in S1, the maker shows in the catalogue and the right panel ("Simatek B100", "Custom"), not on the canvas.
+
+**Conveying extras**
+
+| # | Check | Expected | Actual | Result |
+|---|-------|----------|--------|--------|
+| X1 | Belt transit grows with length, shrinks with speed | ∝ length / speed | 10 m at 30 m/min: 20.0 s. 20 m: 40.0 s. 10 m at 60 m/min: 10.1 s | PASS |
+| X2 | Chain transit | ∝ length / speed | 10 m at 10.08 m/min: 59.5 s (expected 59.5). 5 m at 20.16: 14.9 s (expected 14.9) | PASS |
+| X3 | Elevator transit grows with height | ∝ height / speed | Real 8.731 m at 10.08 m/min: 52.0 s (expected 52.0). Custom 5 m at 10 m/min: 29.6–30.0 s. Pendulum outlet 3 at 31.087 m: 184.7 s (expected 185.0); at 15 m: 89.4 s | PASS |
+| X4 | Changing length or height redraws the machine at its new size | Redraws in proportion | Belt, chain, conveyor and both elevators redraw (e.g. chain 100 / 330 / 1230 px at 2 / 10 / 40 m). The pendulum redraws, but at 15 m outlet 2 is drawn before outlet 1 (x 524 vs 614), while the sim still puts it after ([S2-2](findings-img/S2-2.png)) | **FAIL** #129 |
+| X5 | Drum feeder: gate % sets the flow, 0 % gives none | Flow ∝ gate | Gate 50 %: 6.01 t/h, bin fills 0 → 36 %. Gate 0 %: the feeder decays to 0 and its connector goes dark, bin 36 → 81 %. Both fill rates give the same bin mass (about 1.19 t full) | PASS |
+| X6 | Vibrating conveyor: feed rate sets the flow, 0 gives none | Flow = set rate | 10 t/h: 9.5 and rising at 150 s, bin takes the 2 t/h surplus. 0: no flow, bin to 50 %. 20 t/h: bin drains 50 → 28 % | PASS |
+| X7 | Outlet valve: closed means no flow, open means flow | As stated | Closed by the interlock: valve 0 t/h, bin fills linearly to 50 % at 181 s (12 t/h into about 1.19 t). Then it opens and holds the bin at 50 %, the valve passing 10.5 t/h and rising ([S2-5](findings-img/S2-5.png)). CONTROLLED STOP also closes it, but stops Grain in too | PASS |
+| X8 | Diverter: selector moves the flapper, grain only to the selected outlet | As stated | Default outlet 1: flapper line points left (16,16 → 4,16), only outlet 1's connector flows. GRAIN OUT 2: flapper flips right (→ 28,16) and only outlet 2's connector flows ([S2-6](findings-img/S2-6.png)) | PASS |
+| X9 | Pendulum: grain stops at the selected outlet, and switching reroutes it | As stated | Outlet 1 at 31 m transits in 25.4 s (inferred from the conservation gap), outlet 2 in 57.1 s at 15 m, outlet 3 in 184.7 s. Switching 3 → 1 at 250 s: new grain goes to outlet 1, while grain already on the chain keeps going to outlet 3 (#69). The pendulum's output peaks at 17.2 t/h as both drain, then settles at 12, and the totals balance (row above). But outlet 3's connector stops animating within 15 s while grain still lands there ([S2-3](findings-img/S2-3.png), see questions) | PASS |
+
+Screenshots: [S2-1 chain popup empty while running](findings-img/S2-1.png) · [S2-2 pendulum at 15 m, outlets out of order](findings-img/S2-2.png) · [S2-3 pendulum after switching to outlet 1](findings-img/S2-3.png) · [S2-4 elevator at 50 % speed](findings-img/S2-4.png) · [S2-5 outlet valve held closed by an interlock](findings-img/S2-5.png) · [S2-6 diverter switched to outlet 2](findings-img/S2-6.png)
+
+**Bugs filed / commented**
+- #128 Belt, chain, grain break, diverter and outlet valve popups show no values while running (new)
+- #129 Shortening the pendulum conveyor draws outlet 2 before outlet 1 (new)
+
+**Questions for the user**
+- A pendulum with only one of its two inlets wired shows "PENDULUM CONVEYOR 1: input not connected" in PROBLEMS, and the message doesn't say which inlet. The line still runs. Should an unused second inlet count as a problem, and if it should, should the message name the inlet?
+- The custom **Drum feeder** has no adjustable settings, so its capacity is fixed at about 12.5 t/h (the real feeder's rate); only the gate % changes the flow. The other custom items reach the wide limits. Should the custom drum feeder get a rate or capacity field (0.5–200 t/h)?
+- After a pendulum switches outlet, grain already on the chain still discharges at the old outlet for up to about 160 s, as #69 intends. The old outlet's connector stops animating at once, though, so it looks as if nothing is arriving there. Should a connector keep animating until the chain has cleared it?
+
+**Observations**
+- RESTART clears the shared chart's plots and resets the plant-control selectors (the pendulum went back to GRAIN OUT 3). A BUILD → SIM round trip also clears the plots. Each run had to re-plot after RESTART.
+- In SIM, the first view of a new line is zoomed far out, and FIT ALL fits the line under the chart dock, hiding the bottom machines. Each run needed a wheel zoom-out to see Grain out.
+- The pendulum lands at about 2073 × 818 px, much bigger than the view, so its ports are off screen until FIT ALL.
+- A bucket elevator at 50 % throttles Grain in from 12 to 10 t/h with no event or problems entry. Grain in's popup still reads 12 t/h. Same theme as #125.
+- The diverter's flapper doesn't redraw when the selector changes while paused; it flips on the next step. The routing itself changes at once.
+- The outlet valve can only be closed by an interlock, CONTROLLED STOP or TRIP UTILITIES. There's no manual open/close (included in #128).
+- The real drum feeder, vibrating conveyor, outlet valve, diverter and grain break aren't in the catalogue (no maker, no sensors). The ticket lists them as real items; only their custom versions exist.
+- The chart's rate line lags the flow, as S1 noted. Grain in's plotted rate reaches 11.4 t/h only at about 150 s. Transit and conservation were read by comparing curves under the same lag, not from the raw values.
+
+**Follow-up combo ideas**
+- Pendulum with both inlets fed (merge), and both ports of a diverter fed back into one machine (pairs with B2).
+- Pendulum shortened to 15 m, then outlet 2 selected, on a full line, to confirm grain reaches the right bin after #129 is fixed.
+- Bucket elevator throttled by its speed % feeding a bin, to check the bin's level matches the reduced rate.
+- Custom Bin → drum feeder → batch treater, to see whether #123 changes with a batch machine downstream of a feeder.
