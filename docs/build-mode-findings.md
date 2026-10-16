@@ -12,7 +12,7 @@ Shows the latest run of each combo.
 |-------|--------|----------|-----|------|------|----------|------|
 | S1 Edges & Storage smoke | #97 | 2026-10-16 | 0cae43a | 106 | 8 | 4 | #123 #124 #125 #126 |
 | S2 Conveying smoke | #98 | 2026-10-16 | 862a656 | 88 | 7 | 3 | #128 #129 |
-| S3 Cleaning & treating smoke | #99 | | | | | | |
+| S3 Cleaning & treating smoke | #99 | 2026-10-16 | 6e8dedb | 38 | 7 | 3 | #128 #130 |
 | S4 Packaging smoke | #100 | | | | | | |
 | G1 Golden: treating section | #101 | 2026-10-16 | 6e8dedb | 48 | 5 | 7 | #131 |
 | G2 Golden: outload | #102 | | | | | | |
@@ -51,6 +51,8 @@ Each session keeps this list current, so later sessions know what to work around
 | Belt, chain, conveyor, grain break, diverter and outlet valve popups show no values. The outlet valve has no manual open/close (only interlocks, CONTROLLED STOP, TRIP UTILITIES) | #128 | S2 | No |
 | A pendulum shortened below about 20 m draws outlet 2 before outlet 1 (the sim is right) | #129 | S2 | No |
 | No real catalogue item for the golden metal remover, drum feeder, outlet valve, scalping screen or discard bin; only the custom ones are listed. Use the custom items as stand-ins | #131 | G1 | No |
+| Metal remover, auto sampler, scalping screen and batch treater popups have no live readouts (only sliders, or nothing). Same on the golden line | #128 | S3 | No |
+| A batch treater fed through a drum feeder (or starved) draws an empty drum with its chute discharging while it fills. The sim itself is right | #130 | S3 | No |
 
 ## Entries
 
@@ -290,3 +292,74 @@ Screenshots: [G1-1 golden baseline run](findings-img/G1-1.png) · [G1-2 rebuilt 
 **Follow-up combo ideas**
 - G4: rebuild the buffer-bin, pre-bin and after-bin interlocks and the pre-bin feed schedule on top of G1.json, then compare the pre-bin band (33–46 %) and the popup set point sliders with golden.
 - Re-run G1 check 1 once #131 is decided, with the real items if they are listed.
+
+## S3 Cleaning and treating smoke
+
+### S3 — 2026-10-16 — 6e8dedb
+
+**Result:** 38 PASS · 7 FAIL · 3 QUESTION · blocked by: none (#126 still hides Grain out's amount, so I read the last hop from an Auto sampler placed just before it)
+**Tool:** Playwright only. Dev server on port 5181.
+
+**Steps**
+1. Cleared localStorage, reloaded, BUILD → NEW LINE. Each item got its own NEW LINE (DISCARD AND START NEW).
+2. Metal remover and Auto sampler: Grain in → item → Grain out. After the first run I wired the metal remover's waste port to a custom Discard bin.
+3. Scalping screen: Grain in → screen. Product went to Auto sampler 1 → Grain out, and waste to Auto sampler 2 → Discard bin. A pass-through sampler plots its own rate, so each branch could be measured even though Grain out plots 0 (#126). The first run had the waste port left open; the second had it wired.
+4. Batch treater (real, then Custom): first Grain in → treater → Grain out, to read PROBLEMS and the right panel. Then a new line: Grain in → Bin (Custom) → Drum feeder (Custom) → treater → Auto sampler → Grain out, with the waste outlet → Discard bin. Once, I also fed the real treater's chemical inlet from a second Grain in to see whether it connects.
+5. Right panel: for every number field I typed 2× the max, a value below the min, −1, the max, the min, then the default, pressing Enter each time. After each entry I deselected, reselected and read the value back.
+6. SIM → 5× (20× for the long treater runs) → RUN. I plotted rates and levels from the popups and read the chart polylines (read-only). On the chart, y = 235 is zero and y = 14 is the top of the axis; the right axis tops out at 15 t/h. I timed treater cycles from the drops in its plotted level. The treater's plotted rate lags, so its conservation check counts discharged batches × batch size instead.
+7. Exercised the popup sliders: scalpings split, batch size, cycle time, and Grain in's source rate (set to 0 to starve the treater).
+8. SETTINGS → START OVER, to compare against the golden line's METAL REMOVER, TREATMENT SCALPING SCREEN, NIKLAS WNS/200 BATCH TREATER and AUTO SAMPLER popups and its PROBLEMS list.
+9. Checked console messages after every stage. There were no errors or warnings all session.
+
+**Checks.** Check numbers follow the ticket: 1 lands/name/maker · 2 wiring/problems · 3 flows and animates · 4 popup controls and readouts · 5 right-panel limits · 6 ports · 7 conservation · 8 console.
+
+| Item | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | Evidence |
+|------|---|---|---|---|---|---|---|---|----------|
+| Metal remover (real) | – | – | – | – | – | – | – | – | Not listed. It has no maker and no sensors, so only the custom item is shown (#94, the same rule as in S1 and S2). Not counted. |
+| Scalping screen (real) | – | – | – | – | – | – | – | – | Not listed, same reason. Not counted. |
+| Auto sampler (real) | – | – | – | – | – | – | – | – | Not listed, same reason. Not counted. |
+| Batch treater (Niklas WNS/200) | PASS | PASS | **FAIL** #130 | **FAIL** #128 | PASS | PASS | PASS | PASS | "Niklas WNS/200" shows in the catalogue and the right panel. With the chemical inlet and the waste outlet open, PROBLEMS reads "BATCH TREATER 1: input not connected" and "output not connected". Wiring the waste to a Discard bin clears the second one. Limits are 40–300 kg and 10–90 s: 600, 20 and −1 kg are refused, and so are 180, 5 and −1 s. It cycles correctly, but while it fills from the drum feeder the drum is drawn empty with the chute lit ([S3-4](findings-img/S3-4.png)). The popup sliders work (see extras), but the popup has no readouts. All four ports connect. At 680 s: in = 12 t/h × 680 s = 2.267 t. Out = 7 batches × 160 kg = 1.120 t, plus 1.12 t in the bin and 0.028 t in the treater (17 % of 160 kg), for 2.268 t. |
+| Metal remover (Custom) | PASS | PASS | PASS | **FAIL** #128 | PASS | PASS | PASS | PASS | "Custom". With the waste port open, PROBLEMS reads "METAL REMOVER 1: output not connected", and wiring the waste to a Discard bin clears it. It has no adjustable settings, since a pass-through has no rate to limit. 12 t/h passes through. The magnet symbol doesn't move (by design), and the connectors animate. At 249 s, 0.6057 t went in and 0.6057 t came through, with nothing to waste. The popup has only EVENT LOG and PLOT RATE, the same as the golden METAL REMOVER. |
+| Scalping screen (Custom) | PASS | PASS | PASS | **FAIL** #128 | QUESTION | PASS | PASS | PASS | "Custom". Rated capacity is 0.5–200 t/h: 400, 0.25 and −1 are refused, and 200 and 0.5 are accepted. The scalpings split keeps the real 0–20 %, and 40 and −1 are refused (see questions). The mesh lights gold while grain flows. The popup has a split slider that works, but no readouts. At 652 s: in 1.9352 t = product 1.6968 t + scalpings 0.2384 t. |
+| Batch treater (Custom) | PASS | PASS | **FAIL** #130 | **FAIL** #128 | PASS | PASS | PASS | PASS | "Custom". Limits are 1–5000 kg and 1–600 s: 10000, 0.5 and −1 kg are refused, and so are 1200, 0.5 and −1 s; 5000 kg, 1 kg, 600 s and 1 s are accepted. Set to 20 kg / 5 s (below the real minimums), it cycles every 11.1 s: a 6 s fill plus 5 s. At 66 % it is drawn empty with the chute lit ([S3-7](findings-img/S3-7.png)). The in, out and waste ports connect, and the chemical inlet is the same port as on the real item. At 213 s: in = 12 t/h × 213 s = 0.710 t. Out = 19 batches × 20 kg = 0.380 t, plus 0.32 t in the bin and 0.013 t in the treater (66 % of 20 kg), for 0.713 t. |
+| Auto sampler (Custom) | PASS | PASS | PASS | **FAIL** #128 | PASS | PASS | PASS | PASS | "Custom", with a small label. It has no adjustable settings. 12 t/h passes through: at 215 s, 0.4917 t went in and 0.4917 t came through. The symbol doesn't move and takes no sample, because the item is a pass-through. The popup has only EVENT LOG and PLOT RATE, as on the golden AUTO SAMPLERs. |
+
+On check 1: as in S1 and S2, the maker shows in the catalogue and the right panel, not on the canvas.
+
+**Treating extras**
+
+| # | Check | Expected | Actual | Result |
+|---|-------|----------|--------|--------|
+| T1 | Scalping screen: product goes out its product port and scalpings out its waste port, in the set ratio | The split matches the setting | At 10 %: product 10.80 t/h and scalpings 1.20 t/h, out of 12.00. With the popup slider at 20 %, it settles toward 9.61 / 2.39 t/h ([S3-2](findings-img/S3-2.png)) | PASS |
+| T2 | Scalping screen with the waste port left open | PROBLEMS says so, or the waste is visibly lost | PROBLEMS: "SCALPING SCREEN 1: output not connected". The line still runs and the 10 % disappears with no sign: 10.90 of 12.09 t/h reaches the product side, and nothing shows where the rest went ([S3-1](findings-img/S3-1.png)). PROBLEMS does say so, which meets the pass rule | PASS |
+| T3 | Metal remover: the waste port exists and connects, and product passes through | As stated | The waste port is there (red dot, right side). It wires to a Discard bin, PROBLEMS clears, and 12 t/h passes through | PASS |
+| T4 | Batch treater fills a batch, mixes, discharges, and repeats | The cycle repeats | Through the drum feeder it fills 0 → 100 % in 47.9 s, holds for 48 s, discharges in one step, and repeats every 95.9 s (7 discharges by 680 s). The drum staves turn throughout ([S3-3](findings-img/S3-3.png)). The drawing during the fill is wrong (#130, counted above) | PASS |
+| T5 | Batch size and cycle time change the cycle | The period changes | Popup cycle time 48 → 10 s: the period goes from 95.9 to 58.0 s. Popup batch size 160 → 40 kg: 21.9 s ([S3-5](findings-img/S3-5.png)). Right panel set to 300 kg / 90 s: 180.4 s (a 90 s fill plus 90 s) | PASS |
+| T6 | Fed from a Bin through a Drum feeder, the treater can be starved and filled | It waits when starved | With Grain in set to 0, the bin drains from 0.60 t to 0 in 300 kg batches. The treater then holds a 1.4 % part batch and waits; the level stayed the same for 160 sim-seconds ([S3-6](findings-img/S3-6.png)). While the treater is full and holding, the drum feeder stops and the bin fills. At 12 t/h in, the bin reaches 95 % at 680 s and then throttles Grain in with no message (#125) | PASS |
+| T7 | Batch treater chemical inlet | – | No catalogue item can feed it, so PROBLEMS never clears on a line with a treater; the golden line shows the same two problems. A second Grain in wired to the chemical inlet is accepted and PROBLEMS clears ("This line has no problems"). That grain goes into the batch as if the port were the grain inlet: both Grain ins feed 4.07 t/h | QUESTION |
+| T8 | Batch treater throughput through a drum feeder | – | The cycle is the fill time plus the cycle time, because the feeder fills the treater at about 12 t/h. So a 160 kg / 48 s treater passes about 6.0 t/h, not its 12 t/h rating, and the bin in front of it backs up. On the golden line the pre-bin charges the treater in one tick, so the 48 s is the whole cycle | QUESTION |
+
+Screenshots: [S3-1 screen with the waste open](findings-img/S3-1.png) · [S3-2 screen split at 20 %](findings-img/S3-2.png) · [S3-3 treater fed by two Grain ins, one on the chemical inlet](findings-img/S3-3.png) · [S3-4 real treater drawn empty while filling](findings-img/S3-4.png) · [S3-5 40 kg / 10 s cycles](findings-img/S3-5.png) · [S3-6 treater starved](findings-img/S3-6.png) · [S3-7 custom treater drawn empty at 66 %](findings-img/S3-7.png). Line file: [S3.json](findings-lines/S3.json) (Grain in → Bin → Drum feeder → Batch treater → Auto sampler → Grain out, set to 300 kg / 90 s).
+
+**Bugs filed / commented**
+- #128 Belt, chain, grain break, diverter and outlet valve popups show no values while running (existing, commented: adds the metal remover, auto sampler, scalping screen and both batch treaters)
+- #130 Batch treater fed by a drum feeder draws an empty drum with its chute discharging while it fills (new)
+
+**Questions for the user**
+- The custom **Scalping screen** keeps the real 0–20 % limit on its scalpings split, because the custom rule keeps a percentage's real limits. The ticket expected "% stays 0–100". Should the custom screen's split reach 0–100 %, or is 0–20 % right?
+- No catalogue item can feed the **batch treater's chemical inlet**, so any line with a treater always shows "BATCH TREATER: input not connected" (the golden line does too). A Grain in wired to that inlet is accepted, clears PROBLEMS, and feeds grain into the batch. Should an open chemical inlet stop counting as a problem? And should a grain source be refused on it?
+- Fed through a **drum feeder**, the batch treater's cycle is its fill time plus its cycle time, so the Niklas passes about 6 t/h instead of 12 t/h. On the golden line the pre-bin charges it in one tick. Is the longer cycle right for a treater fed by a feeder, or should the cycle time include the fill?
+
+**Observations**
+- PROBLEMS says "input not connected" or "output not connected" without naming the port. For the scalping screen, metal remover and treater it doesn't say that it means the waste port or the chemical inlet (S2 found the same for the pendulum's second inlet).
+- The metal remover never sends anything to its waste port. It's a pass-through, so wiring the waste to a Discard bin changes nothing.
+- The auto sampler doesn't take a sample either; it's also a pass-through.
+- Nothing goes in the event log when a treater is full or starved, or when the bin behind it backs up (#125).
+- The batch treater's waste outlet connector is drawn red, like the screen's waste connector.
+- On a new line the treater's canvas name is "BATCH TREATER 1". On the golden line it is "NIKLAS WNS/200 BATCH TREATER", because there the maker is part of the name.
+- When the view zooms out to fit a tall line, the port dots shrink to about 4 px, so a drag has to land precisely to wire.
+
+**Follow-up combo ideas**
+- Treater pre-bin → batch treater in Build mode, to compare a one-tick charge with the drum-feeder fill (pairs with #123 and T8).
+- A scalping screen whose waste goes to a Discard bin that fills, to see whether the screen throttles (pairs with #124).
+- Two batch treaters in series (B4), now that a single one is known to cycle correctly.
