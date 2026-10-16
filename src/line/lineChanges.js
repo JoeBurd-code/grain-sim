@@ -4,7 +4,11 @@
 // (issue #87) { delete: id } for each machine the user deleted and
 // { add: machine } for each machine the user added, stored whole, and
 // (issue #88) { connect: { from, to, kind } } for each connection the user
-// made and { disconnect: { from } } for each one they removed. Browser
+// made and { disconnect: { from } } for each one they removed, and (issue
+// #95) { list, put: rule } for each interlock, machine rule or feed rate
+// link the user added or changed, stored whole, { list, remove: id } for
+// each one they deleted, and { dismissSuggestion: id } for each suggested
+// interlock they crossed out. Browser
 // autosave stores this list for the golden line, never the whole line, so
 // every value the user did not change comes from the golden line in the
 // repo on the next load.
@@ -72,7 +76,8 @@ export function diffFromBase(base, line) {
   const lineSignatures = new Set(line.connections.map(connectionSignature));
   for (const c of line.connections) {
     if (!baseSignatures.has(connectionSignature(c))) {
-      changes.push({ connect: { from: c.from, to: c.to, kind: c.kind } });
+      // A pasted copy of a drawn connection keeps its bend points.
+      changes.push({ connect: { from: c.from, to: c.to, kind: c.kind, ...(c.via ? { via: c.via } : {}) } });
     }
   }
   const machineIds = new Set(line.machines.map((m) => m.id));
@@ -83,8 +88,34 @@ export function diffFromBase(base, line) {
     if (!machineIds.has(c.from.machine) || !machineIds.has(c.to.machine)) continue;
     changes.push({ disconnect: { from: c.from } });
   }
+
+  // Rules are compared by id. One the base does not have, or has with
+  // anything different, is stored whole, so a repo fix to a rule the user
+  // changed never half-reaches it. A set point or delay the machine's own
+  // fields hold is already a value change above, so rules are compared
+  // against the base with those value changes made.
+  const valued = applyChanges(base, changes.filter((c) => c.field !== undefined));
+  for (const list of RULE_LISTS) {
+    const baseRules = new Map((valued[list] ?? []).map((r) => [r.id, r]));
+    const lineIds = new Set((line[list] ?? []).map((r) => r.id));
+    for (const r of line[list] ?? []) {
+      const was = baseRules.get(r.id);
+      if (!was || JSON.stringify(was) !== JSON.stringify(r)) changes.push({ list, put: r });
+    }
+    for (const id of baseRules.keys()) {
+      if (!lineIds.has(id)) changes.push({ list, remove: id });
+    }
+  }
+  const baseDismissed = new Set(base.dismissedSuggestions ?? []);
+  for (const id of line.dismissedSuggestions ?? []) {
+    if (!baseDismissed.has(id)) changes.push({ dismissSuggestion: id });
+  }
   return changes;
 }
+
+// The parts of a line that hold rules with ids, saved as changes the same
+// way.
+const RULE_LISTS = ["interlocks", "machineRules", "feedRateDerivations"];
 
 const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
@@ -103,12 +134,20 @@ function isEndpoint(end) {
   return isObject(end) && typeof end.machine === "string" && typeof end.port === "string";
 }
 
+const isPoint = (p) => isObject(p) && Number.isFinite(p.x) && Number.isFinite(p.y);
+
 function isChange(c) {
   if (!isObject(c)) return false;
+  if (c.list !== undefined) {
+    if (!RULE_LISTS.includes(c.list)) return false;
+    return c.put !== undefined ? isObject(c.put) && typeof c.put.id === "string" : typeof c.remove === "string";
+  }
+  if (c.dismissSuggestion !== undefined) return typeof c.dismissSuggestion === "string";
   if (c.delete !== undefined) return typeof c.delete === "string";
   if (c.add !== undefined) return isMachine(c.add);
   if (c.connect !== undefined) {
-    return isEndpoint(c.connect.from) && isEndpoint(c.connect.to) && typeof c.connect.kind === "string";
+    return isEndpoint(c.connect.from) && isEndpoint(c.connect.to) && typeof c.connect.kind === "string"
+      && (c.connect.via === undefined || (Array.isArray(c.connect.via) && c.connect.via.every(isPoint)));
   }
   if (c.disconnect !== undefined) return isEndpoint(c.disconnect.from);
   if (c.text !== undefined) return typeof c.machine === "string" && (c.text === "name" || c.text === "tag") && typeof c.value === "string";
@@ -124,10 +163,43 @@ function addStoredMachine(line, machine) {
   return { ok: true, line: placed };
 }
 
+// A stored rule replaces the line's rule with its id, or joins the end of
+// the list. A rule that names a machine the line no longer has stays on
+// the line, off (interlocks.js isRuleOff), as after a delete.
+function putRule(line, list, rule) {
+  const rules = line[list] ?? [];
+  const at = rules.findIndex((r) => r.id === rule.id);
+  const next = at === -1 ? [...rules, rule] : rules.map((r, i) => (i === at ? rule : r));
+  return { ok: true, line: { ...line, [list]: next } };
+}
+
+function removeRule(line, list, id) {
+  const rules = line[list] ?? [];
+  if (!rules.some((r) => r.id === id)) return { ok: false };
+  return { ok: true, line: { ...line, [list]: rules.filter((r) => r.id !== id) } };
+}
+
+function dismiss(line, id) {
+  const dismissed = line.dismissedSuggestions ?? [];
+  if (dismissed.includes(id)) return { ok: true, line };
+  return { ok: true, line: { ...line, dismissedSuggestions: [...dismissed, id] } };
+}
+
+// connectPorts makes a connection with no drawing; a stored one with bend
+// points gets them back.
+function connectStored(line, connect) {
+  const result = connectPorts(line, connect.from, connect.to);
+  if (!result.ok || !connect.via) return result;
+  const connections = result.line.connections.map((c, i, all) => (i === all.length - 1 ? { ...c, via: connect.via } : c));
+  return { ok: true, line: { ...result.line, connections } };
+}
+
 function applyChange(line, c) {
+  if (c.list !== undefined) return c.put !== undefined ? putRule(line, c.list, c.put) : removeRule(line, c.list, c.remove);
+  if (c.dismissSuggestion !== undefined) return dismiss(line, c.dismissSuggestion);
   if (c.delete !== undefined) return deleteMachine(line, c.delete);
   if (c.add !== undefined) return addStoredMachine(line, c.add);
-  if (c.connect !== undefined) return connectPorts(line, c.connect.from, c.connect.to);
+  if (c.connect !== undefined) return connectStored(line, c.connect);
   if (c.disconnect !== undefined) return disconnectConnection(line, c.disconnect.from);
   if (c.text !== undefined) return setMachineText(line, c.machine, c.text, c.value);
   return c.position ? moveMachine(line, c.machine, c.position) : setAdjustableValue(line, c.machine, c.field, c.value);

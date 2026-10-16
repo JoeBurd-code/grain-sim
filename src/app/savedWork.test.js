@@ -5,7 +5,10 @@ import { describe, it, expect } from "vitest";
 import { loadSavedWork, storeWork, clearSavedWork, hasUnsavedWork, SAVED_WORK_KEY } from "./savedWork";
 import { goldenLine, GOLDEN_LINE_NAME } from "../line/goldenLine";
 import { setAdjustableValue, readAdjustableValue } from "../line/adjustableFields";
-import { exportLine, moveMachine, addMachine, deleteMachine, emptyLine } from "../line/lineDocument";
+import {
+  exportLine, moveMachine, addMachine, deleteMachine, emptyLine, copyMachines, pasteMachines,
+} from "../line/lineDocument";
+import { ruleMachines } from "../line/interlocks";
 
 const GOLDEN = { line: goldenLine, name: GOLDEN_LINE_NAME, fromFile: false };
 
@@ -127,6 +130,21 @@ describe("loadSavedWork", () => {
     const loaded = loadSavedWork(GOLDEN, () => storage);
     expect(loaded.fromFile).toBe(false);
     expect(loaded.line).toEqual(added.line);
+  });
+
+  // Issue #95: a pasted group brings its interlocks, and on the golden line
+  // they come back after a reload with the machines and connections.
+  it("brings back a pasted golden line group with its interlocks after a reload", () => {
+    const rule = goldenLine.interlocks.find((r) => {
+      const named = ruleMachines(r);
+      return named.length > 1 && named.every((id) => goldenLine.machines.some((m) => m.id === id));
+    });
+    const pasted = pasteMachines(goldenLine, copyMachines(goldenLine, ruleMachines(rule)), { x: 0, y: -3000 });
+    expect(pasted.ok).toBe(true);
+    expect(pasted.line.interlocks.length).toBeGreaterThan(goldenLine.interlocks.length);
+    const storage = memoryStorage();
+    storeWork(GOLDEN, { ...GOLDEN, line: pasted.line }, () => storage);
+    expect(loadSavedWork(GOLDEN, () => storage).line).toEqual(pasted.line);
   });
 
   it("does not take a later golden line fix into an opened file", () => {

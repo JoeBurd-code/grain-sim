@@ -7,6 +7,7 @@ import {
   connectPorts, disconnectConnection, setMachineText,
 } from "./lineDocument";
 import { readAdjustableValue } from "./adjustableFields";
+import { addInterlock, removeInterlock, setSentenceField, setSentenceReset } from "./sentenceEditor";
 import { goldenLine } from "./goldenLine";
 
 function edit(line, ...edits) {
@@ -317,5 +318,92 @@ describe("connects and disconnects as changes", () => {
     const edited = connect(disconnect(added.line, bufferBinOut), bufferBinOut, { machine: added.id, port: "in" });
     const changes = diffFromBase(goldenLine, edited);
     expect(applyChanges(goldenLine, changes)).toEqual(edited);
+  });
+});
+
+// Issue #95 follow-up: interlock edits on the golden line were never part
+// of its saved changes, so every one was lost on reload. Each interlock is
+// compared by id and stored whole when it is new or changed.
+describe("interlocks, machine rules and feed rate links as changes", () => {
+  const sentence = goldenLine.interlocks.find((r) => typeof r.when?.setpoint === "number");
+  const ok = (result) => {
+    if (!result.ok) throw new Error(result.error);
+    return result.line;
+  };
+  const add = (line, itemId, pos) => {
+    const result = addMachine(line, itemId, pos);
+    if (!result.ok) throw new Error(result.error);
+    return result;
+  };
+  const connect = (line, from, to) => ok(connectPorts(line, from, to));
+
+  it("finds no interlock changes in an untouched line", () => {
+    expect(diffFromBase(goldenLine, goldenLine).filter((c) => c.list)).toEqual([]);
+  });
+
+  it("stores a changed golden line interlock whole", () => {
+    const edited = ok(setSentenceReset(goldenLine, sentence.id, sentence.reset === "auto" ? "latched" : "auto"));
+    const changes = diffFromBase(goldenLine, edited);
+    expect(changes).toEqual([{ list: "interlocks", put: edited.interlocks.find((r) => r.id === sentence.id) }]);
+    expect(applyChanges(goldenLine, changes)).toEqual(edited);
+  });
+
+  it("stores a set point a machine's field holds as that field only", () => {
+    const edited = ok(setSentenceField(goldenLine, sentence.id, "when", "setpoint", 0.5));
+    const changes = diffFromBase(goldenLine, edited);
+    expect(changes.filter((c) => c.list)).toEqual([]);
+    expect(applyChanges(goldenLine, changes)).toEqual(edited);
+  });
+
+  it("stores an added interlock and a deleted one, and reproduces both", () => {
+    const added = addInterlock(goldenLine);
+    const edited = ok(removeInterlock(added.line, sentence.id));
+    const changes = diffFromBase(goldenLine, edited);
+    expect(changes).toEqual([
+      { list: "interlocks", put: edited.interlocks.find((r) => r.id === added.id) },
+      { list: "interlocks", remove: sentence.id },
+    ]);
+    expect(applyChanges(goldenLine, changes)).toEqual(edited);
+  });
+
+  it("stores a dismissed suggestion, so it is not proposed again after a reload", () => {
+    const edited = { ...goldenLine, dismissedSuggestions: ["suggested-high-a-b"] };
+    const changes = diffFromBase(goldenLine, edited);
+    expect(changes).toEqual([{ dismissSuggestion: "suggested-high-a-b" }]);
+    expect(applyChanges(goldenLine, changes).dismissedSuggestions).toEqual(["suggested-high-a-b"]);
+  });
+
+  it("stores a changed machine rule and a deleted feed rate link", () => {
+    const rule = { ...goldenLine.machineRules[0], signalDelaySec: 9 };
+    const edited = {
+      ...goldenLine,
+      machineRules: goldenLine.machineRules.map((r) => (r.id === rule.id ? rule : r)),
+      feedRateDerivations: goldenLine.feedRateDerivations.slice(1),
+    };
+    const changes = diffFromBase(goldenLine, edited);
+    expect(changes).toEqual([
+      { list: "machineRules", put: rule },
+      { list: "feedRateDerivations", remove: goldenLine.feedRateDerivations[0].id },
+    ]);
+    expect(applyChanges(goldenLine, changes)).toEqual(edited);
+  });
+
+  it("ignores a remove of an interlock the base does not have, and malformed entries", () => {
+    const line = applyChanges(goldenLine, [
+      { list: "interlocks", remove: "no-such-interlock" },
+      { list: "interlocks", put: "not a rule" },
+      { list: "nonsense", put: { id: "x" } },
+      { dismissSuggestion: 7 },
+    ]);
+    expect(line).toEqual(goldenLine);
+  });
+
+  it("keeps a pasted connection's bend points", () => {
+    const a = add(goldenLine, "grain-in", { x: 0, y: -900 });
+    const b = add(a.line, "grain-out", { x: 300, y: -900 });
+    const wired = connect(b.line, { machine: a.id, port: "out" }, { machine: b.id, port: "in" });
+    const via = [{ x: 200, y: -880 }];
+    const edited = { ...wired, connections: wired.connections.map((c) => (c.from.machine === a.id ? { ...c, via } : c)) };
+    expect(applyChanges(goldenLine, diffFromBase(goldenLine, edited))).toEqual(edited);
   });
 });
