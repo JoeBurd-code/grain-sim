@@ -11,6 +11,9 @@
 // items. An item drops the golden machine's set point and signal delay
 // fields, because those values live on the interlocks, and an added machine
 // has none yet.
+//
+// Each item with a maker also has a generic version (issue #94), made here
+// rather than kept as a file.
 
 const files = import.meta.glob("./items/*.json", { eager: true, import: "default" });
 
@@ -25,15 +28,39 @@ export const CATALOGUE_GROUPS = [
 
 const groupOrder = new Map(CATALOGUE_GROUPS.map((g, i) => [g.id, i]));
 
-// Grouped in panel order, then by name.
-export const CATALOGUE = Object.values(files).sort(
-  (a, b) => groupOrder.get(a.group) - groupOrder.get(b.group) || a.name.localeCompare(b.name),
+// Issue #94: each item with a maker also comes as a generic item, the same
+// machine with no maker or model, so a user can build a line without
+// choosing a brand. Generic items are made here rather than kept as files,
+// so a maker's change to an item reaches its generic version too.
+function genericVersion(item) {
+  return {
+    ...item, id: `${item.id}-generic`, maker: "", model: "",
+    genericOf: item.id, machine: structuredClone(item.machine),
+  };
+}
+
+const fileItems = Object.values(files);
+
+// Grouped in panel order, then by name, each generic item right after the
+// branded one it copies.
+export const CATALOGUE = [...fileItems, ...fileItems.filter((item) => item.maker !== "").map(genericVersion)].sort(
+  (a, b) => groupOrder.get(a.group) - groupOrder.get(b.group)
+    || a.name.localeCompare(b.name)
+    || Number(a.genericOf !== undefined) - Number(b.genericOf !== undefined),
 );
 
 const byId = new Map(CATALOGUE.map((item) => [item.id, item]));
 
 export function catalogueItem(id) {
   return byId.get(id);
+}
+
+// The maker line an item shows in the catalogue and the Build panel: its
+// maker and model, or "Generic" for a machine with no maker. Grain in and
+// Grain out are plant edges, not machines anyone makes, and show nothing.
+export function makerLabel(item) {
+  if (item.maker !== "") return [item.maker, item.model].filter(Boolean).join(" ");
+  return item.group === "edges" ? "" : "Generic";
 }
 
 // The items whose name contains `query`, ignoring case.

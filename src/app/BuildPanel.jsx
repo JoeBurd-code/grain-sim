@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { adjustableFields, readAdjustableValue } from "../line/adjustableFields";
 import { differsFromDefault } from "../line/lineDocument";
-import { catalogueItem } from "../catalogue/catalogue";
+import { catalogueItem, makerLabel } from "../catalogue/catalogue";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 
 const BUILD_PANEL_WIDTH = 280;
@@ -199,10 +199,8 @@ function MachineSettings({ line, machine, onEditField, onEditText, onDeleteMachi
       <div style={headingStyle}>{machine.name}</div>
       <TextFieldRow label="name" value={machine.name} onCommit={(v) => onEditText(machine.id, "name", v)} />
       <TextFieldRow label="tag" value={machine.tag} onCommit={(v) => onEditText(machine.id, "tag", v)} />
-      {item && (
-        <div style={{ fontSize: 9, color: C.muted, marginTop: 10 }}>
-          {item.maker || "—"} &middot; {item.model || "—"}
-        </div>
+      {item && makerLabel(item) && (
+        <div style={{ fontSize: 9, color: C.muted, marginTop: 10 }}>{makerLabel(item)}</div>
       )}
       {fields.length === 0 ? (
         <div style={{ fontSize: 10, color: C.muted, marginTop: 16 }}>This machine has no adjustable settings.</div>

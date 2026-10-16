@@ -3,7 +3,7 @@
 // by name. Each item shows its real scene symbol, its name and its maker,
 // and is dragged onto the canvas to add it (PlantApp's drop handler).
 import { useState } from "react";
-import { CATALOGUE, CATALOGUE_GROUPS, searchCatalogue } from "../catalogue/catalogue";
+import { CATALOGUE, CATALOGUE_GROUPS, makerLabel, searchCatalogue } from "../catalogue/catalogue";
 import { SYMBOLS } from "../scene/symbolMap";
 import { FallbackSymbol } from "../scene/symbols";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
@@ -36,10 +36,6 @@ function Thumbnail({ item }) {
   );
 }
 
-function maker(item) {
-  return [item.maker, item.model].filter(Boolean).join(" ");
-}
-
 function CatalogueItem({ item }) {
   return (
     <div
@@ -58,7 +54,7 @@ function CatalogueItem({ item }) {
       <Thumbnail item={item} />
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: 10, color: C.text }}>{item.name}</div>
-        <div style={{ fontSize: 9, color: C.muted, marginTop: 1 }}>{maker(item) || "no maker"}</div>
+        <div style={{ fontSize: 9, color: C.muted, marginTop: 1 }}>{makerLabel(item)}</div>
       </div>
     </div>
   );

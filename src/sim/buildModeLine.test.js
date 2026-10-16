@@ -49,6 +49,23 @@ describe("a line built from the catalogue, port to port (issue #88)", () => {
     expect(() => assertConserved(sim)).not.toThrow();
   });
 
+  // Issue #94: a generic item runs exactly like the branded one it copies.
+  it("runs a generic elevator the same as the branded one", () => {
+    const outAfter = (elevatorItem) => {
+      const grainIn = add(emptyLine(), "grain-in", { x: 0, y: 0 });
+      const elevator = add(grainIn.line, elevatorItem, { x: 0, y: 200 });
+      const grainOut = add(elevator.line, "grain-out", { x: 500, y: 200 });
+      let line = connect(grainOut.line, { machine: grainIn.id, port: "out" }, { machine: elevator.id, port: "in" });
+      line = connect(line, { machine: elevator.id, port: "out" }, { machine: grainOut.id, port: "in" });
+      const sim = createSim(line);
+      run(sim, 120);
+      return getMachineState(sim, grainOut.id).total;
+    };
+    const branded = outAfter("bucket-elevator");
+    expect(branded).toBeGreaterThan(0);
+    expect(outAfter("bucket-elevator-generic")).toBe(branded);
+  });
+
   // A drum feeder on a built line has no feed-rate derivation, so its gate
   // position dial must act on its own rate (found live on a user's line:
   // closing the gate left the bin above it at 0 %).
