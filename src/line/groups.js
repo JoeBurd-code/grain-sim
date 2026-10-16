@@ -3,13 +3,8 @@
 // as one edit. Like every other line document function, none of these ever
 // changes the line it is given.
 import { firstFree, deleteMachine } from "./editing";
-import { machineFootprint, nearestFree, snapPosition } from "./layout";
+import { machineFootprint, nearestFree, rectsOverlap, snapPosition } from "./layout";
 import { ruleMachines } from "./interlocks";
-
-// Touching along an edge is not an overlap, as in layout.js.
-function rectsOverlap(a, b) {
-  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
-}
 
 function shifted(m, delta) {
   return { ...m, x: m.x + delta.x, y: m.y + delta.y };
@@ -76,13 +71,14 @@ export function moveMachines(line, ids, delta) {
 }
 
 // Each machine goes as deleteMachine (editing.js) takes it: with its
-// connections, leaving the interlocks that name it off.
+// connections. The interlocks that name it stay on the line, and are off
+// because a machine they name is missing (interlocks.js isRuleOff).
 // Returns { ok: true, line } or { ok: false, error }.
 export function deleteMachines(line, ids) {
   const absent = missing(line, ids);
   if (absent !== undefined) return { ok: false, error: `There is no machine "${absent}" on this line.` };
   let next = line;
-  for (const id of ids) next = deleteMachine(next, id).line;
+  for (const id of new Set(ids)) next = deleteMachine(next, id).line;
   return { ok: true, line: next };
 }
 
@@ -109,6 +105,14 @@ export function copyMachines(line, ids) {
 // The top-left corner of the box around the machines.
 export function groupCorner(machines) {
   return { x: Math.min(...machines.map((m) => m.x)), y: Math.min(...machines.map((m) => m.y)) };
+}
+
+// Where a paste of `machines` goes by default: `gap` to the right of the
+// box around them, level with its top, so a copied lane lands beside the
+// lane as a second one.
+export function pastePointBeside(machines, gap) {
+  const corner = groupCorner(machines);
+  return { x: Math.max(...machines.map((m) => m.x + m.w)) + gap, y: corner.y };
 }
 
 // An id or name without the number a copy was given: "metal-bin-2" is a

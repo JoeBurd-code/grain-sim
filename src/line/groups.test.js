@@ -3,7 +3,7 @@
 // Build mode edit.
 import { describe, it, expect } from "vitest";
 import { emptyLine, addMachine, connectPorts } from "./lineDocument";
-import { moveMachines, deleteMachines, copyMachines, pasteMachines, machinesInBox } from "./groups";
+import { moveMachines, deleteMachines, copyMachines, pasteMachines, machinesInBox, pastePointBeside } from "./groups";
 import { acceptSuggestion, pendingSuggestions } from "./suggestedInterlocks";
 import { overlappingMachine } from "./layout";
 import { validateLine } from "./validateLine";
@@ -106,6 +106,11 @@ describe("deleteMachines", () => {
   it("refuses a machine the line does not have, and changes nothing", () => {
     const { line, ids } = lane();
     expect(deleteMachines(line, [ids.bin, "nope"]).ok).toBe(false);
+  });
+
+  it("takes a machine named twice once", () => {
+    const { line, ids } = lane();
+    expect(ok(deleteMachines(line, [ids.bin, ids.bin])).line.machines).toHaveLength(4);
   });
 });
 
@@ -210,6 +215,15 @@ describe("copyMachines and pasteMachines", () => {
 
   it("refuses an empty clipboard", () => {
     expect(pasteMachines(emptyLine(), { machines: [], connections: [], interlocks: [] }, { x: 0, y: 0 }).ok).toBe(false);
+  });
+});
+
+describe("pastePointBeside", () => {
+  it("is the gap to the right of the group's box, level with its top", () => {
+    const { line, ids } = lane();
+    const group = line.machines.filter((m) => [ids.bin, ids.belt].includes(m.id));
+    // The belt is the widest, 300 wide at x 0; the bin is the highest, at y 100.
+    expect(pastePointBeside(group, 60)).toEqual({ x: 360, y: 100 });
   });
 });
 

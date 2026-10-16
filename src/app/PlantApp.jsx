@@ -10,7 +10,7 @@ import {
   moveMachines, deleteMachines, copyMachines, pasteMachines,
 } from "../line/lineDocument";
 import { catalogueItem } from "../catalogue/catalogue";
-import { placeMachines, groupCorner } from "../line/groups";
+import { placeMachines, pastePointBeside } from "../line/groups";
 import { lineBounds, zoneBounds, machineBounds } from "../line/bounds";
 import { lineProblems, problemMachineIds, hasGrainIn } from "../line/problems";
 import { plantControlsFor } from "../line/plantControls";
@@ -50,6 +50,12 @@ const CATALOGUE_OPEN_KEY = "grain-sim:catalogue-open";
 const SCROLL_THUMB = "#3a4143";
 const SCROLL_THUMB_HOVER = "#566064";
 
+// Text the user has highlighted on the page, which Ctrl+C must still copy.
+function hasTextSelection() {
+  const selection = window.getSelection();
+  return Boolean(selection && !selection.isCollapsed);
+}
+
 // Typing in a box never deletes a machine.
 function isTyping(target) {
   return target instanceof HTMLElement
@@ -59,11 +65,6 @@ function isTyping(target) {
 // Issue #95: a pasted group lands this far to the right of the group it
 // was copied from, so a copied lane sits beside it as a second lane.
 const PASTE_GAP = 60;
-
-// The width of the box around the machines.
-function groupWidth(machines) {
-  return Math.max(...machines.map((m) => m.x + m.w)) - groupCorner(machines).x;
-}
 
 // "golden line" -> "golden-line.json".
 function fileNameFor(name) {
@@ -462,8 +463,7 @@ export default function PlantApp() {
   const onCopy = useCallback(() => {
     if (selectedIds.length === 0) return;
     const clip = copyMachines(line, selectedIds);
-    const corner = groupCorner(clip.machines);
-    clipboardRef.current = { clip, next: { x: corner.x + groupWidth(clip.machines) + PASTE_GAP, y: corner.y } };
+    clipboardRef.current = { clip, next: pastePointBeside(clip.machines, PASTE_GAP) };
   }, [line, selectedIds]);
   const onPaste = useCallback(() => {
     const held = clipboardRef.current;
@@ -476,8 +476,7 @@ export default function PlantApp() {
       return next.ok ? { ...c, line: next.line } : c;
     });
     const pasted = result.line.machines.filter((m) => result.ids.includes(m.id));
-    const corner = groupCorner(pasted);
-    clipboardRef.current = { clip: held.clip, next: { x: corner.x + groupWidth(pasted) + PASTE_GAP, y: corner.y } };
+    clipboardRef.current = { clip: held.clip, next: pastePointBeside(pasted, PASTE_GAP) };
     setSelectedIds(result.ids);
     setSelectedConnectionKey(null);
     setSettingsOpen(false);
@@ -489,7 +488,7 @@ export default function PlantApp() {
     const onKeyDown = (e) => {
       if (isTyping(e.target) || !(e.ctrlKey || e.metaKey)) return;
       const key = e.key.toLowerCase();
-      if (key === "c" && selectedIds.length > 0) {
+      if (key === "c" && selectedIds.length > 0 && !hasTextSelection()) {
         e.preventDefault();
         onCopy();
       } else if (key === "v" && clipboardRef.current) {
@@ -556,8 +555,9 @@ export default function PlantApp() {
   const [spaceHeld, setSpaceHeld] = useState(false);
   useEffect(() => {
     if (!building) return undefined;
+    // Space on a focused button still presses it.
     const onKeyDown = (e) => {
-      if (e.code !== "Space" || isTyping(e.target)) return;
+      if (e.code !== "Space" || isTyping(e.target) || e.target instanceof HTMLButtonElement) return;
       e.preventDefault();
       setSpaceHeld(true);
     };

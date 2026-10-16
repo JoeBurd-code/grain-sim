@@ -30,7 +30,7 @@ export function machineFootprint(m) {
 }
 
 // Touching along an edge is not an overlap: a valve hangs right under its bin.
-function rectsOverlap(a, b) {
+export function rectsOverlap(a, b) {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }
 
