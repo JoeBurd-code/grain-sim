@@ -282,6 +282,17 @@ export function setAdjustableValue(line, machineId, fieldId, value) {
   return { ok: true, line: next };
 }
 
+// Issue #95: the machine with only the adjustable fields `line` holds a
+// value for. A copied bin whose set points live in an interlock that stayed
+// behind has nothing left for those fields to adjust, so the copy goes
+// without them.
+export function withHeldFields(line, machine) {
+  if (!machine.adjustable) return machine;
+  const fields = adjustableFields(machine);
+  const adjustable = machine.adjustable.filter((_, i) => BINDS[fields[i].bind]?.get(line, machine) !== undefined);
+  return adjustable.length === machine.adjustable.length ? machine : { ...machine, adjustable };
+}
+
 // For validateLine: every declaration must name a real slider or bind, carry
 // the bind's unit, and have a default inside its own limits that the line
 // can actually be read at.

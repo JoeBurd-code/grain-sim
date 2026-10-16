@@ -6,7 +6,8 @@ import { emptyLine, addMachine, connectPorts, setAdjustableValue, copyMachines, 
 import { acceptSuggestion, pendingSuggestions } from "../line/suggestedInterlocks";
 import { removeInterlock } from "../line/sentenceEditor";
 import { validateLine } from "../line/validateLine";
-import { createSim, stepSim, getMachineState, setGateFraction, DT } from "./engine";
+import { createSim, stepSim, getMachineState, setGateFraction, getInterlockState, DT } from "./engine";
+import { goldenLine } from "../line/goldenLine";
 import { assertConserved } from "./conservation";
 import { CATALOGUE } from "../catalogue/catalogue";
 import { adjustableFields } from "../line/adjustableFields";
@@ -205,6 +206,46 @@ describe("a line built from the catalogue, port to port (issue #88)", () => {
       expect(original.stored).toBeCloseTo(original.capacity, 6);
       expect(pasted.stored / pasted.capacity).toBeLessThan(0.9);
       expect(pasted.stored / pasted.capacity).toBeGreaterThan(0.85);
+    });
+  });
+
+  // Issue #95: a copied golden lane brings its graded feed schedule and its
+  // feed rate link, so the copy feeds the way the original does.
+  describe("a pasted golden treating lane", () => {
+    const TREATING = ["treaterBufferBin", "treatDrumFeeder", "treatingElevator", "treaterPreBin"];
+    function pastedLane({ withRules }) {
+      const copy = pasteMachines(goldenLine, copyMachines(goldenLine, TREATING), { x: 0, y: -3000 });
+      if (!copy.ok) throw new Error(copy.error);
+      const [bin, feeder, , preBin] = copy.ids;
+      let line = copy.line;
+      if (!withRules) {
+        line = {
+          ...line,
+          machineRules: goldenLine.machineRules,
+          feedRateDerivations: goldenLine.feedRateDerivations,
+        };
+      }
+      const grainIn = add(line, "grain-in", { x: -400, y: -3400 });
+      const grainOut = add(grainIn.line, "grain-out", { x: -400, y: -2400 });
+      line = connect(grainOut.line, { machine: grainIn.id, port: "out" }, { machine: bin, port: "in" });
+      line = connect(line, { machine: preBin, port: "out" }, { machine: grainOut.id, port: "in" });
+      // The bare lane is only a control: taking its schedule away by hand
+      // leaves the pre-bin's set point fields with nothing to adjust.
+      if (withRules) expect(validateLine(line).errors).toEqual(validateLine(goldenLine).errors);
+      const sim = createSim(line);
+      run(sim, 120);
+      return { sim, feeder, preBin, grainOut: grainOut.id };
+    }
+
+    it("runs its own copy of the feed schedule, and it drives the copy's feeder", () => {
+      const lane = pastedLane({ withRules: true });
+      expect(getInterlockState(lane.sim, lane.preBin)).toBeDefined();
+      const bare = pastedLane({ withRules: false });
+      expect(getInterlockState(bare.sim, bare.preBin)).toBeUndefined();
+      const scheduled = getMachineState(lane.sim, lane.feeder).flowRateM3PerSec;
+      const unscheduled = getMachineState(bare.sim, bare.feeder).flowRateM3PerSec;
+      expect(scheduled).toBeGreaterThan(0);
+      expect(scheduled).not.toBeCloseTo(unscheduled, 6);
     });
   });
 });

@@ -147,6 +147,15 @@ describe("loadSavedWork", () => {
     expect(loadSavedWork(GOLDEN, () => storage).line).toEqual(pasted.line);
   });
 
+  it("brings back a pasted golden lane's feed schedule and feed rate link after a reload", () => {
+    const lane = ["treaterBufferBin", "treatDrumFeeder", "treatingElevator", "treaterPreBin"];
+    const pasted = pasteMachines(goldenLine, copyMachines(goldenLine, lane), { x: 0, y: -3000 });
+    expect(pasted.line.machineRules.length).toBeGreaterThan(goldenLine.machineRules.length);
+    const storage = memoryStorage();
+    storeWork(GOLDEN, { ...GOLDEN, line: pasted.line }, () => storage);
+    expect(loadSavedWork(GOLDEN, () => storage).line).toEqual(pasted.line);
+  });
+
   it("does not take a later golden line fix into an opened file", () => {
     const storage = memoryStorage();
     storeWork(GOLDEN, { line: goldenLine, name: "client trial", fromFile: true }, () => storage);

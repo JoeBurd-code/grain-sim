@@ -218,6 +218,60 @@ describe("copyMachines and pasteMachines", () => {
   });
 });
 
+// The golden line's treating lane: the buffer bin, the drum feeder, the
+// treating elevator and the pre-bin whose graded feed schedule drives the
+// elevator and the feeder, with a feed rate link from the elevator to the
+// feeder.
+const TREATING = ["treaterBufferBin", "treatDrumFeeder", "treatingElevator", "treaterPreBin"];
+
+describe("copying machine rules and feed rate links", () => {
+  function pasteTreating() {
+    const result = ok(pasteMachines(goldenLine, copyMachines(goldenLine, TREATING), { x: 0, y: -3000 }));
+    const copyOf = new Map(TREATING.map((id, i) => [id, result.ids[i]]));
+    return { result, copyOf };
+  }
+
+  it("brings a machine rule whose machines are all in the group, pointed at the copies", () => {
+    const { result, copyOf } = pasteTreating();
+    const added = result.line.machineRules.slice(goldenLine.machineRules.length);
+    expect(added).toHaveLength(1);
+    expect(added[0].kind).toBe("gradedFeedSchedule");
+    expect(added[0].sensor.machine).toBe(copyOf.get("treaterPreBin"));
+    expect(added[0].action.elevator.machine).toBe(copyOf.get("treatingElevator"));
+    expect(added[0].action.feeder.machine).toBe(copyOf.get("treatDrumFeeder"));
+    const ids = result.line.machineRules.map((r) => r.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("brings a feed rate link whose machines are both in the group, pointed at the copies", () => {
+    const { result, copyOf } = pasteTreating();
+    const added = result.line.feedRateDerivations.slice(goldenLine.feedRateDerivations.length);
+    expect(added).toHaveLength(1);
+    expect(added[0].elevator.machine).toBe(copyOf.get("treatingElevator"));
+    expect(added[0].feeder.machine).toBe(copyOf.get("treatDrumFeeder"));
+    const ids = result.line.feedRateDerivations.map((r) => r.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("leaves behind the machine rules and feed rate links that reach outside the group", () => {
+    const result = ok(pasteMachines(goldenLine, copyMachines(goldenLine, ["treatingElevator", "treaterPreBin"]), { x: 0, y: -3000 }));
+    expect(result.line.machineRules).toHaveLength(goldenLine.machineRules.length);
+    expect(result.line.feedRateDerivations).toHaveLength(goldenLine.feedRateDerivations.length);
+  });
+
+  it("gives a golden line that still validates", () => {
+    const { result } = pasteTreating();
+    expect(validateLine(result.line).errors).toEqual(validateLine(goldenLine).errors);
+  });
+
+  // A copied bin whose set points live in an interlock that stays behind
+  // goes without those fields, instead of fields with nothing to adjust.
+  it.each(goldenLine.machines.map((m) => m.id))("pastes golden line machine %s alone into a line that validates", (id) => {
+    const result = ok(pasteMachines(goldenLine, copyMachines(goldenLine, [id]), { x: 0, y: -3000 }));
+    expect(validateLine(result.line).errors).toEqual(validateLine(goldenLine).errors);
+  });
+});
+
 describe("pastePointBeside", () => {
   it("is the gap to the right of the group's box, level with its top", () => {
     const { line, ids } = lane();

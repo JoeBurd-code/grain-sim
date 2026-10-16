@@ -5,6 +5,18 @@
 import { firstFree, deleteMachine } from "./editing";
 import { machineFootprint, nearestFree, rectsOverlap, snapPosition } from "./layout";
 import { ruleMachines } from "./interlocks";
+import { withHeldFields } from "./adjustableFields";
+
+// A feed rate link names its elevator and its feeder.
+const linkMachines = (link) => [link.elevator?.machine, link.feeder?.machine].filter((id) => typeof id === "string");
+
+// Copies of the rules in `rules` whose machines are all in `group`.
+function rulesInside(rules, group, machinesOf) {
+  return (rules ?? []).filter((r) => {
+    const named = machinesOf(r);
+    return named.length > 0 && named.every((id) => group.has(id));
+  }).map((r) => structuredClone(r));
+}
 
 function shifted(m, delta) {
   return { ...m, x: m.x + delta.x, y: m.y + delta.y };
@@ -82,9 +94,12 @@ export function deleteMachines(line, ids) {
   return { ok: true, line: next };
 }
 
-// What Ctrl+C keeps: the machines, the connections between them and the
-// interlocks whose machines are all among them, as copies. A golden line
-// machine leaves its zone behind: a built machine has none (editing.js).
+// What Ctrl+C keeps: the machines, the connections between them, and the
+// interlocks, machine rules (the graded feed schedules, "hold the next
+// batch") and feed rate links whose machines are all among them, as
+// copies. A golden line machine leaves its zone behind: a built machine
+// has none (editing.js). It also leaves behind any adjustable field whose
+// value is in a rule that stays behind.
 export function copyMachines(line, ids) {
   const group = new Set(ids);
   const machines = line.machines.filter((m) => group.has(m.id)).map((m) => {
@@ -95,11 +110,14 @@ export function copyMachines(line, ids) {
   const connections = line.connections
     .filter((c) => group.has(c.from.machine) && group.has(c.to.machine))
     .map((c) => structuredClone(c));
-  const interlocks = (line.interlocks ?? []).filter((r) => {
-    const named = ruleMachines(r);
-    return named.length > 0 && named.every((id) => group.has(id));
-  }).map((r) => structuredClone(r));
-  return { machines, connections, interlocks };
+  const clip = {
+    machines,
+    connections,
+    interlocks: rulesInside(line.interlocks, group, ruleMachines),
+    machineRules: rulesInside(line.machineRules, group, ruleMachines),
+    feedRateDerivations: rulesInside(line.feedRateDerivations, group, linkMachines),
+  };
+  return { ...clip, machines: machines.map((m) => withHeldFields(clip, m)) };
 }
 
 // The top-left corner of the box around the machines.
@@ -123,14 +141,32 @@ function remapEnd(end, ids) {
   return { ...end, machine: ids.get(end.machine) };
 }
 
-// The rule with every machine it names swapped for its copy. A step that
-// names no machine (a wait, an "if still true", a line trip) is unchanged.
-function remapRule(rule, ids, id) {
-  const swap = (part) => (part?.machine !== undefined ? { ...part, machine: ids.get(part.machine) ?? part.machine } : part);
-  const next = { ...rule, id, when: swap(rule.when), then: (rule.then ?? []).map(swap) };
-  if (rule.whenClears) next.whenClears = { ...swap(rule.whenClears), then: (rule.whenClears.then ?? []).map(swap) };
-  if (rule.armedWhen) next.armedWhen = rule.armedWhen.map(swap);
+// `value` with every machine it names swapped for its copy. Every rule
+// names a machine as a `machine` field, wherever in the rule it sits: a
+// sentence's parts, steps and arming, a machine rule's sensor and actuators
+// (one feeder or a list), a feed rate link's elevator and feeder. A step
+// that names no machine (a wait, an "if still true", a line trip) is
+// unchanged.
+function remapMachines(value, ids) {
+  if (Array.isArray(value)) return value.map((v) => remapMachines(v, ids));
+  if (value === null || typeof value !== "object") return value;
+  const next = {};
+  for (const [key, v] of Object.entries(value)) {
+    next[key] = key === "machine" && ids.has(v) ? ids.get(v) : remapMachines(v, ids);
+  }
   return next;
+}
+
+// The clipboard's rules of one list, pointed at the copies, each with an id
+// the line does not have: `${base}-${n}`, where an interlock's base is
+// "interlock" (sentenceEditor.js) and any other rule's is its own id.
+function pastedRules(existing, rules, ids, baseOf) {
+  const taken = new Set((existing ?? []).map((r) => r.id));
+  return (rules ?? []).map((r) => {
+    const id = firstFree(baseOf(r), taken, "-");
+    taken.add(id);
+    return { ...remapMachines(r, ids), id };
+  });
 }
 
 // Ctrl+V: the clipboard's machines placed with the top-left of their box at
@@ -170,22 +206,20 @@ export function pasteMachines(line, clipboard, pos) {
     if (copy.via) copy.via = copy.via.map((p) => ({ x: p.x + delta.x, y: p.y + delta.y }));
     return copy;
   });
-  const interlockIds = new Set((line.interlocks ?? []).map((r) => r.id));
-  const interlocks = clipboard.interlocks.map((r) => {
-    const id = firstFree("interlock", interlockIds, "-");
-    interlockIds.add(id);
-    return remapRule(structuredClone(r), ids, id);
-  });
-  return {
-    ok: true,
-    ids: [...ids.values()],
-    line: {
-      ...line,
-      machines: [...line.machines, ...machines],
-      connections: [...line.connections, ...connections],
-      interlocks: [...(line.interlocks ?? []), ...interlocks],
-    },
+  const ownBase = (r) => withoutNumber(r.id, "-");
+  const next = {
+    ...line,
+    machines: [...line.machines, ...machines],
+    connections: [...line.connections, ...connections],
+    interlocks: [...(line.interlocks ?? []), ...pastedRules(line.interlocks, clipboard.interlocks, ids, () => "interlock")],
   };
+  // A line keeps no empty machine rule or feed rate link list it did not
+  // have, so pasting a plain group leaves the line's own shape alone.
+  for (const list of ["machineRules", "feedRateDerivations"]) {
+    const pasted = pastedRules(line[list], clipboard[list], ids, ownBase);
+    if (pasted.length > 0) next[list] = [...(line[list] ?? []), ...pasted];
+  }
+  return { ok: true, ids: [...ids.values()], line: next };
 }
 
 // Every machine whose footprint the box touches, in line order. The box
