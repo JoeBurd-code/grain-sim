@@ -20,7 +20,7 @@ import { connectionKey } from "../line/connecting";
 // whose name starts with "waste"); an input port is an open ring, so the
 // two read apart from each other at a glance, the same way the stream style
 // table below already tells a product line from a waste one.
-const PORT_RADIUS = 4;
+const PORT_RADIUS = 3;
 function PortDots({ machine: m, onPortPointerDown }) {
   const dot = (port, isOutput) => {
     const a = m.anchors[port];
@@ -137,11 +137,11 @@ export default function Scene({
           <path d="M26 0H0V26" fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="1" />
         </pattern>
         {Object.entries(STREAM_STYLE).map(([kind, s]) => (
-          <marker key={kind} id={s.marker} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <marker key={kind} id={s.marker} viewBox="0 0 8 8" refX="7" refY="4" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
             <path d="M0,0 L8,4 L0,8 Z" fill={s.stroke} />
           </marker>
         ))}
-        <marker id="arrMuted" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+        <marker id="arrMuted" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
           <path d="M0,0 L8,4 L0,8 Z" fill={C.muted} />
         </marker>
       </defs>
