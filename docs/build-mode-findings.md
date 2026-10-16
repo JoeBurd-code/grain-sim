@@ -14,7 +14,7 @@ Shows the latest run of each combo.
 | S2 Conveying smoke | #98 | 2026-10-16 | 862a656 | 88 | 7 | 3 | #128 #129 |
 | S3 Cleaning & treating smoke | #99 | | | | | | |
 | S4 Packaging smoke | #100 | | | | | | |
-| G1 Golden: treating section | #101 | | | | | | |
+| G1 Golden: treating section | #101 | 2026-10-16 | 6e8dedb | 48 | 5 | 7 | #131 |
 | G2 Golden: outload | #102 | | | | | | |
 | G3 Golden: packaging | #103 | | | | | | |
 | G4 Golden: interlocks & rules | #104 | | | | | | |
@@ -50,6 +50,7 @@ Each session keeps this list current, so later sessions know what to work around
 | Grain out shows no amount received and plots 0 t/h, so conservation can't be read at the end of a line. Discard bin popup also empty | #126 | S1 | No |
 | Belt, chain, conveyor, grain break, diverter and outlet valve popups show no values. The outlet valve has no manual open/close (only interlocks, CONTROLLED STOP, TRIP UTILITIES) | #128 | S2 | No |
 | A pendulum shortened below about 20 m draws outlet 2 before outlet 1 (the sim is right) | #129 | S2 | No |
+| No real catalogue item for the golden metal remover, drum feeder, outlet valve, scalping screen or discard bin; only the custom ones are listed. Use the custom items as stand-ins | #131 | G1 | No |
 
 ## Entries
 
@@ -215,3 +216,77 @@ Screenshots: [S2-1 chain popup empty while running](findings-img/S2-1.png) · [S
 - Pendulum shortened to 15 m, then outlet 2 selected, on a full line, to confirm grain reaches the right bin after #129 is fixed.
 - Bucket elevator throttled by its speed % feeding a bin, to check the bin's level matches the reduced rate.
 - Custom Bin → drum feeder → batch treater, to see whether #123 changes with a batch machine downstream of a feeder.
+
+## G1 Golden: treating section
+
+### G1 — 2026-10-16 — 6e8dedb
+
+**Result:** 48 PASS · 5 FAIL · 7 QUESTION · blocked by: #131 (check 1, five machines built from their custom items)
+**Tool:** Standalone Playwright scripts (Node, headless Chromium), not the Playwright MCP, because another session held the shared browser. A small driver kept one page open and took commands. Every change was made with real mouse and keyboard input: HTML5 drags from the catalogue, port-to-port drags, typing in the right panel, and toolbar buttons. Scripts only read state (DOM text, bounding boxes, chart polylines, the SAVE download). Dev server on port 5183.
+
+**Steps**
+1. Cleared localStorage and reloaded. On the golden line, read every treating machine's right panel in BUILD and its popup in SIM. Then plotted the treating machines, set 20× and ran to 1319 s for a baseline ([G1-1](findings-img/G1-1.png)).
+2. BUILD → NEW LINE. Dragged in 14 items: Grain in, Grain out ×2, the six real items (Treater buffer bin, Bucket elevator Simatek E200, Treater pre-bin, Batch treater Niklas WNS/200, Treater after-bin, Screen discharge hopper), and five custom items, because no real item is listed for them (#131). Each was dropped at the golden position shifted 90 units up.
+3. Wired the 13 connections by dragging port dots. For the zero-length coupling, the after-bin's outlet dot sits under the valve's inlet dot, so I dragged from the valve's inlet and dropped it back on the same point.
+4. In the right panel, typed the golden name, tag and every value into each machine, pressing Enter after each. Then deselected, reselected and read every field back. Set Grain in to 15 t/h, the golden source rate.
+5. SIM: plotted the same series as the golden baseline plus Grain in, the buffer bin level and Grain out 2. Ran at 20× to 1317 s and read the chart polylines, popups and canvas fills.
+6. BUILD → SAVE, kept the download, then opened it again through OPEN to confirm it loads.
+7. SETTINGS → START OVER, then read the golden PROBLEMS list, the golden buffer bin popup ([G1-6](findings-img/G1-6.png)) and measured the run speed.
+8. Read console messages after each stage. There were no errors or warnings all session.
+
+**Checks.** Check numbers follow the ticket: 1 real catalogue item · 2 wired port to port · 3 name, tag and values · 6 popup controls match the golden popup. Checks 4, 5, 7 and 8 apply to the whole line and are in the second table.
+
+| Machine (tag) | Item used | 1 | 2 | 3 | 6 | Evidence |
+|---------------|-----------|---|---|---|---|----------|
+| Grain in (for the upstream stub) | grain-in | PASS | PASS | PASS | – | Source rate set to 15 t/h (golden 15; the item's default is 12, limits 0–20). |
+| Grain out 1 (for the metal reject stub) | grain-out | PASS | PASS | – | – | Wired from the metal remover's waste port (a waste line). |
+| Grain out 2 (for the hopper's onward feed) | grain-out | PASS | PASS | – | – | Wired from the hopper's outlet. |
+| METAL REMOVER (52.501.F00) | custom-metal-remover | **FAIL** #131 | PASS | PASS | PASS | No real `metal-remover` item listed. No adjustable settings, the same as golden. Popup: event log and PLOT RATE, the same as golden. |
+| TREATER BUFFER BIN (52.502.H00) | treater-buffer-bin | PASS | PASS | QUESTION | QUESTION | Capacity 7.7 m³ (limits 2–20, as golden). The golden LSH 85, LSL 35, LSHH 95 set points and 7 s signal delay are not offered, and the popup lacks its three set point sliders. They only appear once an interlock uses the switch (see questions). |
+| INLET DRUM FEEDER (52.505.L00) | custom-drum-feeder | **FAIL** #131 | PASS | PASS | PASS | No real `drum-feeder` item listed. No adjustable settings, the same as golden. The popup has the gate position slider, as golden. Here it reads 100 %; golden reads 55 %, set by its feed schedule rule. |
+| BUCKET ELEVATOR · TREATING (52.506.E00) | bucket-elevator | PASS | PASS | PASS | PASS | Simatek E200. Rated capacity 20 t/h, chain speed 10.08 m/min, height 8.731 m, with limits as golden. The popup has the speed slider: 100 % here, 85 % on golden (feed schedule). |
+| TREATER PRE-BIN (52.507.H00) | treater-pre-bin | PASS | PASS | QUESTION | QUESTION | Capacity 1.63 m³ (limits 0.5–5). The LSL recover 35, LSH 85 and LSHH 95 set points and their popup sliders are missing, as for the buffer bin. |
+| NIKLAS WNS/200 BATCH TREATER (52.508.T00) | batch-treater | PASS | PASS | PASS | PASS | Batch size 160 kg (40–300), cycle time 48 s (10–90). Popup: both sliders, PLOT LEVEL and PLOT RATE, as golden. The chemical inlet and waste outlet are left unwired, as on golden. |
+| TREATER AFTER-BIN (52.601.H00) | treater-after-bin | PASS | PASS | QUESTION | QUESTION | Capacity 0.67 m³ (0.2–2). The LSH0 60 and LSL0 20 set points, the 5 s signal delay and the two popup sliders are missing. |
+| AFTER-BIN OUTLET VALVE (52.601.V00) | custom-outlet-valve | **FAIL** #131 | PASS | PASS | PASS | No real `outlet-valve` item listed. Maximum flow 19.2 t/h is accepted, but the custom limits are 0.5–200 (golden 5–40). The popup is the same as golden (empty, #128). |
+| TREATMENT SCALPING SCREEN (52.602.F00) | custom-scalping-screen | **FAIL** #131 | PASS | PASS | PASS | No real `scalping-screen` item listed. Scalpings split 1 % (0–20), rated capacity 64.4 t/h (custom 0.5–200, golden 10–100). Popup: split slider and PLOT RATE, as golden. |
+| SCALPING SCREEN DISCHARGE HOPPER (52.603.H00) | discharge-hopper | PASS | PASS | PASS | PASS | Capacity 0.2 m³ (0.05–0.6). Popup: fill level slider, PLOT LEVEL and PLOT RATE, as golden. |
+| DISCARD SCALPINGS BIN (52.801.L00) | custom-discard-bin | **FAIL** #131 | PASS | PASS | PASS | No real `discard-bin` item listed (S1 confirmed only the custom one is listed, see #131). No adjustable settings, the same as golden. Popup: PLOT LEVEL and PLOT RATE only, as golden (#126). |
+
+On check 3: every name and tag took on Enter and read back after deselecting. All the golden values except Grain in's rate equal the item defaults, so they were retyped and read back rather than changed from something else.
+
+**Line checks**
+
+| # | Check | Expected | Actual | Result |
+|---|-------|----------|--------|--------|
+| 2 | After-bin → outlet valve coupling, no length | Can be made port to port | Made by dragging from the valve's inlet dot and dropping it back on the same point; PROBLEMS dropped from 4 to 2. The after-bin's outlet dot lies under the valve's, so it can't be the start of the drag. Nothing is drawn between them, as on golden | PASS |
+| 4 | Problems list | Clears, or each remaining problem names a replaced stub | Two remain: "NIKLAS WNS/200 BATCH TREATER: input not connected" and "… output not connected" (the chemical inlet and waste outlet). The golden line shows the same two ([G1-2](findings-img/G1-2.png)) | QUESTION |
+| 5a | Grain reaches the discharge hopper | Flows | Hopper 11.88 t/h (average over the last 120 s), 3.653 t passed by 1317 s. Golden: 11.88 t/h, 3.650 t | PASS |
+| 5b | Grain reaches the discard bin | Flows | Its plotted rate is 0 (#126), but its fill rose from 1 % to about 19 % (drawn fill 15.3 of 80 units). That is the 1 % split: valve 3.690 t − hopper 3.653 t = 0.037 t | PASS |
+| 5c | Batch treater cycles | Cycles | The drum is lit, the rate saw-tooths between 11.2 and 12.6 t/h, and 3.736 t was discharged by 1317 s (golden 3.733 t) ([G1-3](findings-img/G1-3.png)) | PASS |
+| 5d | No machine idle that is busy on golden at the same source rate | All busy | At 15 t/h: metal remover 15.00, feeder 12.00, elevator 12.00, treater 11.92, valve 12.00, screen 12.00, hopper 11.88 t/h. Golden: 15.00, 12.18, 12.18, 11.79, 12.00, 12.00, 11.88. The pre-bin cycles 1–14 % here against 33–46 % on golden (see observations) ([G1-4](findings-img/G1-4.png)) | PASS |
+| – | Conservation | Totals balance | By 1317 s: in 5.196 t = buffer bin 1.10 t + feeder 4.157 t (−0.06 t, chart lag at start-up). Feeder 4.157 → elevator 3.983 (0.17 t in transit = 52 s at 12 t/h). Then pre-bin 0.06 t + one 0.16 t batch in the treater, treater out 3.736, valve 3.690, hopper 3.653 + discard 0.037. Read by integrating the chart polylines (read-only) | PASS |
+| 7 | SAVE downloads a file | A file | `new-line.json` (21 KB): 14 machines, 13 connections, no interlocks or rules. Committed as [`docs/findings-lines/G1.json`](findings-lines/G1.json). Opening it again through OPEN loads all 14 machines with PROBLEMS (2) | PASS |
+| 8 | Console | No errors | No errors or warnings all session | PASS |
+
+Screenshots: [G1-1 golden baseline run](findings-img/G1-1.png) · [G1-2 rebuilt line and its problems](findings-img/G1-2.png) · [G1-3 rebuilt line running, chart](findings-img/G1-3.png) · [G1-4 rebuilt line at 1317 s](findings-img/G1-4.png) · [G1-5 rebuilt buffer bin popup](findings-img/G1-5.png) · [G1-6 golden buffer bin popup](findings-img/G1-6.png)
+
+**Bugs filed / commented**
+- #131 Five golden treating machines have no real catalogue item (metal remover, drum feeder, outlet valve, scalping screen, discard bin) (new)
+
+**Questions for the user**
+- The buffer bin, pre-bin and after-bin can't be given their golden set points (LSH, LSL, LSHH, LSH0, LSL0) or signal delays in the right panel, and their popups lack the set point sliders. The ticket counts a value or control that isn't offered as a FAIL. But your S1 answer says a fresh bin has no set points until an interlock uses them, and these values live on the golden interlocks and the pre-bin feed schedule. Are they G4's to rebuild and check, rather than G1 failures?
+- The batch treater's unwired chemical inlet and waste outlet show as two problems, on the golden line as well. The messages say "input not connected" and "output not connected" without naming the port. Should the chemical inlet and waste outlet count as problems when they're unwired? If they should, should the message name the port?
+
+**Observations**
+- Without the golden feed schedule rule (`preBinFeedSchedule`) and feed rate derivation, the feeder runs at 100 % gate and the elevator at 100 % speed. On golden they run at 55 % and 85 %. Throughput is the same, about 12 t/h, but the pre-bin cycles 1–14 % instead of holding 33–46 %. The buffer bin fills at 3 t/h on both lines. G4 should bring this back with the rules.
+- In SIM, the rebuilt line's plant controls show EMPTY buttons for GRAIN OUT 1 and GRAIN OUT 2 as well as the discard bin. The golden stubs have none. Emptying a plant edge seems pointless.
+- The coupling works, but it's hard to find: with the ports on the same point, only the top (valve inlet) dot can start a drag. The saved connection has no `coupling` mark (it's drawing-only), and nothing is drawn, as on golden.
+- With only one machine on the line, the wheel can't zoom out below about 1.6× and FIT ALL zooms that machine to about 2×. Machines had to be placed one at a time, with FIT ALL between them, so the view grew. A drop outside the view lands at the clamped edge.
+- The first golden run at 20× advanced about 56 sim-s per real second (926 s in 16 s). Every later run measured 20.1×, 20.6× and 5.3× at 20× and 5×, so I couldn't reproduce it.
+- The custom stand-ins accept far wider limits than the golden machines (valve 0.5–200 t/h, screen 0.5–200 t/h), so a typo there wouldn't be refused.
+- Right after NEW LINE, with nothing on the canvas, the button read PROBLEMS (2). It may be left over from the golden line. Not followed up.
+
+**Follow-up combo ideas**
+- G4: rebuild the buffer-bin, pre-bin and after-bin interlocks and the pre-bin feed schedule on top of G1.json, then compare the pre-bin band (33–46 %) and the popup set point sliders with golden.
+- Re-run G1 check 1 once #131 is decided, with the real items if they are listed.
