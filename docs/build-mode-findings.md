@@ -46,6 +46,7 @@ Each session keeps this list current, so later sessions know what to work around
 | Treater pre-bin, Concetti pre-bin and custom Bin never discharge unless a batch machine pulls; into Grain out they only fill | #123 | S1 | No |
 | A full Discard bin keeps taking grain at the full rate, with no event | #124 | S1 | No |
 | A bin at 100 % blocks its feed with no event-log or problems entry | #125 | S1 | No |
+| Custom Discard bin has no capacity field (user decided to add one) | #127 | S1 | No |
 | Grain out shows no amount received and plots 0 t/h, so conservation can't be read at the end of a line. Discard bin popup also empty | #126 | S1 | No |
 
 ## Entries
@@ -110,11 +111,11 @@ Screenshots: [S1-1 full buffer bin, empty event log](findings-img/S1-1.png) · [
 - #125 A bin that fills to 100 % blocks its feed with no event-log or problems entry (new)
 - #126 Grain out and Discard bin popups show no amount received; Grain out's plotted rate stays at 0 (new)
 
-**Questions for the user**
-- The ticket lists a real **Discard bin**, but the catalogue lists only the custom one. A real item with no maker and no sensors is hidden on purpose (#94). Is that what you want for the Discard bin?
-- The custom **Discard bin** has no capacity setting at all, so it fills in about 85 s at 12 t/h and you can't change that. Should it get a capacity field with the custom 0.01–100 m³ range?
-- A freshly added bin's level switches have no set points, so they never assert and nothing is logged until an interlock exists. Should catalogue bins carry default set points the way the golden bins do (95/85/35)?
-- A fresh **Flexicon pre-bin** ships with LSL at 35 % and its set point slider, with no interlock. The other bins have none. Is that intended?
+**Questions for the user** (answered 2026-10-16)
+- The ticket lists a real **Discard bin**, but the catalogue lists only the custom one. A real item with no maker and no sensors is hidden on purpose (#94). Is that what you want for the Discard bin? **Answer: yes. Only the custom Discard bin is listed.**
+- The custom **Discard bin** has no capacity setting at all, so it fills in about 85 s at 12 t/h and you can't change that. Should it get a capacity field with the custom 0.01–100 m³ range? **Answer: add a field. Filed as #127.**
+- A freshly added bin's level switches have no set points, so they never assert and nothing is logged until an interlock exists. Should catalogue bins carry default set points the way the golden bins do (95/85/35)? **Answer: no. A fresh bin stays without set points until an interlock uses them.**
+- A fresh **Flexicon pre-bin** ships with LSL at 35 % and its set point slider, with no interlock. The other bins have none. Is that intended? **Answer: not sure yet. Still open.**
 
 **Observations**
 - Connector routing: the Grain in → bin connector leaves Grain in's outlet upwards, runs behind its body, and enters the bin from the side behind the bin's body (path `M240,54 L240,37 L725,37 L725,20`). On screen the line doesn't touch either port dot.
