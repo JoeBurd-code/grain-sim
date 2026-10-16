@@ -12,7 +12,7 @@ import {
 import { catalogueItem } from "../catalogue/catalogue";
 import { placeMachines, pastePointBeside } from "../line/groups";
 import { lineBounds, zoneBounds, machineBounds } from "../line/bounds";
-import { lineProblems, problemMachineIds, hasGrainIn } from "../line/problems";
+import { lineProblems, hasGrainIn } from "../line/problems";
 import { plantControlsFor } from "../line/plantControls";
 import Scene from "../scene/Scene";
 import MachinePopup, { THUMB_PX, TRACK_PX } from "./MachinePopup";
@@ -190,7 +190,6 @@ export default function PlantApp() {
     [interlocksOpen, hoveredInterlockMachines],
   );
   const problems = useMemo(() => lineProblems(line), [line]);
-  const problemIds = useMemo(() => problemMachineIds(line), [line]);
   const runDisabledReason = useMemo(() => (hasGrainIn(simLine) ? null : "Add a Grain in to start"), [simLine]);
   const onGoToProblem = useCallback((machineId) => {
     setSelectedId(machineId);
@@ -958,7 +957,6 @@ export default function PlantApp() {
                 selectedConnectionKey={building ? selectedConnectionKey : null}
                 onSelectConnection={building ? onSelectConnection : undefined}
                 connectionDraft={building ? connectionDrag.draft : null}
-                problemMachineIds={building ? problemIds : null}
                 highlightMachineIds={building ? highlightIds : null}
                 selectionBox={building ? boxSelect.box : null}
                 canvasCursor={boxing ? "crosshair" : "grab"}

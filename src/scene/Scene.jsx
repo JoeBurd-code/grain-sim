@@ -20,7 +20,7 @@ import { connectionKey } from "../line/connecting";
 // whose name starts with "waste"); an input port is an open ring, so the
 // two read apart from each other at a glance, the same way the stream style
 // table below already tells a product line from a waste one.
-const PORT_RADIUS = 5;
+const PORT_RADIUS = 4;
 function PortDots({ machine: m, onPortPointerDown }) {
   const dot = (port, isOutput) => {
     const a = m.anchors[port];
@@ -74,18 +74,6 @@ function OverlapOutline({ machine: m }) {
   ));
 }
 
-// Amber outline for a machine the Build mode problems list names (issue
-// #89): persistent (unlike OverlapOutline's momentary refusal flash) for as
-// long as the machine has a problem.
-function ProblemOutline({ machine: m }) {
-  return machineFootprint(m).map((r, i) => (
-    <rect
-      key={i} x={r.x - m.x - 6} y={r.y - m.y - 6} width={r.w + 12} height={r.h + 12}
-      fill="none" stroke={C.amber} strokeWidth="2" strokeDasharray="5 3" rx="4" pointerEvents="none"
-    />
-  ));
-}
-
 // Wheat, solid outline for a machine the Interlocks window's hovered
 // sentence names (issue #92): no wires drawn to it, just this, so hovering
 // never leaves anything permanent on the scene.
@@ -121,12 +109,10 @@ function resolveDynamic(machine, simSnap) {
 // `selectedConnectionKey`/`onSelectConnection` select a connection for
 // deletion (issue #88), also Build mode only.
 // `connectionDraft` is the in-progress drag's rubber-band line.
-// `problemMachineIds` (issue #89) is the set of machines the Build mode
-// problems list names, outlined in amber for as long as they have one.
 export default function Scene({
   line, vb, handlers, wasDrag, selectedIds, onSelect, simSnap, running, speed, simTime,
   onMachinePointerDown, overlapIds, onPortPointerDown, selectedConnectionKey, onSelectConnection, connectionDraft,
-  problemMachineIds, highlightMachineIds, selectionBox, canvasCursor = "grab",
+  highlightMachineIds, selectionBox, canvasCursor = "grab",
 }) {
   const flowPathRef = useFlowAnimation(line, simSnap);
   const motion = useMachineMotion(running, speed);
@@ -256,7 +242,6 @@ export default function Scene({
             <Symbol machine={m} dynamic={resolveDynamic(m, simSnap)} motion={motion} simTime={simTime} />
             {m.type !== "stub" && <MachineLabel machine={m} />}
             {overlapIds?.includes(m.id) && <OverlapOutline machine={m} />}
-            {problemMachineIds?.has(m.id) && <ProblemOutline machine={m} />}
             {highlightMachineIds?.has(m.id) && <HighlightOutline machine={m} />}
             {onPortPointerDown && <PortDots machine={m} onPortPointerDown={onPortPointerDown} />}
           </g>
