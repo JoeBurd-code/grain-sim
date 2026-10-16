@@ -1,7 +1,7 @@
 # Build mode findings
 
 The results of the `browser-test` combo sessions. How a session runs and what each
-entry holds is set out in `docs/agents/browser-testing.md`. The matrix of combos is
+entry holds is set out in `docs/browser-testing.md`. The matrix of combos is
 in the parent tracking issue.
 
 ## Summary
