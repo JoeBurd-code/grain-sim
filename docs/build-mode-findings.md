@@ -15,7 +15,7 @@ Shows the latest run of each combo.
 | S3 Cleaning & treating smoke | #99 | 2026-10-16 | 6e8dedb | 38 | 7 | 3 | #128 #130 |
 | S4 Packaging smoke | #100 | 2026-10-16 | 6e8dedb | 67 | 10 | 3 | #128 #132 |
 | G1 Golden: treating section | #101 | 2026-10-16 | 6e8dedb | 48 | 5 | 7 | #131 |
-| G2 Golden: outload | #102 | | | | | | |
+| G2 Golden: outload | #102 | 2026-10-16 | 7b0bcd6 | 45 | 6 | 4 | #131 #133 #134 |
 | G3 Golden: packaging | #103 | | | | | | |
 | G4 Golden: interlocks & rules | #104 | | | | | | |
 | G5 Golden: side-by-side run | #105 | | | | | | |
@@ -55,6 +55,9 @@ Each session keeps this list current, so later sessions know what to work around
 | A batch treater fed through a drum feeder (or starved) draws an empty drum with its chute discharging while it fills. The sim itself is right | #130 | S3 | No |
 | Bagging scale, filling head, filling and sewing, palletiser and roller conveyors popups have no live readouts (the batch machines show only their two sliders). Same on the golden line | #128 | S4 | No |
 | A bagging scale or filling head whose bag is bigger than its feed bin (e.g. a 1500 kg bag behind the default 1.17 t custom Bin) deadlocks the line with no message. Enlarge the Bin or keep the bag under its capacity | #132 | S4 | No |
+| No real catalogue item for the golden inlet drum feeders, grain break or diverter either; only the custom ones are listed | #131 | G2 | No |
+| Two feeds into one machine (both inlet drum feeders into the pendulum) lose whatever is above its capacity, with no event. Keep the feeders' total under the rating, e.g. one gate at 50 % | #133 | G2 | No |
+| A built line gets no SOURCE selector and no combined DESTINATION, only one plain selector per diverter/pendulum, set separately | #134 | G2 | No |
 
 ## Entries
 
@@ -436,3 +439,84 @@ Screenshots: [S4-1 bagging scale cycling, Bin sawtooth](findings-img/S4-1.png) �
 - Bagging scale → filling and sewing → palletiser → Grain out in series behind a Concetti pre-bin, as on the golden line (pairs with G3 and B4).
 - A filling head at 1500 kg behind a Bin enlarged to 3 m³, to confirm #132 is only the bin size.
 - Grain in at 20 t/h into the Concetti bagging scale (capped at 12 t/h), to watch the Bin fill and see whether #125 also applies here.
+
+## G2 Golden: outload
+
+### G2 — 2026-10-16 — 7b0bcd6
+
+**Result:** 45 PASS · 6 FAIL · 4 QUESTION · blocked by: #131 (four machines built from their custom items)
+**Tool:** Standalone Playwright scripts (Node, headless Chromium), not the Playwright MCP or Claude in Chrome, because another session held the shared browser. A small driver kept one page open and took commands. Every change was made with real mouse and keyboard input: HTML5 drags from the catalogue, port-to-port drags, typing in the right panel, popup slider drags, and the plant-control and toolbar buttons. Scripts only read state (DOM text, port positions, chart polylines, the SAVE download). Dev server on port 5184.
+
+**Steps**
+1. Fresh browser, so localStorage was already empty. On the golden line, read the outload machines' right panels in BUILD and their popups in SIM.
+2. BUILD → OPEN `docs/findings-lines/G1.json`. All 14 machines and 13 connections loaded, with PROBLEMS (2).
+3. Dragged in 10 items at the golden positions, shifted 90 units up as in G1: Pendulum conveyor (Simatek E200), Pro box unloading station, Outload buffer bin, Metal bin ×2 and Grain out ×2. Four more came from custom items, because no real one is listed (#131): Drum feeder ×2, Grain break and Diverter. Deleted G1's temporary GRAIN OUT 2. A drop is centred on the cursor and snaps to a 10-unit grid. The pendulum (2030 × 780) has to be dropped with the whole of it in view, or it lands clamped to the view's edge.
+4. Wired 11 connections by dragging port dots (listed under check 1). The pendulum's outBinSeg and outConcetti were left open for G3.
+5. In the right panel, typed the golden name, tag and every value into each machine, pressing Enter after each. Then deselected, reselected and read every field back.
+6. SIM. Plotted the hopper, the Pro box, both feeders, the pendulum, the grain break, the diverter, the buffer bin (level and rate) and both metal bins (level and rate). 20× → RUN. Set PENDULUM CONVEYOR to GRAIN BREAK and DIVERTER to METAL BIN 1, then switched the diverter to METAL BIN 2. Dragged feeder 1's gate to 50 %, then feeder 2's. Last, sent the pendulum to the open outConcetti.
+7. BUILD → SAVE, saved the download as `docs/findings-lines/G2.json`, then opened it again through OPEN.
+8. SETTINGS → START OVER for a golden baseline: SOURCE = PRO BOX, DESTINATION = METAL BIN 1, 400 s at 20× ([G2-8](findings-img/G2-8.png)).
+9. Read console messages after each stage. There were no errors or warnings all session.
+
+**Checks.** Check numbers follow the ticket: 1 pendulum ports · 2 plant controls · 3 destination routing · 4 feeders meter by gate % · 5 popups and values match golden (as G1 checks 3 and 6) · 6 SAVE · 7 console. Check 5 is two columns in the machine table, the right panel and the popup. The other two columns, the catalogue item and the wiring, are as in G1.
+
+| Machine (tag) | Item used | Real item | Wired | Right panel (5) | Popup (5) | Evidence |
+|---------------|-----------|-----------|-------|-----------------|-----------|----------|
+| PRO BOX UNLOADING STATION (52.608.H00) | pro-box-station | PASS | PASS | PASS | PASS | Source rate 12 t/h (0–20), as golden. Popup: source rate slider and PLOT RATE, as golden. |
+| INLET DRUM FEEDER 1 (52.603.L01) | custom-drum-feeder | **FAIL** #131 | PASS | PASS | PASS | No real drum feeder listed. No adjustable settings, the same as golden. The popup has the gate slider, as golden. It reads 100 % here; golden reads 64 %, set by its feed rate derivation (G4). |
+| INLET DRUM FEEDER 2 (52.603.L00) | custom-drum-feeder | **FAIL** #131 | PASS | PASS | PASS | As feeder 1. Its inlet is on top (custom item); golden's is on the left side, so the hopper run bends. |
+| PENDULUM CONVEYOR (52.604.E00) | pendulum-conveyor | PASS | PASS | PASS | PASS | Simatek E200. 20.84 t/h (5–40), 10.08 m/min (2–30), 31.087 m (15–60), all as golden. Popup speed slider: 100 % here, 94 % on golden (derivation). |
+| GRAIN BREAK (TBC-20) | custom-grain-break | **FAIL** #131 | PASS | PASS | PASS | No real grain break listed (S2 noted it too). No settings, the same as golden. Popup empty on both (#128). |
+| OUTLOAD BUFFER BIN (52.610.H00) | outload-buffer-bin | PASS | PASS | PASS | PASS | Capacity 4.51 m³ (1–15). Popup: fill level slider, PLOT LEVEL and PLOT RATE, as golden. |
+| DIVERTER (52.612.V00) | custom-diverter | **FAIL** #131 | PASS | PASS | PASS | No real diverter listed. No settings, the same as golden. Popup empty on both (#128). |
+| TREATED OUTLOAD METAL BIN 1 (52.613.H00) | metal-bin | PASS | PASS | PASS | QUESTION | Capacity 6 m³ (1.5–18). The popup lacks golden's "LSH set point 85 %" slider, as with G1's bins (see questions). |
+| TREATED OUTLOAD METAL BIN 2 (52.613.H01) | metal-bin | PASS | PASS | PASS | QUESTION | As bin 1. |
+| GRAIN OUT 3 (for metal bin 1's discharge stub) | grain-out | PASS | PASS | – | – | Dragged into place after dropping. |
+| GRAIN OUT 4 (for metal bin 2's discharge stub) | grain-out | PASS | PASS | – | – | |
+
+On check 5: every name and tag took on Enter and read back after deselecting. All the golden values equal the item defaults, so they were retyped and read back rather than changed from something else.
+
+**Line checks**
+
+| # | Check | Expected | Actual | Result |
+|---|-------|----------|--------|--------|
+| 1a | Pendulum in1 | INLET DRUM FEEDER 1 | Saved file: `INLET DRUM FEEDER 1.out → PENDULUM CONVEYOR.in1`, fed by `PRO BOX UNLOADING STATION.out → INLET DRUM FEEDER 1.in` | PASS |
+| 1b | Pendulum in2 | INLET DRUM FEEDER 2 | `INLET DRUM FEEDER 2.out → PENDULUM CONVEYOR.in2`, fed by `SCALPING SCREEN DISCHARGE HOPPER.out → INLET DRUM FEEDER 2.in`, which replaces G1's temporary Grain out | PASS |
+| 1c | Pendulum outBuffer | GRAIN BREAK, then the bin, the diverter and the metal bins | `outBuffer → GRAIN BREAK → OUTLOAD BUFFER BIN → DIVERTER`, then `out1 → METAL BIN 1 → GRAIN OUT 3` and `out2 → METAL BIN 2 → GRAIN OUT 4` ([G2-1](findings-img/G2-1.png)) | PASS |
+| 1d | outBinSeg and outConcetti left open | Open, and the problems list noted | PROBLEMS (4): the batch treater's two (as G1) and "PENDULUM CONVEYOR: output not connected" twice. The messages don't name the port ([G2-3](findings-img/G2-3.png)) | PASS |
+| 2 | Plant control panel | SOURCE (TREATING LINE / PRO BOX) and DESTINATION (CONCETTI / FLEXICON / METAL BIN 1 / METAL BIN 2), as on golden | Only plain selectors, set separately: PENDULUM CONVEYOR (GRAIN BREAK / outBinSeg / outConcetti, showing raw port ids) and DIVERTER (METAL BIN 1 / METAL BIN 2). Missing: the SOURCE selector, a combined DESTINATION, and EMPTY BIN for the metal bins. There are EMPTY buttons for GRAIN OUT 1, 3 and 4 instead ([G2-2](findings-img/G2-2.png)) | **FAIL** #134 |
+| 3a | Destination metal bin 1 | Grain only to metal bin 1 | By 723 s, metal bin 1 at 20.74 t/h and metal bin 2 at 0.00. The flapper line points left (x2 4) | PASS |
+| 3b | Switch to metal bin 2 | Reroutes, flapper follows | Within 30 s, metal bin 2 is at 20.47 t/h and metal bin 1 falls to 0. The flapper flipped to x2 28. The routing changes at once, but while paused the flapper only redraws on the next step (as S2 saw). By 920 s: diverter 4.394 t = bin 1 3.693 + bin 2 0.701 ([G2-4](findings-img/G2-4.png)) | PASS |
+| 4a | Feeder 1 meters by gate % | Flow ∝ gate | Gate 100 %: 12.00 t/h. Gate 50 % (OVERRIDE): 6.00 t/h, and the Pro box follows at 6.00 ([G2-5](findings-img/G2-5.png)) | PASS |
+| 4b | Feeder 2 meters by gate % | Flow ∝ gate | Gate 100 %: 11.87 t/h. Gate 50 %: 6.01 t/h, and the discharge hopper backs up to 100 % (0.14 t) with no event (#125's theme) ([G2-6](findings-img/G2-6.png)) | PASS |
+| 4c | Pendulum carries the feeders' flow to the selected outlet | The feeders' sum, at the selected outlet | 6.00 + 11.88: pendulum 17.86. 6.00 + 6.01: pendulum 12.03, all of it to metal bin 2 | PASS |
+| – | Conservation, both feeders at 100 % | Totals balance | With no SOURCE selector both feeders run: 12.00 + 11.87 = 23.9 t/h into a 20.84 t/h pendulum. The pendulum carries 20.74, and the other 3.1 t/h is lost with no event. Feeders minus pendulum: 0.104 t at 200 s, 0.565 t at 700 s, 0.975 t at 1175 s. Once feeder 1 is at 50 %, the gap holds at 1.018 t. From the pendulum on, everything balances: by 1740 s pendulum = grain break = buffer bin = diverter = 8.504 t = metal bin 1 3.697 + metal bin 2 4.807 t. Read by integrating the chart polylines (read-only) | **FAIL** #133 |
+| – | Pendulum sent to the open outConcetti | Runs and conserves grain, or the problems list explains why not | The pendulum keeps taking 12 t/h and, once grain reaches the end, discharges into nothing (10.4 t/h at 2041 s). The grain break drops to 0. No event in SIM. BUILD's problems list says "output not connected" ([G2-7](findings-img/G2-7.png), see questions) | QUESTION |
+| – | Metal bins hold grain | As golden | On golden a metal bin fills: bin 1 at 29 % (1.25 t) after 400 s from the Pro box ([G2-8](findings-img/G2-8.png)). Its outlet goes to a TBC stub that takes nothing. Here, as the ticket says, each bin's outlet goes to a Grain out, so the bins pass the grain straight through and stay at 0 % (see questions) | QUESTION |
+| 6 | SAVE, then commit as G2.json | A valid line file | Downloaded as `g1.json` (35 KB, `grain-sim-line` v3): 24 machines, 23 connections, no interlocks or rules. Committed as [`docs/findings-lines/G2.json`](findings-lines/G2.json). Opening it again through OPEN loads all 24 machines and 23 connections with PROBLEMS (4). The app names the line "G2" after the file; inside the file the name is still "G1" | PASS |
+| 7 | Console | No errors | No errors or warnings all session | PASS |
+
+Screenshots: [G2-1 rebuilt line in BUILD](findings-img/G2-1.png) · [G2-2 plant controls on the rebuilt line](findings-img/G2-2.png) · [G2-3 problems list](findings-img/G2-3.png) · [G2-4 diverter switched to metal bin 2](findings-img/G2-4.png) · [G2-5 feeder 1 at 50 %, chart](findings-img/G2-5.png) · [G2-6 feeder 2 at 50 %](findings-img/G2-6.png) · [G2-7 pendulum sent to the open outConcetti](findings-img/G2-7.png) · [G2-8 golden baseline, metal bin 1 filling](findings-img/G2-8.png)
+
+**Bugs filed / commented**
+- #133 Two feeds into one machine lose the grain above its capacity, with no event (new)
+- #134 A built line's plant controls don't offer the golden SOURCE and DESTINATION choices (new)
+- #131 Five golden treating machines have no real catalogue item (existing, commented: the inlet drum feeders, grain break and diverter have none either)
+
+**Questions for the user**
+- The metal bins' popups lack golden's "LSH set point 85 %" slider. This is G1's question again: a fresh bin has no set points until an interlock uses one. Do these belong to G4 rather than counting as G2 failures?
+- A pendulum can be sent to an outlet with nothing wired to it, and a fresh pendulum starts on outConcetti, its far outlet. The grain then leaves the line there, with no event in SIM. Only BUILD's problems list says "output not connected", and it doesn't name the port. Should the selector refuse an unwired outlet, or should the pendulum hold the grain, or is the problems entry enough?
+- On golden the metal bins fill, because their outlets go to TBC stubs. Wired to a Grain out, as this ticket builds them, they pass the grain straight through and stay at 0 %, so their level, LT and LSH never move. The pre-bins in #123 do the opposite: wired to a Grain out, they only fill. Should a metal bin hold its grain until it's emptied, as on golden, or discharge into whatever it's wired to?
+
+**Observations**
+- FIT ALL in BUILD fits the line under the catalogue panel, so the left part of the line is hidden. G1 saw the same under the chart dock in SIM.
+- A pan made without first clicking the canvas did nothing. Twice, a scripted Space+drag pan that started over a machine moved the machine instead: the pendulum went 1410 units up and feeder 1 720 units down. I dragged them back, and their connections followed. Not checked by hand.
+- INLET DRUM FEEDER 1's label is drawn behind feeder 2's body, so only "EDER 1" shows. METAL BIN 2's label sits between the two bins; golden puts it on the right.
+- The custom drum feeder's inlet is on top, so the hopper → feeder 2 run bends down into it. Golden's feeder 2 has a side inlet and a straight run.
+- On golden, SOURCE = PRO BOX at gate 64 % still gives 12 t/h, because golden's derivation sets the feeder's rate. Here 100 % gives 12 t/h.
+- UNDO was greyed out after BUILD → SIM → BUILD, so the build steps couldn't be undone after a run.
+
+**Follow-up combo ideas**
+- G3: wire outBinSeg and outConcetti, then re-check the destination choices once #134 is fixed.
+- B2 (merge & fan-out): two Grain ins into one Conveyor rated below their sum, to check #133 on a plain line.
+- Re-run G2 check 2 and the conservation check after #133 and #134 are fixed, switching SOURCE between the feeders.
