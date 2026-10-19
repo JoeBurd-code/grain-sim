@@ -814,6 +814,7 @@ Screenshots: [C1-1 LSH slider moved live, event log](findings-img/C1-1.png) · [
 **Follow-up combo ideas**
 - C3 (delays, sliders): sentences with switch NONE, and set points at the window's 0 % and 100 % limits, against the popup slider's range, once #137 is fixed.
 - C5: press RESET TRIPS while a latched condition still holds, and check that it waits until the condition clears.
+- Re-run C1 6b after #137, with "above 20 %" and "below 80 %" on a custom Bin.
 
 ## G5 Golden: side-by-side run and saved-file diff
 
@@ -900,4 +901,3 @@ Screenshots: [C1-1 LSH slider moved live, event log](findings-img/C1-1.png) · [
 - Re-run G5's behaviour checks once #141 lands: confirm METAL BIN 1/2 reach comparable levels to golden's 13 %/36 % (5/10 min) and 12 %/45 %.
 - Re-run check 3.3's procedure against `metalBin1HighTrip`/`metalBin2HighTrip` once #141 is fixed, to directly confirm the same `armedWhen` divergence check 3.3 found on the Flexicon branch.
 - Once #140 is fixed, re-save G4 (or re-run G4) and confirm the committed `G4.json` re-opens without the patched workaround this run needed.
-- Re-run C1 6b after #137, with "above 20 %" and "below 80 %" on a custom Bin.
