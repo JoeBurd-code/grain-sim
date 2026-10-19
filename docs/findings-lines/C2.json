@@ -1,0 +1,787 @@
+{
+  "format": "grain-sim-line",
+  "formatVersion": 3,
+  "name": "new line",
+  "line": {
+    "zones": [],
+    "machines": [
+      {
+        "id": "grain-in-1",
+        "item": "grain-in",
+        "name": "GRAIN IN 1",
+        "tag": "",
+        "type": "grainIn",
+        "w": 60,
+        "h": 34,
+        "ports": {
+          "inputs": [],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "out": {
+            "x": 30,
+            "y": 34
+          }
+        },
+        "label": {
+          "side": "right",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "rate",
+            "label": "source rate",
+            "min": 0,
+            "max": 20,
+            "value": 12,
+            "unit": "t/h",
+            "bind": "sourceRate",
+            "readBind": "sourceRateActual"
+          }
+        ],
+        "adjustable": [
+          {
+            "param": "rate",
+            "default": 12
+          }
+        ],
+        "sim": {
+          "kind": "source",
+          "rateM3PerSec": 0.00462962962962963
+        },
+        "x": 70,
+        "y": 20
+      },
+      {
+        "id": "custom-bin-1",
+        "item": "custom-bin",
+        "name": "BIN 1",
+        "tag": "",
+        "type": "bin",
+        "w": 90,
+        "h": 100,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 45,
+            "y": 0
+          },
+          "out": {
+            "x": 45,
+            "y": 100
+          }
+        },
+        "fill": 0,
+        "instruments": [
+          "LT",
+          "LSHH",
+          "LSH",
+          "LSL"
+        ],
+        "label": {
+          "side": "right",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "level",
+            "label": "fill level",
+            "min": 0,
+            "max": 100,
+            "value": 0,
+            "unit": "%",
+            "bind": "levelJump"
+          }
+        ],
+        "setpointSliders": [
+          {
+            "switch": "LSL",
+            "label": "LSL recover",
+            "min": 0,
+            "max": 55
+          },
+          {
+            "switch": "LSH",
+            "label": "LSH set point",
+            "min": 35,
+            "max": 90
+          },
+          {
+            "switch": "LSHH",
+            "label": "LSHH trip set point",
+            "min": 55,
+            "max": 100
+          }
+        ],
+        "adjustable": [
+          {
+            "id": "capacity",
+            "label": "capacity",
+            "unit": "m³",
+            "kind": "number",
+            "min": 0.01,
+            "max": 100,
+            "default": 1.63,
+            "bind": "capacity"
+          }
+        ],
+        "sim": {
+          "kind": "accumulator",
+          "capacityM3": 1.63,
+          "atomicDischarge": true
+        },
+        "x": 380,
+        "y": 20
+      },
+      {
+        "id": "custom-drum-feeder-1",
+        "item": "custom-drum-feeder",
+        "name": "F1",
+        "tag": "",
+        "type": "drumFeeder",
+        "w": 80,
+        "h": 36,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 40,
+            "y": 0
+          },
+          "out": {
+            "x": 40,
+            "y": 36
+          }
+        },
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "gatePosition",
+            "label": "gate position",
+            "min": 0,
+            "max": 100,
+            "value": 100,
+            "unit": "%",
+            "bind": "gatePosition",
+            "readBind": "gatePositionActual"
+          }
+        ],
+        "sim": {
+          "kind": "meteredFeeder",
+          "rateM3PerSec": 0.00462962962962963,
+          "hasGate": true
+        },
+        "x": 520,
+        "y": 130
+      },
+      {
+        "id": "custom-conveyor-1",
+        "item": "custom-conveyor",
+        "name": "K1",
+        "tag": "",
+        "type": "conveyor",
+        "w": 300,
+        "h": 26,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 0,
+            "y": 13
+          },
+          "out": {
+            "x": 300,
+            "y": 13
+          }
+        },
+        "label": {
+          "side": "above",
+          "align": "center"
+        },
+        "adjustable": [
+          {
+            "id": "ratedCapacity",
+            "label": "rated capacity",
+            "unit": "t/h",
+            "kind": "number",
+            "min": 0.5,
+            "max": 200,
+            "default": 20,
+            "bind": "ratedCapacity"
+          },
+          {
+            "id": "chainSpeed",
+            "label": "belt speed",
+            "unit": "m/min",
+            "kind": "number",
+            "min": 0.5,
+            "max": 120,
+            "default": 30,
+            "bind": "chainSpeed"
+          },
+          {
+            "id": "length",
+            "label": "length",
+            "unit": "m",
+            "kind": "number",
+            "min": 1,
+            "max": 150,
+            "default": 10,
+            "bind": "length"
+          }
+        ],
+        "sim": {
+          "kind": "transportDelay",
+          "distanceM": 10,
+          "speedMPerMin": 30,
+          "ceilingM3PerSec": 0.00771604938271605
+        },
+        "x": 540,
+        "y": 230
+      },
+      {
+        "id": "custom-bucket-elevator-1",
+        "item": "custom-bucket-elevator",
+        "name": "E",
+        "tag": "",
+        "type": "elevator",
+        "w": 420,
+        "h": 264,
+        "geom": {
+          "colX": 200,
+          "duct": 36
+        },
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 25,
+            "y": 228
+          },
+          "out": {
+            "x": 376,
+            "y": 44
+          }
+        },
+        "instruments": [
+          "ST"
+        ],
+        "label": {
+          "side": "above",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "speed",
+            "label": "speed",
+            "min": 0,
+            "max": 100,
+            "value": 100,
+            "unit": "%",
+            "bind": "elevatorSpeed",
+            "readBind": "elevatorSpeedActual"
+          }
+        ],
+        "adjustable": [
+          {
+            "id": "ratedCapacity",
+            "label": "rated capacity",
+            "unit": "t/h",
+            "kind": "number",
+            "min": 0.5,
+            "max": 200,
+            "default": 20,
+            "bind": "ratedCapacity"
+          },
+          {
+            "id": "chainSpeed",
+            "label": "chain speed",
+            "unit": "m/min",
+            "kind": "number",
+            "min": 0.5,
+            "max": 120,
+            "default": 10.08,
+            "bind": "chainSpeed"
+          },
+          {
+            "id": "height",
+            "label": "height",
+            "unit": "m",
+            "kind": "number",
+            "min": 2,
+            "max": 50,
+            "default": 8.731,
+            "bind": "height"
+          }
+        ],
+        "sim": {
+          "kind": "transportDelay",
+          "distanceM": 8.731,
+          "speedMPerMin": 10.08,
+          "ceilingM3PerSec": 0.00771604938271605
+        },
+        "x": 670,
+        "y": 210
+      },
+      {
+        "id": "custom-conveyor-2",
+        "item": "custom-conveyor",
+        "name": "K2",
+        "tag": "",
+        "type": "conveyor",
+        "w": 300,
+        "h": 26,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 0,
+            "y": 13
+          },
+          "out": {
+            "x": 300,
+            "y": 13
+          }
+        },
+        "label": {
+          "side": "above",
+          "align": "center"
+        },
+        "adjustable": [
+          {
+            "id": "ratedCapacity",
+            "label": "rated capacity",
+            "unit": "t/h",
+            "kind": "number",
+            "min": 0.5,
+            "max": 200,
+            "default": 20,
+            "bind": "ratedCapacity"
+          },
+          {
+            "id": "chainSpeed",
+            "label": "belt speed",
+            "unit": "m/min",
+            "kind": "number",
+            "min": 0.5,
+            "max": 120,
+            "default": 30,
+            "bind": "chainSpeed"
+          },
+          {
+            "id": "length",
+            "label": "length",
+            "unit": "m",
+            "kind": "number",
+            "min": 1,
+            "max": 150,
+            "default": 10,
+            "bind": "length"
+          }
+        ],
+        "sim": {
+          "kind": "transportDelay",
+          "distanceM": 10,
+          "speedMPerMin": 30,
+          "ceilingM3PerSec": 0.00771604938271605
+        },
+        "x": 860,
+        "y": 540
+      },
+      {
+        "id": "custom-bin-2",
+        "item": "custom-bin",
+        "name": "BIN 2",
+        "tag": "",
+        "type": "bin",
+        "w": 90,
+        "h": 100,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 45,
+            "y": 0
+          },
+          "out": {
+            "x": 45,
+            "y": 100
+          }
+        },
+        "fill": 0,
+        "instruments": [
+          "LT",
+          "LSHH",
+          "LSH",
+          "LSL"
+        ],
+        "label": {
+          "side": "right",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "level",
+            "label": "fill level",
+            "min": 0,
+            "max": 100,
+            "value": 0,
+            "unit": "%",
+            "bind": "levelJump"
+          }
+        ],
+        "setpointSliders": [
+          {
+            "switch": "LSL",
+            "label": "LSL recover",
+            "min": 0,
+            "max": 55
+          },
+          {
+            "switch": "LSH",
+            "label": "LSH set point",
+            "min": 35,
+            "max": 90
+          },
+          {
+            "switch": "LSHH",
+            "label": "LSHH trip set point",
+            "min": 55,
+            "max": 100
+          }
+        ],
+        "adjustable": [
+          {
+            "id": "capacity",
+            "label": "capacity",
+            "unit": "m³",
+            "kind": "number",
+            "min": 0.01,
+            "max": 100,
+            "default": 1.63,
+            "bind": "capacity"
+          }
+        ],
+        "sim": {
+          "kind": "accumulator",
+          "capacityM3": 1.63,
+          "atomicDischarge": true
+        },
+        "x": 1330,
+        "y": 630
+      },
+      {
+        "id": "grain-out-1",
+        "item": "grain-out",
+        "name": "GRAIN OUT 1",
+        "tag": "",
+        "type": "grainOut",
+        "w": 60,
+        "h": 34,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": []
+        },
+        "anchors": {
+          "in": {
+            "x": 30,
+            "y": 0
+          }
+        },
+        "label": {
+          "side": "right",
+          "align": "center"
+        },
+        "sim": {
+          "kind": "terminalSink"
+        },
+        "x": 1570,
+        "y": 1030
+      },
+      {
+        "id": "custom-outlet-valve-1",
+        "item": "custom-outlet-valve",
+        "name": "OUTLET VALVE 1",
+        "tag": "",
+        "type": "valve",
+        "w": 40,
+        "h": 18,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 20,
+            "y": 0
+          },
+          "out": {
+            "x": 20,
+            "y": 18
+          }
+        },
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "adjustable": [
+          {
+            "id": "ratedCapacity",
+            "label": "maximum flow",
+            "unit": "t/h",
+            "kind": "number",
+            "min": 0.5,
+            "max": 200,
+            "default": 19.2,
+            "bind": "ratedCapacity"
+          }
+        ],
+        "sim": {
+          "kind": "gateValve",
+          "ceilingM3PerSec": 0.007407407407407408
+        },
+        "x": 1360,
+        "y": 870
+      }
+    ],
+    "connections": [
+      {
+        "from": {
+          "machine": "grain-in-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "custom-bin-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-bin-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "custom-drum-feeder-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-drum-feeder-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "custom-conveyor-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-conveyor-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "custom-bucket-elevator-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-bucket-elevator-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "custom-conveyor-2",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-conveyor-2",
+          "port": "out"
+        },
+        "to": {
+          "machine": "custom-bin-2",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-bin-2",
+          "port": "out"
+        },
+        "to": {
+          "machine": "custom-outlet-valve-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-outlet-valve-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "grain-out-1",
+          "port": "in"
+        },
+        "kind": "product"
+      }
+    ],
+    "interlocks": [
+      {
+        "id": "interlock-1",
+        "kind": "sentence",
+        "when": {
+          "machine": "custom-conveyor-1",
+          "condition": "stopped",
+          "delaySec": 1
+        },
+        "then": [
+          {
+            "action": "stop",
+            "machine": "custom-drum-feeder-1"
+          }
+        ],
+        "reset": "auto"
+      },
+      {
+        "id": "interlock-2",
+        "kind": "sentence",
+        "when": {
+          "machine": "custom-bucket-elevator-1",
+          "condition": "stopped",
+          "delaySec": 1
+        },
+        "then": [
+          {
+            "action": "stop",
+            "machine": "custom-conveyor-1"
+          }
+        ],
+        "reset": "auto"
+      },
+      {
+        "id": "interlock-3",
+        "kind": "sentence",
+        "when": {
+          "machine": "custom-conveyor-2",
+          "condition": "stopped",
+          "delaySec": 1
+        },
+        "then": [
+          {
+            "action": "stop",
+            "machine": "custom-bucket-elevator-1"
+          }
+        ],
+        "reset": "auto"
+      },
+      {
+        "id": "interlock-4",
+        "kind": "sentence",
+        "when": {
+          "machine": "custom-bin-2",
+          "condition": "above",
+          "setpoint": 0.5,
+          "delaySec": 0
+        },
+        "then": [
+          {
+            "action": "stop",
+            "machine": "custom-conveyor-2"
+          }
+        ],
+        "reset": "auto"
+      },
+      {
+        "id": "interlock-5",
+        "kind": "sentence",
+        "when": {
+          "machine": "custom-bin-2",
+          "condition": "above",
+          "setpoint": 0.5,
+          "delaySec": 0
+        },
+        "then": [
+          {
+            "action": "stop",
+            "machine": "custom-drum-feeder-1"
+          }
+        ],
+        "reset": "auto"
+      },
+      {
+        "id": "interlock-6",
+        "kind": "sentence",
+        "when": {
+          "machine": "custom-conveyor-1",
+          "condition": "running",
+          "delaySec": 1
+        },
+        "then": [
+          {
+            "action": "close",
+            "machine": "custom-outlet-valve-1"
+          }
+        ],
+        "reset": "auto"
+      }
+    ],
+    "machineRules": []
+  }
+}
