@@ -9,11 +9,16 @@ These sessions are the user's standing go-ahead to drive a browser, so the CLAUD
 
 ## 1. Set up
 
-1. Read the ticket, then read the newest entries in `docs/build-mode-findings.md`. They
-   list the bugs already filed and the items known to be broken.
+1. Read the ticket. In `docs/build-mode-findings.md`, read only the summary table, the
+   "Known broken items" table and the one earlier entry the ticket builds on, if any
+   (for example G2 for G3). The tables list the bugs already filed and the items known
+   to be broken. Don't read the whole file: it grows with every run, and reading it
+   all makes every session cost more.
 2. `git pull`, then record the SHA from `git rev-parse --short HEAD`.
 3. Run `npm run dev` in the background and note the port (normally 5173).
-4. Use **Playwright** (`mcp__playwright__*`) as the driver. Fall back to Claude in Chrome
+4. Use **Playwright** (`mcp__playwright__*`) as the driver. In a parallel batch, each
+   sub-agent drives its own named Playwright CLI session instead, because the MCP is one
+   shared browser (see `docs/browser-test-prompt.md`). Fall back to Claude in Chrome
    only for a gesture Playwright can't do, and say so in the findings.
 5. Start from a clean browser: navigate to the app, run
    `localStorage.clear()` once with `browser_evaluate`, then reload. Skip this only
@@ -28,6 +33,10 @@ These sessions are the user's standing go-ahead to drive a browser, so the CLAUD
   (`browser_snapshot`), screenshots, console messages, a file downloaded by SAVE, and
   a read-only `browser_evaluate` such as reading localStorage. Check the console for
   errors after every major step.
+- **Keep snapshots small.** Snapshot only the panel, popup or element being checked,
+  and read numbers with a read-only evaluate rather than a full-page snapshot. Full
+  snapshots of the scene are large, and they pile up in the session's context, which
+  is what makes a run expensive.
 - **Test only, never fix.** Don't edit `src/` in a test session. A failure gets
   logged and filed (section 4) and the session carries on.
 - **Bugs don't block.** If an item or feature the combo needs is broken, log
