@@ -19,7 +19,7 @@ Shows the latest run of each combo.
 | G3 Golden: packaging | #103 | 2026-10-19 | 6029015 | 47 | 5 | 5 | #131 #134 |
 | G4 Golden: interlocks & rules | #104 | | | | | | |
 | G5 Golden: side-by-side run | #105 | | | | | | |
-| C1 Level conditions × actions | #106 | | | | | | |
+| C1 Level conditions × actions | #106 | 2026-10-19 | 6029015 | 36 | 1 | 1 | #137 |
 | C2 Running/stopped & cascades | #107 | 2026-10-19 | 6029015 | 8 | 2 | 2 | #135 #136 |
 | C3 Delays, alarm-only, sliders | #108 | | | | | | |
 | C4 Suggested interlocks | #109 | | | | | | |
@@ -62,6 +62,7 @@ Each session keeps this list current, so later sessions know what to work around
 | The pendulum selector names each outlet after its first machine, so on the golden packaging line both the big bag and Concetti outlets read "AUTO SAMPLER" (the first is big bag) | #134 | G3 | No |
 | No machine popup has a stop or start control (conveyor, elevator, drum feeder), so one machine can't be stopped by hand. Stop it through an interlock instead, e.g. "When BIN is above 50 % for 0 s, stop K2", and drag that interlock's set point slider in the bin's popup below the bin's level (back to 100 % releases it) | #135 | C2 | No |
 | Only the bin high-level rule is ever suggested. No conveyor-running interlock ("when K1 is stopped, stop F1") is offered; write them by hand | #136 | C2 | No |
+| A custom Bin's popup set point sliders keep the Treater pre-bin's limits (LSH 35–90 %, LSL 0–55 %) and its "LSL recover" label, while the Interlocks window accepts 0–100 %. A set point outside them shows with the thumb pinned at the end, and touching it moves the trip point. Keep custom-Bin set points inside those ranges | #137 | C1 | No |
 
 ## Entries
 
@@ -661,3 +662,81 @@ Screenshots: [C2-1 cascade stop, grain left on the conveyors](findings-img/C2-1.
 - Re-run C2 checks 1 and 6 once #135 and #136 are fixed: stop K2 from its popup, and accept the suggested conveyor-running interlocks.
 - The same cascade with latched reset, restarted with RESET TRIPS, to compare against auto.
 - A staggered restart built from a "when it clears" part with WAIT steps, if the instant restart (question 1) is not what is wanted.
+
+## C1 Level conditions × actions
+
+### C1 — 2026-10-19 — 6029015
+
+**Result:** 36 PASS · 1 FAIL · 1 QUESTION · blocked by: none
+**Tool:** Playwright CLI (`@playwright/cli`, its own headless Chromium session), not the Playwright MCP or Claude in Chrome, because two other sessions were running at the same time. Every change was made with real mouse and keyboard input: catalogue drags, port-to-port drags, typing and clicks in the right panel and the Interlocks window, popup slider clicks, and the toolbar and safety buttons. Scripts only read state (DOM snapshots, slider min/max, the RESET TRIPS button's class, the SAVE download). Dev server on port 5182.
+
+**Steps**
+1. Cleared localStorage and reloaded. BUILD → NEW LINE.
+2. Dragged in Grain in, custom Bin, custom Drum feeder, custom Outlet valve, custom Conveyor, custom Bin, custom Drum feeder and Grain out. Wired them in that order by dragging port dots, then renamed the six machines BIN A, F, V, K, BIN B and G. PROBLEMS cleared. The saved file confirms the seven connections, `out → in` each.
+3. For each of the 16 runnable combos (bin × above/below × stop F/close V × auto/latched): INTERLOCKS → deleted the last interlock (DELETE INTERLOCK → DELETE IT) → + ADD → WATCH the bin, IS ABOVE 50 % with switch LSH or BELOW 30 % with switch LSL, FOR 2 s, + MACHINE → F STOP or V CLOSE, then AUTO or LATCHED. Read the sentence, then SIM → RESTART → RUN (1×, or 5× to wait out a slow fill) and opened the watched bin's popup.
+4. Moved each bin's level across the set point with the popup's fill level slider, or let it cross by itself. Read the popup's event log, the bin's tonnage and RESET TRIPS. For latched, let the level recover, checked the trip held, then pressed RESET TRIPS.
+5. For the 16 start/open combos: wrote the same sentences up to the step, picked F or V, and read the action pills, their tooltips and the window's message, under AUTO and under LATCHED.
+6. Set point slider: with "above 50 %, LSH", moved LSH live to 35 % (the level was at 50 %) and then to 80 %. Then wrote "above 20 %, LSH" to test a set point below the slider's range.
+7. BUILD → SAVE, kept as [`docs/findings-lines/C1.json`](findings-lines/C1.json) (its interlock is the last one written, "above 20 %"). Read the console at the end: no errors or warnings all session.
+
+**Matrix.** "Fires" is the event log entry after the 2 s delay. "Clears" is the auto release, or for latched, still held after recovery and released by RESET TRIPS. RESET TRIPS pulsed (`trip-pulse`) from the moment each latched trip fired until it was pressed. In every run, the bin's tonnage confirmed what the event said: it rose while F was stopped or V closed, and held or fell once released.
+
+| # | Condition | Action | Reset | How the level crossed | Fires | Clears | Result |
+|---|-----------|--------|-------|-----------------------|-------|--------|--------|
+| 1 | BIN A above 50 % (LSH) | stop F | auto | fill slider 70 %, then 30 % | 270.4 s "above 50% for 2s, F stopped" (LSH ON 268.4 s) | 441.6 s "below 50% again, F released". A then held at 0.35 t | PASS |
+| 2 | BIN A above 50 % | stop F | latched | 70 %, then 30 % | 17.7 s | Held (A rose 0.35 → 0.45 t with F stopped). RESET TRIPS at 75.7 s: "reset, F released", A held at 0.45 t | PASS |
+| 3 | BIN A above 50 % | close V | auto | 70 %, then 30 % | 41.0 s "V closed" | 91.3 s "below 50% again, V released" | PASS |
+| 4 | BIN A above 50 % | close V | latched | 70 %, then 30 % | 11.1 s | Held, V drawn closed ([C1-2](findings-img/C1-2.png)). RESET TRIPS at 56.3 s: "reset, V released" | PASS |
+| 5 | BIN A below 30 % (LSL) | stop F | auto | starts empty, then fills while F is stopped | 2.1 s | 107.7 s "above 30% again, F released". A then held at 0.35 t | PASS |
+| 6 | BIN A below 30 % | stop F | latched | the same | 2.1 s | Held while A rose to 0.64 t. RESET TRIPS at 238.5 s: "reset, F released", A held at 0.79 t | PASS |
+| 7 | BIN A below 30 % | close V | auto | the same | 2.1 s "V closed" | 107.7 s "V released", the same moment as row 5, so a closed V held F back exactly as a stop did | PASS |
+| 8 | BIN A below 30 % | close V | latched | the same | 2.1 s | Held to 0.55 t. RESET TRIPS at 201.2 s: "V released" | PASS |
+| 9 | BIN B above 50 % | stop F | auto | fill slider 70 %, then G drains it | 23.8 s | 114.2 s "below 50% again, F released" | PASS |
+| 10 | BIN B above 50 % | stop F | latched | 70 %, then G drains it | 265.9 s | Held while B drained to 0.15 t. RESET TRIPS at 540.6 s: "F released" | PASS |
+| 11 | BIN B above 50 % | close V | auto | 70 %, then G drains it | 14.4 s | 97.1 s "V released" | PASS |
+| 12 | BIN B above 50 % | close V | latched | 70 %, then G drains it | 13.2 s | Held to 0.29 t. RESET TRIPS at 200.1 s: "V released" | PASS |
+| 13 | BIN B below 30 % | stop F | auto | starts empty, then fill slider 60 % | 2.1 s | 30.3 s "above 30% again, F released". B then held at 0.64 t | PASS |
+| 14 | BIN B below 30 % | stop F | latched | empty, then 80 % | 2.1 s | Held at 0.90 t. RESET TRIPS at 25.5 s: "F released" | PASS |
+| 15 | BIN B below 30 % | close V | auto | empty, then 60 % | 2.1 s | 16.1 s "V released" | PASS |
+| 16 | BIN B below 30 % | close V | latched | empty, then 80 % | 2.1 s | Held. RESET TRIPS at 24.5 s: "V released" | PASS |
+| 17–24 | BIN A or BIN B, above 50 % or below 30 % (4) | start F | auto, then latched (2 each) | – | START is greyed out, so it can't be picked. Its tooltip says "Only after this interlock has stopped it. Machines run on their own." The window says THIS INTERLOCK WILL NOT RUN YET: "Machines run on their own. A step can only stop a machine or close a valve. To leave F running, remove this step." It offers REMOVE STEP, and the sentence reads "… , … F." | – | PASS |
+| 25–32 | the same 4 conditions | open V | auto, then latched | – | OPEN is greyed out: "Only after this interlock has closed it. Valves are open on their own." The same message and REMOVE STEP ([C1-3](findings-img/C1-3.png)) | – | PASS |
+
+**Checks**
+
+| # | Check | Expected | Actual | Result |
+|---|-------|----------|--------|--------|
+| 1a | The sentence reads in plain words | Correct | All 16 read as written, e.g. "When BIN A is above 50 % for 2 s, stop F." and "When BIN B is below 30 % for 2 s, close V." The reset shows under the sentence ("Lets go by itself once the condition clears." / "Holds until an operator presses RESET TRIPS.") | PASS |
+| 1b | Only sensible choices | No "above" on a conveyor, no "close" on a feeder | WATCH lists BIN A, V, K and BIN B. A bin offers ABOVE / BELOW and SWITCH NONE / LSL / LSH / LSHH. K and V offer only STOPPED / RUNNING. Steps: F and K offer STOP / START, V and Grain in offer CLOSE / OPEN. No feeder offers CLOSE and no conveyor offers ABOVE | PASS |
+| 2 | Fires at X after the delay, logged | Yes | Rows 1–16. A level switch also logs "LSH ON at 70% (setpoint 50%)" 2 s before the action | PASS |
+| 3 | Auto clears and the machine returns | Yes | Rows 1, 3, 5, 7, 9, 11, 13 and 15 | PASS |
+| 4 | Latched holds, RESET TRIPS lights, the press clears it | Yes | Rows 2, 4, 6, 8, 10, 12, 14 and 16 | PASS |
+| 5 | "start"/"open" that can never run is explained | The window says why | Rows 17–32 | PASS |
+| 6a | The popup gains the switch's set point slider, and it moves the trip point live | Yes | BIN A's popup showed "LSH set point 50 %" once the interlock existed. With the level at 50 %, LSH moved to 35 %: "LSH ON at 50% (setpoint 35%)", then "above 35% for 2s, F stopped". LSH moved to 80 %: "below 80% again, F released" ([C1-1](findings-img/C1-1.png)) | PASS |
+| 6b | The slider shows the interlock's set point | Any set point the window accepts | "above 20 %, LSH" is accepted, and trips at 20 % ("LSH ON at 27% (setpoint 20%)"). But the popup slider is limited to 35–90 %, so its thumb sits pinned at the left end under a "20 %" label ([C1-4](findings-img/C1-4.png)). The LSL slider is limited to 0–55 % and labelled "LSL recover". These are the Treater pre-bin's values, kept by the custom Bin | **FAIL** #137 |
+| 7 | Console | No errors | No errors or warnings all session | PASS |
+
+Screenshots: [C1-1 LSH slider moved live, event log](findings-img/C1-1.png) · [C1-2 latched close V, RESET TRIPS lit, V drawn closed](findings-img/C1-2.png) · [C1-3 OPEN greyed out with the window's explanation](findings-img/C1-3.png) · [C1-4 set point 20 % on a 35–90 % slider](findings-img/C1-4.png)
+
+**Bugs filed / commented**
+- #137 A custom Bin's set point sliders keep the Treater pre-bin's 35–90 % / 0–55 % limits and "LSL recover" label (new)
+
+**Questions for the user**
+- Moving a set point slider in a SIM popup moves the live trip point, but it isn't written back to the line. After LSH was moved from 50 % to 80 % in SIM, the Interlocks window back in BUILD still read "above 50 %", and RESTART went back to 50 %. Should the popup slider stay a live tuning control that resets, or should it change the interlock's set point?
+
+**Observations**
+- #123 didn't show here: the custom Bin drains steadily into a drum feeder. With F running, BIN A stays at 0 %, and after a slider change it holds wherever it was put. So most level crossings had to be made with the popup's fill level slider.
+- The fill level slider is a set-once control. After it was set to 70 %, the bin filled to 91 % and then 100 % while the slider still read 70 %.
+- No "LSH OFF" or "LSL OFF" event is logged when a level switch clears, only the "ON". A latched trip logs nothing when its condition clears, only the later "reset, F released". A "below" trip logs no "LSL ON" line, unlike "above", which logs "LSH ON at …".
+- Row 1: with F stopped, BIN A sat at 100 % for about 50 s with no event (#125).
+- The window's message on a greyed-out OPEN says "To leave V running, remove this step." For a valve, "open" would read better than "running".
+- The Interlocks window offers no way to pick "start" or "open" as an only step. That is the intent of #92, but it means the "start the feeder never runs" case is ruled out before it can be written, not shown after.
+- Each time SIM was entered the view fitted to a different zoom, and the chart dock reopened. The popup and event log panel also closed on each switch to BUILD.
+- In BUILD, the connector lines seem to start and end at odd points: Grain in's line leaves from its top, and F → V is drawn to V's outlet side. The saved file has every connection right (`out → in`).
+- The first click on SIM, made while the delay field had focus, didn't switch mode. The second did.
+- The suggested interlocks on this line were "When BIN A is above 85 % for 5 s, close GRAIN IN 1." and "When BIN B is above 85 % for 5 s, stop K." They were left alone (C4's subject).
+
+**Follow-up combo ideas**
+- C3 (delays, sliders): sentences with switch NONE, and set points at the window's 0 % and 100 % limits, against the popup slider's range, once #137 is fixed.
+- C5: press RESET TRIPS while a latched condition still holds, and check that it waits until the condition clears.
+- Re-run C1 6b after #137, with "above 20 %" and "below 80 %" on a custom Bin.
