@@ -20,7 +20,7 @@ Shows the latest run of each combo.
 | G4 Golden: interlocks & rules | #104 | | | | | | |
 | G5 Golden: side-by-side run | #105 | | | | | | |
 | C1 Level conditions × actions | #106 | | | | | | |
-| C2 Running/stopped & cascades | #107 | | | | | | |
+| C2 Running/stopped & cascades | #107 | 2026-10-19 | 6029015 | 8 | 2 | 2 | #135 #136 |
 | C3 Delays, alarm-only, sliders | #108 | | | | | | |
 | C4 Suggested interlocks | #109 | | | | | | |
 | C5 Interlock lifecycle | #110 | | | | | | |
@@ -58,6 +58,8 @@ Each session keeps this list current, so later sessions know what to work around
 | No real catalogue item for the golden inlet drum feeders, grain break or diverter either; only the custom ones are listed | #131 | G2 | No |
 | Two feeds into one machine (both inlet drum feeders into the pendulum) lose whatever is above its capacity, with no event. Keep the feeders' total under the rating, e.g. one gate at 50 % | #133 | G2 | No |
 | A built line gets no SOURCE selector and no combined DESTINATION, only one plain selector per diverter/pendulum, set separately | #134 | G2 | No |
+| No machine popup has a stop or start control (conveyor, elevator, drum feeder), so one machine can't be stopped by hand. Stop it through an interlock instead, e.g. "When BIN is above 50 % for 0 s, stop K2", and drag that interlock's set point slider in the bin's popup below the bin's level (back to 100 % releases it) | #135 | C2 | No |
+| Only the bin high-level rule is ever suggested. No conveyor-running interlock ("when K1 is stopped, stop F1") is offered; write them by hand | #136 | C2 | No |
 
 ## Entries
 
@@ -520,3 +522,61 @@ Screenshots: [G2-1 rebuilt line in BUILD](findings-img/G2-1.png) · [G2-2 plant 
 - G3: wire outBinSeg and outConcetti, then re-check the destination choices once #134 is fixed.
 - B2 (merge & fan-out): two Grain ins into one Conveyor rated below their sum, to check #133 on a plain line.
 - Re-run G2 check 2 and the conservation check after #133 and #134 are fixed, switching SOURCE between the feeders.
+
+## C2 Running/stopped and cascades
+
+### C2 — 2026-10-19 — 6029015
+
+**Result:** 8 PASS · 2 FAIL · 2 QUESTION · blocked by: #135 (check 1's "from its popup": K2 was stopped through a bin-level interlock instead)
+**Tool:** Playwright CLI (`@playwright/cli`, session `C2`, its own headless Chromium, viewport 1600 × 1000), not the Playwright MCP, because two other sessions ran in parallel. Every change was made with real mouse and keyboard input: catalogue drags, port-to-port drags, typing in the right panel and the Interlocks window, popup slider drags and toolbar buttons. Scripts only read state (port positions, chart polylines, localStorage, the SAVE download). Dev server on port 5183.
+
+**Steps**
+1. Cleared localStorage, reloaded, BUILD → NEW LINE. Dragged in Grain in, Bin (Custom), Drum feeder (Custom), Conveyor (Custom), Bucket elevator (Custom), Conveyor (Custom), Bin (Custom) and Grain out, and wired them port to port. PROBLEMS read "This line has no problems." Renamed the feeder, conveyors and elevator F1, K1, E and K2 in the right panel. All other values were left at the item defaults (conveyors 20 t/h, 30 m/min, 10 m; elevator 20 t/h, 10.08 m/min, 8.731 m; bins 1.63 m³ = 1.17 t; Grain in 12 t/h).
+2. INTERLOCKS → + ADD, three times: "When K1 is stopped for 1 s, stop F1", "When E is stopped for 1 s, stop K1", "When K2 is stopped for 1 s, stop E", all auto reset. Each read "will run".
+3. K2's popup has no stop control (#135). To stop K2 by hand I added "When BIN 2 is above 50 % for 0 s, stop K2" (auto). In SIM its popup set point slider ("above set point") sits in BIN 2's popup: dragging it below Bin 2's level stops K2, and dragging it to 100 % releases K2.
+4. SIM → plotted the rates of Grain in, F1, K1, E and K2 and the levels and rates of both bins. 5× → RUN to 183 s (Bin 2 at 0.30 t). Dragged the K2 set point to 18 %, ran 40 s, then dragged it to 100 % and ran 44 s. At 267 s I dragged Grain in's source rate to 0 and ran at 20× to 780 s, so the line drained into Bin 2 and the plotted rates decayed to 0.
+5. BUILD, + ADD "When BIN 2 is above 50 % for 0 s, stop F1", a second stop source on F1. SIM (a fresh run), then held and released the two F1 sources in both orders with the two set point sliders in BIN 2's popup, reading Bin 1's level each time.
+6. BUILD: deleted BIN 2 → GRAIN OUT 1, added an Outlet valve (Custom) between them. Tried "When K1 is running for 1 s, open OUTLET VALVE 1", then built "When K1 is running for 1 s, close OUTLET VALVE 1". SIM: ran it, and stopped K1 through the K2 cascade.
+7. BUILD → INTERLOCKS to read the suggestions, then SAVE ([`docs/findings-lines/C2.json`](findings-lines/C2.json): 9 machines, 8 connections, 6 interlocks).
+8. Read console messages after every stage. There were no errors or warnings all session.
+
+**Checks**
+| # | Check | Expected | Actual | Result |
+|---|-------|----------|--------|--------|
+| 1a | Stop K2 from its popup | A stop control in K2's popup | K2's popup has only EVENT LOG and PLOT RATE. No machine popup on this line has a stop or start control. K2 was stopped through the bin-level interlock in step 3 | **FAIL** #135 |
+| 1b | E, then K1, then F1 stop, in order, each after its delay | In order, 1 s apart | K2 stopped at 183.2 s, E at 184.2 s, K1 at 185.3 s, F1 at 186.3 s ([C2-1](findings-img/C2-1.png)). Their speeds read 0.0 m/min | PASS |
+| 1c | The event log shows the chain | Each step logged | "183.2s BIN 2 above 18% for 0s, K2 stopped", "184.2s K2 not running for 1s, E stopped", "185.3s E not running for 1s, K1 stopped", "186.3s K1 not running for 1s, F1 stopped" | PASS |
+| 2 | Grain on the stopped conveyors stays on them; conservation across the stop | Nothing vanishes | The stopped K1, E and K2 still draw their grain ([C2-1](findings-img/C2-1.png)). While stopped, Bin 2 held at 0.30 t and Bin 1 rose 0.13 t in 36 s, which is 12 t/h, all of Grain in. After the restart, the drain and 780 s: Grain in 0.886 t = F1 0.887 = K1 0.887 = E 0.887 = K2 0.887 = Bin 2 0.89 t (75.9 % of 1.17 t), Bin 1 0.00 t. 12 t/h × 267 s = 0.890 t. Rates read by integrating the chart polylines once they had decayed to 0 (read-only); bins from their popups ([C2-3](findings-img/C2-3.png)) | PASS |
+| 3a | Restart K2: with auto reset the chain restarts downstream to upstream | K2, E, K1, F1 | Set point to 100 % at 222.8 s: "BIN 2 below 100% again, K2 released" 222.8 s, "K2 running again, E released" 222.9 s, "E running again, K1 released" 222.9 s, "K1 running again, F1 released" 223.0 s ([C2-2](findings-img/C2-2.png)). Order as expected, the whole chain back within 0.2 s | PASS |
+| 3b | Restart timing | Record it | The stop takes 1 s a step because of the signal delays, but the restart has no delay at all: each release waits only for the machine below to read running again, one or two 0.05 s ticks. See questions | QUESTION |
+| 4a | The running condition works the other way round | Acts while K1 runs, lets go when it stops | "When K1 is running for 1 s, close OUTLET VALVE 1": "1.1s K1 running for 1s, OUTLET VALVE 1 closed", and Bin 2 held its grain. When K1 stopped in the cascade: "173.7s K1 no longer running, OUTLET VALVE 1 released", and Bin 2 drained through the valve from 0.26 t to 0.09 t. When K1 ran again: "207.0s K1 running for 1s, OUTLET VALVE 1 closed" ([C2-7](findings-img/C2-7.png)) | PASS |
+| 4b | "When K1 is running → open a valve" | Can be written | OPEN is greyed out. Picking the valve shows "Machines run on their own. A step can only stop a machine or close a valve. To leave OUTLET VALVE 1 running, remove this step." ([C2-6](findings-img/C2-6.png)). The same effect is "When K1 is stopped, close the valve" (see questions) | QUESTION |
+| 5a | Two stop sources on F1, cleared in the order bin then K1 | F1 runs only when both have cleared | Source B (Bin 2 above 8 %) stopped F1 at 160.0 s, and the K1 interlock stopped it again at 205.7 s. B released F1 at 251.3 s, but Bin 1 kept rising at 12 t/h (0.30 → 0.46 t by 298.9 s), so F1 stayed stopped. K1 released it at 299.2 s, and Bin 1 then held at 0.46 t, so F1 was running ([C2-4](findings-img/C2-4.png)) | PASS |
+| 5b | The same, cleared in the order K1 then bin | As 5a | Both held from 350.4 s. K1 released F1 at 387.3 s, but Bin 1 rose 0.60 → 0.76 t by 437.3 s. B released it at 437.4 s, and Bin 1 then held at 0.76 t ([C2-5](findings-img/C2-5.png)) | PASS |
+| 6 | Accepting the suggested conveyor-running interlocks gives the same result as writing them by hand | Suggestions offered | Only bin high-level suggestions appear: "When BIN 1 is above 85 % for 5 s, close GRAIN IN 1", and "When BIN 2 is above 85 % for 5 s, stop K2" (until my BIN 2 → K2 interlock covered it). No conveyor-running suggestion at any point ([C2-8](findings-img/C2-8.png)) | **FAIL** #136 |
+| 7 | Console | No errors | 3 messages all session, none an error or warning (Vite and React DevTools notices) | PASS |
+
+Screenshots: [C2-1 cascade stop, grain left on the conveyors](findings-img/C2-1.png) · [C2-2 restart, downstream to upstream](findings-img/C2-2.png) · [C2-3 drained line, conservation](findings-img/C2-3.png) · [C2-4 two stop sources, bin first](findings-img/C2-4.png) · [C2-5 two stop sources, K1 first](findings-img/C2-5.png) · [C2-6 OPEN greyed out](findings-img/C2-6.png) · [C2-7 running condition closing the valve](findings-img/C2-7.png) · [C2-8 suggestions](findings-img/C2-8.png). Saved line: [C2.json](findings-lines/C2.json) (it includes the two BIN 2 workaround interlocks and the valve).
+
+**Bugs filed / commented**
+- #135 A conveyor's popup has no stop or start control, so one machine can't be stopped by hand (new)
+- #136 No conveyor-running interlock is suggested when machines are connected (new)
+
+**Questions for the user**
+- The cascade stops one step a second because of the 1 s signal delays, but it restarts all at once: K2, E, K1 and F1 were all running again within 0.2 s of K2 being released, because an auto-reset interlock lets go the tick its condition clears and has no delay on clearing. Is an instant restart what you want, or should a restart be staggered too, for example by a delay on "running again", so each conveyor is up to speed before the one feeding it starts?
+- A step can only stop a machine or close a valve, so "When K1 is running, open the valve" can't be written: OPEN is greyed out, and a valve is open unless something closes it. The same behaviour has to be written as "When K1 is stopped, close the valve". Is that the intended way to express "open the valve while K1 runs", or should OPEN be offered for a valve, meaning "hold it closed except while this is true"?
+
+**Observations**
+- BIN 2's popup labels its two generated set point sliders "above set point" and "above set point 2". Nothing says which interlock each one drives (one stops K2, the other F1), so I had to work it out from the order I added them.
+- Choosing a step's machine before its action shows "Machines run on their own. A step can only stop a machine or close a valve. To leave F1 running, remove this step." No action has been picked yet, so "needs an action" would fit better. For a valve it says "To leave OUTLET VALVE 1 running".
+- F1 has no events of its own. Every "F1 stopped" or "F1 released" line is listed under the machine the interlock watches (K1 or BIN 2), so the event log has no F1 button.
+- BUILD → SIM starts a fresh run and clears the plots, and RESTART also clears them, so the series have to be plotted again each time. UNDO is greyed out after a SIM visit (G2 saw this too).
+- Holding Bin 2 near the K2 set point (8 %) with the valve open made the line cycle about every 4 s: K2 stops, the valve opens, the bin drains, K2 restarts, the valve closes. The logic is right; it is what such a set point does.
+- With the valve between them, the custom Bin 2 does discharge (0.26 → 0.09 t). Wired straight to Grain out it only fills, as #123 says.
+- The custom drum feeder passes whatever it is fed: Bin 1 stays at 0 while F1 runs and holds level once F1 restarts, so F1 runs at the 12 t/h inflow.
+- At this zoom the port dots are about 6 px across. A drag that starts just off one moves the machine instead, and twice moved Bin 1 on top of the feeder. Wheel-down zooms out only as far as the line's extent allows (G1 saw this).
+
+**Follow-up combo ideas**
+- Re-run C2 checks 1 and 6 once #135 and #136 are fixed: stop K2 from its popup, and accept the suggested conveyor-running interlocks.
+- The same cascade with latched reset, restarted with RESET TRIPS, to compare against auto.
+- A staggered restart built from a "when it clears" part with WAIT steps, if the instant restart (question 1) is not what is wanted.
