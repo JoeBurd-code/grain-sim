@@ -17,7 +17,7 @@ Shows the latest run of each combo.
 | G1 Golden: treating section | #101 | 2026-10-16 | 6e8dedb | 48 | 5 | 7 | #131 |
 | G2 Golden: outload | #102 | 2026-10-16 | 7b0bcd6 | 45 | 6 | 4 | #131 #133 #134 |
 | G3 Golden: packaging | #103 | 2026-10-19 | 6029015 | 47 | 5 | 5 | #131 #134 |
-| G4 Golden: interlocks & rules | #104 | | | | | | |
+| G4 Golden: interlocks & rules | #104 | 2026-10-19 | 602a423 | 10 | 9 | 0 | #138 #139 |
 | G5 Golden: side-by-side run | #105 | | | | | | |
 | C1 Level conditions × actions | #106 | 2026-10-19 | 6029015 | 36 | 1 | 1 | #137 |
 | C2 Running/stopped & cascades | #107 | 2026-10-19 | 6029015 | 8 | 2 | 2 | #135 #136 |
@@ -63,6 +63,8 @@ Each session keeps this list current, so later sessions know what to work around
 | No machine popup has a stop or start control (conveyor, elevator, drum feeder), so one machine can't be stopped by hand. Stop it through an interlock instead, e.g. "When BIN is above 50 % for 0 s, stop K2", and drag that interlock's set point slider in the bin's popup below the bin's level (back to 100 % releases it) | #135 | C2 | No |
 | Only the bin high-level rule is ever suggested. No conveyor-running interlock ("when K1 is stopped, stop F1") is offered; write them by hand | #136 | C2 | No |
 | A custom Bin's popup set point sliders keep the Treater pre-bin's limits (LSH 35–90 %, LSL 0–55 %) and its "LSL recover" label, while the Interlocks window accepts 0–100 %. A set point outside them shows with the thumb pinned at the end, and touching it moves the trip point. Keep custom-Bin set points inside those ranges | #137 | C1 | No |
+| The Interlocks window has no "armed while" blank: 5 of golden's 9 interlocks (the metal bins, Flexicon trip, both Concetti LSHH ones) only fire while the line is routed to that destination, and that condition can't be rebuilt or even seen in the UI | #138 | G4 | No |
+| No Build mode UI creates machine rules (graded feed schedules, hold-next-batch) or feed rate derivations; the three golden machine rules and three feed rate links can only be approximated with plain interlocks at the wrong set points | #139 | G4 | No |
 
 ## Entries
 
@@ -604,6 +606,76 @@ Screenshots: [G3-1 both branches wired, problems list](findings-img/G3-1.png) ·
 - G4: rebuild the Flexicon pre-bin high trip and the Concetti feed schedule on G3.json, then check that the Flexicon pre-bin no longer fills to 100 %.
 - Re-run G3 check 2a after #134 is fixed, and check that the destination labels say big bag and Concetti rather than AUTO SAMPLER.
 - Re-run G3 check 1 for the four custom stand-ins once #131 is decided.
+
+## G4 Golden: interlocks and machine rules
+
+### G4 — 2026-10-19 — 602a423
+
+**Result:** 10 PASS · 9 FAIL · 0 QUESTION · blocked by: none
+**Tool:** Playwright CLI (`@playwright/cli`, its own isolated `g4` session), not the Playwright MCP or Claude in Chrome. Every change was made with real mouse and keyboard input: the OPEN file picker, the Interlocks window's selects/buttons/text fields, and the plant popups. Scripts only read state (DOM text/snapshots, the SAVE download, a code search of `src/app`). Dev server on port 5181.
+
+**Steps**
+1. Read `docs/browser-testing.md`, the findings-file summary table, "Known broken items" and the G3 entry. Read `src/line/lineData.js`'s `interlocks`, `machineRules` and `feedRateDerivations` arrays (with their comments) for the golden definitions and reasons.
+2. Fresh browser, `localStorage.clear()`, reload. The app's own default/landing state is SIM mode on "golden line" already loaded — no START OVER needed to reach it. Switched to BUILD, opened INTERLOCKS: 9 interlocks, grouped by watched machine (TREATER BUFFER BIN 2, TREATER PRE-BIN +1 suggested 0, TREATER AFTER-BIN +1 suggested 0, PENDULUM CONVEYOR 2, METAL BIN 1 1, METAL BIN 2 1, FLEXICON PRE-BIN 1, CONCETTI PRE-BIN 2). Expanded every interlock and every suggestion and recorded each sentence and its WHEN/THEN/WHEN IT CLEARS/RESET fields word for word ([G4-4](findings-img/G4-4.png) shows the two suggestions; the golden interlocks list matches the rebuilt one in step 4 below, shown separately).
+3. BUILD → OPEN `docs/findings-lines/G3.json` (the 36-machine line from G1+G2+G3, `interlocks: []`, `machineRules: []`). Loaded with PROBLEMS (2), matching golden.
+4. INTERLOCKS → + ADD, nine times, rebuilding each golden sentence in order: watched machine, ABOVE/BELOW + set point + switch + delay, one or more THEN steps (MACHINE/WAIT/IF STILL TRUE/TRIP LINE), an optional WHEN IT CLEARS block, and RESET. Read back each interlock's own collapsed sentence after finishing it and compared to the golden text from step 2. Screenshot of the finished panel: [G4-1](findings-img/G4-1.png).
+5. Checked the popup set point sliders on three rebuilt bins in SIM mode: TREATER BUFFER BIN ([G4-5](findings-img/G4-5.png)), FLEXICON PRE-BIN ([G4-2](findings-img/G4-2.png)), CONCETTI PRE-BIN ([G4-3](findings-img/G4-3.png)).
+6. Searched `src/app` (the UI layer) for `machineRules`/`feedRateDerivations`: only `src/line/lineData.js`, the sim engine and a save/load round-trip test reference them; the only interlocks UI component is `src/app/InterlocksWindow.jsx`, and it has no path to create a machine rule or a feed rate derivation. Confirms the ticket's own prediction.
+7. BUILD → SAVE. Downloaded as `g3.json` (app still shows the line's internal `name` as "G3", one iteration behind — the same lagging-name pattern G1-G3 already noted). Committed as `docs/findings-lines/G4.json`: 36 machines, 35 connections, 9 interlocks, 0 machine rules.
+8. Checked console after the golden read, after each interlock, and at the end: 0 errors, 0 warnings throughout.
+
+**Golden interlocks (recorded word for word from the golden line's own Interlocks window)**
+1. `bufferBinValve` — "When TREATER BUFFER BIN is above 85 % for 7 s, close from yellow-bin area · 52.414.E00. When below 35 % for 7 s, open from yellow-bin area · 52.414.E00." Reset: auto.
+2. `bufferBinHighTrip` — "When TREATER BUFFER BIN is above 95 % for 7 s, close from yellow-bin area · 52.414.E00." Reset: latched.
+3. `conveyorRunningInterlockFeeder1` — "When PENDULUM CONVEYOR is stopped for 1 s, stop INLET DRUM FEEDER 1." Reset: auto.
+4. `conveyorRunningInterlockFeeder2` — "When PENDULUM CONVEYOR is stopped for 1 s, stop INLET DRUM FEEDER 2." Reset: auto.
+5. `metalBin1HighTrip` — "When TREATED OUTLOAD METAL BIN 1 is above 85 % for 5 s, stop PENDULUM CONVEYOR." Reset: latched. (`armedWhen` in `lineData.js`: only while the pendulum conveyor's `outBuffer` port feeds the outload diverter's `out1` — not shown anywhere in the UI.)
+6. `metalBin2HighTrip` — "When TREATED OUTLOAD METAL BIN 2 is above 85 % for 5 s, stop PENDULUM CONVEYOR." Reset: latched. (Same `armedWhen` shape, mirrored onto `out2`.)
+7. `flexiconPreBinHighTrip` — "When FLEXICON PRE-BIN is above 85 % for 5 s, stop PENDULUM CONVEYOR." Reset: latched. (`armedWhen`: only while routed to `outBinSeg`.)
+8. `concettiHighHighPauseSequence` — "When CONCETTI PRE-BIN is above 95 % for 5 s, close AFTER-BIN OUTLET VALVE, stop PENDULUM CONVEYOR, wait 25 s, if still true then trip the whole line. When it clears, wait 30 s, start PENDULUM CONVEYOR, wait 10 s then open AFTER-BIN OUTLET VALVE." Reset: auto. (`armedWhen`: only while routed to `outConcetti`.)
+9. `concettiHighHighHoldTreater` — "When CONCETTI PRE-BIN is above 95 % for 5 s, stop NIKLAS WNS/200 BATCH TREATER. When below 85 % for 0 s, start NIKLAS WNS/200 BATCH TREATER." Reset: auto. (Same `armedWhen` as #8.)
+
+**Checks**
+| # | Check | Expected | Actual | Result |
+|---|-------|----------|--------|--------|
+| 1.1 | bufferBinValve rebuilt | Golden sentence #1 above | Built exactly: "When TREATER BUFFER BIN is above 85 % for 7 s, close GRAIN IN. When below 35 % for 7 s, open GRAIN IN." Reset auto. (GRAIN IN stands in for the golden stub, per #131; no other difference) | PASS |
+| 1.2 | bufferBinHighTrip rebuilt | Golden sentence #2 | Built exactly: "...is above 95 % for 7 s, close GRAIN IN." Reset latched | PASS |
+| 1.3 | conveyorRunningInterlockFeeder1 rebuilt | Golden sentence #3 | Built exactly, word for word. Reset auto | PASS |
+| 1.4 | conveyorRunningInterlockFeeder2 rebuilt | Golden sentence #4 | Built exactly, word for word. Reset auto | PASS |
+| 1.5 | metalBin1HighTrip rebuilt | Golden sentence #5, armed only while routed to this bin | Sentence text and reset match exactly. No field anywhere in WHEN/THEN/WHEN IT CLEARS/RESET arms it to a destination — the rebuilt interlock fires even when the pendulum conveyor feeds Flexicon or Concetti instead. Missing blank: an "armed while destination is…" condition | **FAIL** #138 |
+| 1.6 | metalBin2HighTrip rebuilt | Golden sentence #6, same arming gap | Same as 1.5, mirrored | **FAIL** #138 |
+| 1.7 | flexiconPreBinHighTrip rebuilt | Golden sentence #7, armed only while routed to Flexicon | Sentence text and reset match exactly; same missing arming blank | **FAIL** #138 |
+| 1.8 | concettiHighHighPauseSequence rebuilt | Golden sentence #8 (close valve, stop conveyor, wait 25 s, if still true trip line; clears: wait 30 s, start conveyor, wait 10 s, open valve), armed only while routed to Concetti | Sentence text matches word for word, including the full wait/if-still-true/trip-line and clears sequence. Same missing arming blank | **FAIL** #138 |
+| 1.9 | concettiHighHighHoldTreater rebuilt | Golden sentence #9, same arming gap | Sentence text matches word for word. Same missing arming blank | **FAIL** #138 |
+| 3 | Suggested interlocks while rebuilding | Each one named and checked against a golden interlock | Only two suggestions ever appeared, on the bare line (no others, even on TREATER BUFFER BIN/PENDULUM CONVEYOR/METAL BIN 1/2/FLEXICON/CONCETTI, which also have unwatched level switches — matches known item #136): "When TREATER PRE-BIN is above 85 % for 5 s, stop BUCKET ELEVATOR · TREATING" and "When TREATER AFTER-BIN is above 85 % for 5 s, stop NIKLAS WNS/200 BATCH TREATER." Neither matches a golden interlock: golden has no interlock on either bin at all — `preBinFeedSchedule` and `afterBinHoldTreater` are machine rules, not sentences, with different set points (LSHH 95 %, not LSH 85 %, trips `preBinFeedSchedule`; 60 %/20 % for `afterBinHoldTreater`) and different actuator behaviour (a 3-band throttle, and "stop accepting new batches" rather than an outright stop) ([G4-4](findings-img/G4-4.png)) | PASS |
+| 4a | Popup set point slider — TREATER BUFFER BIN | 3 sliders (LSH 85, LSL 35, LSHH 95), as golden | All 3 present with golden's values, generated once interlocks 1-2 were built ([G4-5](findings-img/G4-5.png)) | PASS |
+| 4b | Popup set point slider — FLEXICON PRE-BIN | LSH 85 and LSL 35 sliders, as golden | Both present (LSL was already shown before any interlock existed — display-only; LSH appeared only after interlock 1.7 was built) ([G4-2](findings-img/G4-2.png)) | PASS |
+| 4c | Popup set point slider — CONCETTI PRE-BIN | LSL recover 35, LSH 85, LSHH 95, as golden | Only LSH 85 and LSHH 95 appeared (from interlocks 1.8/1.9); no LSL slider, because golden's LSL comes from `concettiFeedSchedule` (a machine rule, #139), not from any interlock ([G4-3](findings-img/G4-3.png)) | PASS (slider generation itself matches; the missing LSL is check 5's gap, not this one's) |
+| 5.1 | preBinFeedSchedule rebuilt | A 3-band graded speed/gate schedule on the treating elevator + drum feeder (LSL 35 %/LSH 85 %/LSHH 95 % trip) | No Build mode UI creates machine rules at all (confirmed by code search of `src/app`: only `InterlocksWindow.jsx` exists, and it has no such path). Lost: the boost/normal/throttle bands (~14/12/6 TPH) between LSL and LSH, and the LSHH 95 % trip — only a flat 85 % stop can be approximated with an interlock, which is wrong on both set point and shape | **FAIL** #139 |
+| 5.2 | afterBinHoldTreater rebuilt | "Stop accepting new batches" (not an outright stop) at 60 %, releasing at 20 % | No UI path. Lost: the distinction between blocking new batches vs. `stop`ping mid-cycle, and the 60 %/20 % set points (not 85 %, the figure the nearest suggestion offers) | **FAIL** #139 |
+| 5.3 | concettiFeedSchedule rebuilt | Same 3-band schedule on the pendulum conveyor + both inlet drum feeders (LSL 35 %/LSH 85 %), armed only while routed to Concetti | No UI path, and unlike the pre-bin, no suggestion is even offered for this bin. Lost: the boost/normal/throttle bands (~18/14/7 TPH) that are the reason the Flexicon pre-bin on the rebuilt G3/G4 line fills straight to 100 % with no graduated throttle-back (observed already in G3, #125) | **FAIL** #139 |
+| 5.4 | feedRateDerivations rebuilt (×3: treating elevator↔feeder, conveyor↔feeder1, conveyor↔feeder2) | A continuous speed×gate→rate derivation so a dial change shows the feeder's commanded rate immediately | No UI path for any of the three | **FAIL** #139 |
+| 6 | SAVE, commit as G4.json | A valid line file with 9 interlocks, 0 machine rules | Downloaded (as `g3.json`, the line's internal name still lagging one combo behind — same pattern noted in G1-G3), 36 machines, 35 connections, 9 interlocks matching golden exactly (minus `armedWhen`, which isn't in the saved JSON either — confirming it truly cannot be set from the UI), 0 machine rules. Committed as [`docs/findings-lines/G4.json`](findings-lines/G4.json) | PASS |
+| 7 | Console | No errors | 0 errors, 0 warnings for the whole session (golden read, all 9 interlocks, both SIM popup checks, SAVE) | PASS |
+
+**Bugs filed / commented**
+- #138 Interlocks window has no "armed while" / destination-arming blank (new)
+- #139 No Build mode UI creates machine rules or feed rate derivations (new)
+
+**Questions for the user**
+- None this run — every gap traced to a missing UI capability already confirmed by code search, not a judgement call.
+
+**Observations**
+- The golden line's own Interlocks window never displays `armedWhen` anywhere — not in the collapsed sentence, not in the expanded WHEN/THEN/RESET fields. An engineer reading golden through the UI alone (rather than `lineData.js`) would not know 5 of its 9 interlocks are destination-gated at all.
+- No field anywhere in the Interlocks window sets a ramp time (`rampTimeSec`), even though golden's own `then` steps carry one (e.g. the buffer bin valve's 6 s close/open ramp). The ticket's own required-field list for check 1 doesn't include ramp time, so this isn't scored as a FAIL here, but it's a further gap alongside `armedWhen` worth folding into whatever fixes #138.
+- `+ MACHINE`, `+ WAIT`, `+ IF STILL TRUE` and `+ TRIP LINE` all needed a second click before they actually added a step (the first click only marked the button `[active]`); every double-add was caught and the extra step removed. This cost time but never produced a wrong saved interlock.
+- Clicking "+ WHAT HAPPENS WHEN IT CLEARS" auto-fills a mirror-image default (reversed step order, actions flipped CLOSE↔OPEN/STOP↔START) rather than leaving it empty. That default was usable for the simple two-step cases (interlocks 1 and 9) but had to be fully discarded and rebuilt step by step for interlock 8's four-step clears sequence (wait/start/wait/open) since the default only ever produces as many steps as the "when" side had MACHINE steps.
+- A sentence's set-point/delay textbox doesn't recompute the collapsed summary text until the field blurs (e.g. pressing Tab); reading the summary immediately after `fill` can show the old value even though the field itself already holds the new one.
+
+**Follow-up combo ideas**
+- Re-run G4 once #138 lands, and check that interlocks 5-9 can be armed to a destination and that the Flexicon pre-bin no longer fills to 100 % under the big-bag branch with only `flexiconPreBinHighTrip` (no graded schedule) in place.
+- C6 (#111) is the natural home for a full UI build-out of machine rules and feed rate derivations once #139 is addressed; this run's per-machine-rule gaps (5.1-5.4) can seed its checklist directly.
+- G5 (#105): now that G4 has a 9-interlock line saved, the side-by-side run can compare the rebuilt line's behaviour against golden with the known gaps (#138, #139) already named, rather than rediscovering them.
 
 ## C2 Running/stopped and cascades
 
