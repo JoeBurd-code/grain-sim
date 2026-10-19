@@ -1,0 +1,2418 @@
+{
+  "format": "grain-sim-line",
+  "formatVersion": 3,
+  "name": "G2",
+  "line": {
+    "zones": [],
+    "machines": [
+      {
+        "id": "grain-in-1",
+        "item": "grain-in",
+        "name": "GRAIN IN",
+        "tag": "",
+        "type": "grainIn",
+        "w": 60,
+        "h": 34,
+        "ports": {
+          "inputs": [],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "out": {
+            "x": 30,
+            "y": 34
+          }
+        },
+        "label": {
+          "side": "right",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "rate",
+            "label": "source rate",
+            "min": 0,
+            "max": 20,
+            "value": 15,
+            "unit": "t/h",
+            "bind": "sourceRate",
+            "readBind": "sourceRateActual"
+          }
+        ],
+        "adjustable": [
+          {
+            "param": "rate",
+            "default": 12
+          }
+        ],
+        "sim": {
+          "kind": "source",
+          "rateM3PerSec": 0.005787037037037038
+        },
+        "x": 50,
+        "y": -130
+      },
+      {
+        "id": "custom-metal-remover-1",
+        "item": "custom-metal-remover",
+        "name": "METAL REMOVER",
+        "tag": "52.501.F00",
+        "type": "metalRemover",
+        "w": 90,
+        "h": 50,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out",
+            "waste"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 45,
+            "y": 0
+          },
+          "out": {
+            "x": 45,
+            "y": 50
+          },
+          "waste": {
+            "x": 90,
+            "y": 40
+          }
+        },
+        "label": {
+          "side": "right",
+          "align": "center"
+        },
+        "sim": {
+          "kind": "passThrough"
+        },
+        "x": 140,
+        "y": 0
+      },
+      {
+        "id": "grain-out-1",
+        "item": "grain-out",
+        "name": "GRAIN OUT 1",
+        "tag": "",
+        "type": "grainOut",
+        "w": 60,
+        "h": 34,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": []
+        },
+        "anchors": {
+          "in": {
+            "x": 30,
+            "y": 0
+          }
+        },
+        "label": {
+          "side": "right",
+          "align": "center"
+        },
+        "sim": {
+          "kind": "terminalSink"
+        },
+        "x": 440,
+        "y": 60
+      },
+      {
+        "id": "treater-buffer-bin-1",
+        "item": "treater-buffer-bin",
+        "name": "TREATER BUFFER BIN",
+        "tag": "52.502.H00",
+        "type": "bin",
+        "w": 170,
+        "h": 190,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 45,
+            "y": 0
+          },
+          "out": {
+            "x": 85,
+            "y": 190
+          }
+        },
+        "fill": 0,
+        "instruments": [
+          "LT",
+          "LSHH",
+          "LSH",
+          "LSL"
+        ],
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "level",
+            "label": "fill level",
+            "min": 0,
+            "max": 100,
+            "value": 0,
+            "unit": "%",
+            "bind": "levelJump"
+          }
+        ],
+        "setpointSliders": [
+          {
+            "switch": "LSH",
+            "label": "LSH set point",
+            "min": 35,
+            "max": 90
+          },
+          {
+            "switch": "LSL",
+            "label": "LSL set point",
+            "min": 0,
+            "max": 55
+          },
+          {
+            "switch": "LSHH",
+            "label": "LSHH trip set point",
+            "min": 55,
+            "max": 100
+          }
+        ],
+        "adjustable": [
+          {
+            "id": "capacity",
+            "label": "capacity",
+            "unit": "m³",
+            "kind": "number",
+            "min": 2,
+            "max": 20,
+            "default": 7.7,
+            "bind": "capacity"
+          }
+        ],
+        "sim": {
+          "kind": "accumulator",
+          "capacityM3": 7.7
+        },
+        "x": 140,
+        "y": 80
+      },
+      {
+        "id": "custom-drum-feeder-1",
+        "item": "custom-drum-feeder",
+        "name": "INLET DRUM FEEDER",
+        "tag": "52.505.L00",
+        "type": "drumFeeder",
+        "w": 80,
+        "h": 36,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 40,
+            "y": 0
+          },
+          "out": {
+            "x": 40,
+            "y": 36
+          }
+        },
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "gatePosition",
+            "label": "gate position",
+            "min": 0,
+            "max": 100,
+            "value": 100,
+            "unit": "%",
+            "bind": "gatePosition",
+            "readBind": "gatePositionActual"
+          }
+        ],
+        "sim": {
+          "kind": "meteredFeeder",
+          "rateM3PerSec": 0.00462962962962963,
+          "hasGate": true
+        },
+        "x": 180,
+        "y": 300
+      },
+      {
+        "id": "bucket-elevator-1",
+        "item": "bucket-elevator",
+        "name": "BUCKET ELEVATOR · TREATING",
+        "tag": "52.506.E00",
+        "type": "elevator",
+        "w": 420,
+        "h": 264,
+        "geom": {
+          "colX": 200,
+          "duct": 36
+        },
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 25,
+            "y": 228
+          },
+          "out": {
+            "x": 376,
+            "y": 44
+          }
+        },
+        "instruments": [
+          "ST"
+        ],
+        "label": {
+          "side": "above",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "speed",
+            "label": "speed",
+            "min": 0,
+            "max": 100,
+            "value": 100,
+            "unit": "%",
+            "bind": "elevatorSpeed",
+            "readBind": "elevatorSpeedActual"
+          }
+        ],
+        "adjustable": [
+          {
+            "id": "ratedCapacity",
+            "label": "rated capacity",
+            "unit": "t/h",
+            "kind": "number",
+            "min": 5,
+            "max": 40,
+            "default": 20,
+            "bind": "ratedCapacity"
+          },
+          {
+            "id": "chainSpeed",
+            "label": "chain speed",
+            "unit": "m/min",
+            "kind": "number",
+            "min": 2,
+            "max": 30,
+            "default": 10.08,
+            "bind": "chainSpeed"
+          },
+          {
+            "id": "height",
+            "label": "height",
+            "unit": "m",
+            "kind": "number",
+            "min": 4,
+            "max": 20,
+            "default": 8.731,
+            "bind": "height"
+          }
+        ],
+        "sim": {
+          "kind": "transportDelay",
+          "distanceM": 8.731,
+          "speedMPerMin": 10.08,
+          "ceilingM3PerSec": 0.00771604938271605
+        },
+        "x": 250,
+        "y": 130
+      },
+      {
+        "id": "treater-pre-bin-1",
+        "item": "treater-pre-bin",
+        "name": "TREATER PRE-BIN",
+        "tag": "52.507.H00",
+        "type": "bin",
+        "w": 90,
+        "h": 100,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 45,
+            "y": 0
+          },
+          "out": {
+            "x": 45,
+            "y": 100
+          }
+        },
+        "fill": 0,
+        "instruments": [
+          "LT",
+          "LSHH",
+          "LSH",
+          "LSL"
+        ],
+        "label": {
+          "side": "right",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "level",
+            "label": "fill level",
+            "min": 0,
+            "max": 100,
+            "value": 0,
+            "unit": "%",
+            "bind": "levelJump"
+          }
+        ],
+        "setpointSliders": [
+          {
+            "switch": "LSL",
+            "label": "LSL recover",
+            "min": 0,
+            "max": 55
+          },
+          {
+            "switch": "LSH",
+            "label": "LSH set point",
+            "min": 35,
+            "max": 90
+          },
+          {
+            "switch": "LSHH",
+            "label": "LSHH trip set point",
+            "min": 55,
+            "max": 100
+          }
+        ],
+        "adjustable": [
+          {
+            "id": "capacity",
+            "label": "capacity",
+            "unit": "m³",
+            "kind": "number",
+            "min": 0.5,
+            "max": 5,
+            "default": 1.63,
+            "bind": "capacity"
+          }
+        ],
+        "sim": {
+          "kind": "accumulator",
+          "capacityM3": 1.63,
+          "atomicDischarge": true
+        },
+        "x": 590,
+        "y": 200
+      },
+      {
+        "id": "batch-treater-1",
+        "item": "batch-treater",
+        "name": "NIKLAS WNS/200 BATCH TREATER",
+        "tag": "52.508.T00",
+        "type": "treater",
+        "w": 132,
+        "h": 110,
+        "ports": {
+          "inputs": [
+            "in",
+            "chemIn"
+          ],
+          "outputs": [
+            "out",
+            "wasteOut"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 75,
+            "y": 0
+          },
+          "chemIn": {
+            "x": 132,
+            "y": 30
+          },
+          "out": {
+            "x": 0,
+            "y": 98
+          },
+          "wasteOut": {
+            "x": 100,
+            "y": 110
+          }
+        },
+        "label": {
+          "side": "right",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "batchSize",
+            "label": "batch size",
+            "min": 40,
+            "max": 300,
+            "value": 160,
+            "unit": "kg",
+            "bind": "batchSize"
+          },
+          {
+            "id": "cycleTime",
+            "label": "cycle time",
+            "min": 10,
+            "max": 90,
+            "value": 48,
+            "unit": "s",
+            "bind": "batchCycleTime"
+          }
+        ],
+        "adjustable": [
+          {
+            "param": "batchSize",
+            "default": 160
+          },
+          {
+            "param": "cycleTime",
+            "default": 48
+          }
+        ],
+        "sim": {
+          "kind": "batchCycle",
+          "chargeM3": 0.22222222222222224,
+          "phases": [
+            {
+              "name": "cycle",
+              "durationSec": 48
+            }
+          ]
+        },
+        "x": 560,
+        "y": 330
+      },
+      {
+        "id": "treater-after-bin-1",
+        "item": "treater-after-bin",
+        "name": "TREATER AFTER-BIN",
+        "tag": "52.601.H00",
+        "type": "bin",
+        "w": 80,
+        "h": 80,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 40,
+            "y": 0
+          },
+          "out": {
+            "x": 40,
+            "y": 80
+          }
+        },
+        "fill": 0,
+        "instruments": [
+          "LSH",
+          "LSL"
+        ],
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "level",
+            "label": "fill level",
+            "min": 0,
+            "max": 100,
+            "value": 0,
+            "unit": "%",
+            "bind": "levelJump"
+          }
+        ],
+        "setpointSliders": [
+          {
+            "switch": "LSH",
+            "label": "LSH0 set point",
+            "min": 30,
+            "max": 100
+          },
+          {
+            "switch": "LSL",
+            "label": "LSL0 clear point",
+            "min": 0,
+            "max": 30
+          }
+        ],
+        "adjustable": [
+          {
+            "id": "capacity",
+            "label": "capacity",
+            "unit": "m³",
+            "kind": "number",
+            "min": 0.2,
+            "max": 2,
+            "default": 0.67,
+            "bind": "capacity"
+          }
+        ],
+        "sim": {
+          "kind": "accumulator",
+          "capacityM3": 0.67
+        },
+        "x": 510,
+        "y": 470
+      },
+      {
+        "id": "custom-outlet-valve-1",
+        "item": "custom-outlet-valve",
+        "name": "AFTER-BIN OUTLET VALVE",
+        "tag": "52.601.V00",
+        "type": "valve",
+        "w": 40,
+        "h": 18,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 20,
+            "y": 0
+          },
+          "out": {
+            "x": 20,
+            "y": 18
+          }
+        },
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "adjustable": [
+          {
+            "id": "ratedCapacity",
+            "label": "maximum flow",
+            "unit": "t/h",
+            "kind": "number",
+            "min": 0.5,
+            "max": 200,
+            "default": 19.2,
+            "bind": "ratedCapacity"
+          }
+        ],
+        "sim": {
+          "kind": "gateValve",
+          "ceilingM3PerSec": 0.007407407407407408
+        },
+        "x": 530,
+        "y": 550
+      },
+      {
+        "id": "custom-scalping-screen-1",
+        "item": "custom-scalping-screen",
+        "name": "TREATMENT SCALPING SCREEN",
+        "tag": "52.602.F00",
+        "type": "screen",
+        "w": 140,
+        "h": 70,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out",
+            "waste"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 30,
+            "y": 0
+          },
+          "out": {
+            "x": 100,
+            "y": 70
+          },
+          "waste": {
+            "x": 20,
+            "y": 70
+          }
+        },
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "wasteFrac",
+            "label": "scalpings split",
+            "min": 0,
+            "max": 20,
+            "value": 1,
+            "unit": "%",
+            "bind": "wasteFraction"
+          }
+        ],
+        "adjustable": [
+          {
+            "param": "wasteFrac",
+            "default": 1
+          },
+          {
+            "id": "ratedCapacity",
+            "label": "rated capacity",
+            "unit": "t/h",
+            "kind": "number",
+            "min": 0.5,
+            "max": 200,
+            "default": 64.4,
+            "bind": "ratedCapacity"
+          }
+        ],
+        "sim": {
+          "kind": "splitter",
+          "wasteFraction": 0.01,
+          "ceilingM3PerSec": 0.024845679012345682
+        },
+        "x": 620,
+        "y": 590
+      },
+      {
+        "id": "discharge-hopper-1",
+        "item": "discharge-hopper",
+        "name": "SCALPING SCREEN DISCHARGE HOPPER",
+        "tag": "52.603.H00",
+        "type": "bin",
+        "w": 60,
+        "h": 46,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 30,
+            "y": 0
+          },
+          "out": {
+            "x": 30,
+            "y": 46
+          }
+        },
+        "fill": 0,
+        "instruments": [
+          "LSH"
+        ],
+        "label": {
+          "side": "right",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "level",
+            "label": "fill level",
+            "min": 0,
+            "max": 100,
+            "value": 0,
+            "unit": "%",
+            "bind": "levelJump"
+          }
+        ],
+        "adjustable": [
+          {
+            "id": "capacity",
+            "label": "capacity",
+            "unit": "m³",
+            "kind": "number",
+            "min": 0.05,
+            "max": 0.6,
+            "default": 0.2,
+            "bind": "capacity"
+          }
+        ],
+        "sim": {
+          "kind": "accumulator",
+          "capacityM3": 0.2
+        },
+        "x": 690,
+        "y": 700
+      },
+      {
+        "id": "custom-discard-bin-1",
+        "item": "custom-discard-bin",
+        "name": "DISCARD SCALPINGS BIN",
+        "tag": "52.801.L00",
+        "type": "metalBin",
+        "w": 100,
+        "h": 80,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": []
+        },
+        "anchors": {
+          "in": {
+            "x": 50,
+            "y": 0
+          }
+        },
+        "fill": 0.01,
+        "label": {
+          "side": "below",
+          "align": "center"
+        },
+        "sim": {
+          "kind": "terminalSink",
+          "displayCapacityM3": 0.3,
+          "initialLevelFraction": 0.01
+        },
+        "x": 440,
+        "y": 700
+      },
+      {
+        "id": "grain-out-3",
+        "item": "grain-out",
+        "name": "GRAIN OUT 3",
+        "tag": "",
+        "type": "grainOut",
+        "w": 60,
+        "h": 34,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": []
+        },
+        "anchors": {
+          "in": {
+            "x": 30,
+            "y": 0
+          }
+        },
+        "label": {
+          "side": "right",
+          "align": "center"
+        },
+        "sim": {
+          "kind": "terminalSink"
+        },
+        "x": 1640,
+        "y": 610
+      },
+      {
+        "id": "pendulum-conveyor-1",
+        "item": "pendulum-conveyor",
+        "name": "PENDULUM CONVEYOR",
+        "tag": "52.604.E00",
+        "type": "conveyor",
+        "w": 2030,
+        "h": 780,
+        "geom": {
+          "colX": 280,
+          "duct": 36
+        },
+        "ports": {
+          "inputs": [
+            "in1",
+            "in2"
+          ],
+          "outputs": [
+            "outBuffer",
+            "outBinSeg",
+            "outConcetti"
+          ]
+        },
+        "anchors": {
+          "in1": {
+            "x": 170,
+            "y": 744
+          },
+          "in2": {
+            "x": 40,
+            "y": 744
+          },
+          "outBuffer": {
+            "x": 520,
+            "y": 26
+          },
+          "outBinSeg": {
+            "x": 1400,
+            "y": 26
+          },
+          "outConcetti": {
+            "x": 2025,
+            "y": 26
+          }
+        },
+        "instruments": [
+          "LSH"
+        ],
+        "label": {
+          "side": "above",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "speed",
+            "label": "speed",
+            "min": 0,
+            "max": 100,
+            "value": 100,
+            "unit": "%",
+            "bind": "elevatorSpeed",
+            "readBind": "elevatorSpeedActual"
+          }
+        ],
+        "adjustable": [
+          {
+            "id": "ratedCapacity",
+            "label": "rated capacity",
+            "unit": "t/h",
+            "kind": "number",
+            "min": 5,
+            "max": 40,
+            "default": 20.84,
+            "bind": "ratedCapacity"
+          },
+          {
+            "id": "chainSpeed",
+            "label": "chain speed",
+            "unit": "m/min",
+            "kind": "number",
+            "min": 2,
+            "max": 30,
+            "default": 10.08,
+            "bind": "chainSpeed"
+          },
+          {
+            "id": "length",
+            "label": "length",
+            "unit": "m",
+            "kind": "number",
+            "min": 15,
+            "max": 60,
+            "default": 31.087,
+            "bind": "length"
+          }
+        ],
+        "sim": {
+          "kind": "routedTransportDelay",
+          "defaultPort": "outConcetti",
+          "distanceM": 31.087,
+          "portDistanceM": {
+            "outBuffer": 4.275575931232091,
+            "outBinSeg": 19.952687679083095,
+            "outConcetti": 31.087
+          },
+          "speedMPerMin": 10.08,
+          "ceilingM3PerSec": 0.008040123456790125
+        },
+        "x": 1160,
+        "y": 50
+      },
+      {
+        "id": "pro-box-station-1",
+        "item": "pro-box-station",
+        "name": "PRO BOX UNLOADING STATION",
+        "tag": "52.608.H00",
+        "type": "proBox",
+        "w": 120,
+        "h": 80,
+        "ports": {
+          "inputs": [],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "out": {
+            "x": 60,
+            "y": 80
+          }
+        },
+        "label": {
+          "side": "above",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "rate",
+            "label": "source rate",
+            "min": 0,
+            "max": 20,
+            "value": 12,
+            "unit": "t/h",
+            "bind": "sourceRate",
+            "readBind": "sourceRateActual"
+          }
+        ],
+        "adjustable": [
+          {
+            "param": "rate",
+            "default": 12
+          }
+        ],
+        "sim": {
+          "kind": "source",
+          "rateM3PerSec": 0.00462962962962963
+        },
+        "x": 1270,
+        "y": 510
+      },
+      {
+        "id": "custom-drum-feeder-2",
+        "item": "custom-drum-feeder",
+        "name": "INLET DRUM FEEDER 1",
+        "tag": "52.603.L01",
+        "type": "drumFeeder",
+        "w": 80,
+        "h": 36,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 40,
+            "y": 0
+          },
+          "out": {
+            "x": 40,
+            "y": 36
+          }
+        },
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "gatePosition",
+            "label": "gate position",
+            "min": 0,
+            "max": 100,
+            "value": 100,
+            "unit": "%",
+            "bind": "gatePosition",
+            "readBind": "gatePositionActual"
+          }
+        ],
+        "sim": {
+          "kind": "meteredFeeder",
+          "rateM3PerSec": 0.00462962962962963,
+          "hasGate": true
+        },
+        "x": 1290,
+        "y": 730
+      },
+      {
+        "id": "custom-drum-feeder-3",
+        "item": "custom-drum-feeder",
+        "name": "INLET DRUM FEEDER 2",
+        "tag": "52.603.L00",
+        "type": "drumFeeder",
+        "w": 80,
+        "h": 36,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 40,
+            "y": 0
+          },
+          "out": {
+            "x": 40,
+            "y": 36
+          }
+        },
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "gatePosition",
+            "label": "gate position",
+            "min": 0,
+            "max": 100,
+            "value": 100,
+            "unit": "%",
+            "bind": "gatePosition",
+            "readBind": "gatePositionActual"
+          }
+        ],
+        "sim": {
+          "kind": "meteredFeeder",
+          "rateM3PerSec": 0.00462962962962963,
+          "hasGate": true
+        },
+        "x": 1160,
+        "y": 730
+      },
+      {
+        "id": "custom-grain-break-1",
+        "item": "custom-grain-break",
+        "name": "GRAIN BREAK",
+        "tag": "TBC-20",
+        "type": "grainBreak",
+        "w": 48,
+        "h": 36,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 24,
+            "y": 0
+          },
+          "out": {
+            "x": 24,
+            "y": 36
+          }
+        },
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "sim": {
+          "kind": "passThrough"
+        },
+        "x": 1660,
+        "y": 100
+      },
+      {
+        "id": "outload-buffer-bin-1",
+        "item": "outload-buffer-bin",
+        "name": "OUTLOAD BUFFER BIN",
+        "tag": "52.610.H00",
+        "type": "bin",
+        "w": 130,
+        "h": 145,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 30,
+            "y": 0
+          },
+          "out": {
+            "x": 65,
+            "y": 145
+          }
+        },
+        "fill": 0,
+        "instruments": [
+          "LSH",
+          "LSL"
+        ],
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "level",
+            "label": "fill level",
+            "min": 0,
+            "max": 100,
+            "value": 0,
+            "unit": "%",
+            "bind": "levelJump"
+          }
+        ],
+        "adjustable": [
+          {
+            "id": "capacity",
+            "label": "capacity",
+            "unit": "m³",
+            "kind": "number",
+            "min": 1,
+            "max": 15,
+            "default": 4.51,
+            "bind": "capacity"
+          }
+        ],
+        "sim": {
+          "kind": "accumulator",
+          "capacityM3": 4.51
+        },
+        "x": 1650,
+        "y": 150
+      },
+      {
+        "id": "custom-diverter-1",
+        "item": "custom-diverter",
+        "name": "DIVERTER",
+        "tag": "52.612.V00",
+        "type": "diverter",
+        "w": 32,
+        "h": 32,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out1",
+            "out2"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 16,
+            "y": 0
+          },
+          "out1": {
+            "x": 0,
+            "y": 16
+          },
+          "out2": {
+            "x": 32,
+            "y": 16
+          }
+        },
+        "smallLabel": true,
+        "label": {
+          "side": "below",
+          "align": "center"
+        },
+        "sim": {
+          "kind": "router"
+        },
+        "x": 1700,
+        "y": 310
+      },
+      {
+        "id": "metal-bin-1",
+        "item": "metal-bin",
+        "name": "TREATED OUTLOAD METAL BIN 1",
+        "tag": "52.613.H00",
+        "type": "metalBin",
+        "w": 160,
+        "h": 172,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 80,
+            "y": 0
+          },
+          "out": {
+            "x": 80,
+            "y": 162
+          }
+        },
+        "fill": 0,
+        "instruments": [
+          "LT",
+          "LSH"
+        ],
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "level",
+            "label": "fill level",
+            "min": 0,
+            "max": 100,
+            "value": 0,
+            "unit": "%",
+            "bind": "levelJump"
+          }
+        ],
+        "adjustable": [
+          {
+            "id": "capacity",
+            "label": "capacity",
+            "unit": "m³",
+            "kind": "number",
+            "min": 1.5,
+            "max": 18,
+            "default": 6,
+            "bind": "capacity"
+          }
+        ],
+        "sim": {
+          "kind": "accumulator",
+          "capacityM3": 6
+        },
+        "x": 1580,
+        "y": 370
+      },
+      {
+        "id": "metal-bin-2",
+        "item": "metal-bin",
+        "name": "TREATED OUTLOAD METAL BIN 2",
+        "tag": "52.613.H01",
+        "type": "metalBin",
+        "w": 160,
+        "h": 172,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 80,
+            "y": 0
+          },
+          "out": {
+            "x": 80,
+            "y": 162
+          }
+        },
+        "fill": 0,
+        "instruments": [
+          "LT",
+          "LSH"
+        ],
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "level",
+            "label": "fill level",
+            "min": 0,
+            "max": 100,
+            "value": 0,
+            "unit": "%",
+            "bind": "levelJump"
+          }
+        ],
+        "adjustable": [
+          {
+            "id": "capacity",
+            "label": "capacity",
+            "unit": "m³",
+            "kind": "number",
+            "min": 1.5,
+            "max": 18,
+            "default": 6,
+            "bind": "capacity"
+          }
+        ],
+        "sim": {
+          "kind": "accumulator",
+          "capacityM3": 6
+        },
+        "x": 1790,
+        "y": 370
+      },
+      {
+        "id": "grain-out-4",
+        "item": "grain-out",
+        "name": "GRAIN OUT 4",
+        "tag": "",
+        "type": "grainOut",
+        "w": 60,
+        "h": 34,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": []
+        },
+        "anchors": {
+          "in": {
+            "x": 30,
+            "y": 0
+          }
+        },
+        "label": {
+          "side": "right",
+          "align": "center"
+        },
+        "sim": {
+          "kind": "terminalSink"
+        },
+        "x": 1840,
+        "y": 610
+      },
+      {
+        "id": "custom-auto-sampler-1",
+        "item": "custom-auto-sampler",
+        "name": "AUTO SAMPLER",
+        "tag": "52.609.X00",
+        "type": "sampler",
+        "w": 60,
+        "h": 36,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 30,
+            "y": 0
+          },
+          "out": {
+            "x": 30,
+            "y": 36
+          }
+        },
+        "smallLabel": true,
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "sim": {
+          "kind": "passThrough"
+        },
+        "x": 2530,
+        "y": 120
+      },
+      {
+        "id": "flexicon-pre-bin-1",
+        "item": "flexicon-pre-bin",
+        "name": "FLEXICON PRE-BIN",
+        "tag": "52.701.H00",
+        "type": "bin",
+        "w": 90,
+        "h": 90,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 45,
+            "y": 0
+          },
+          "out": {
+            "x": 45,
+            "y": 90
+          }
+        },
+        "fill": 0,
+        "instruments": [
+          "LSH",
+          "LSL"
+        ],
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "level",
+            "label": "fill level",
+            "min": 0,
+            "max": 100,
+            "value": 0,
+            "unit": "%",
+            "bind": "levelJump"
+          }
+        ],
+        "setpointSliders": [
+          {
+            "switch": "LSH",
+            "label": "LSH set point",
+            "min": 45,
+            "max": 100
+          },
+          {
+            "switch": "LSL",
+            "label": "LSL set point",
+            "min": 0,
+            "max": 45
+          }
+        ],
+        "adjustable": [
+          {
+            "id": "capacity",
+            "label": "capacity",
+            "unit": "m³",
+            "kind": "number",
+            "min": 0.6,
+            "max": 8,
+            "default": 2.5,
+            "bind": "capacity"
+          }
+        ],
+        "sim": {
+          "kind": "accumulator",
+          "capacityM3": 2.5,
+          "levelSwitches": {
+            "LSL": 0.35
+          }
+        },
+        "x": 2510,
+        "y": 350
+      },
+      {
+        "id": "custom-vibrating-conveyor-1",
+        "item": "custom-vibrating-conveyor",
+        "name": "VIBRATING CONVEYOR",
+        "tag": "52.702.C00",
+        "type": "vibratory",
+        "w": 120,
+        "h": 30,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 40,
+            "y": 0
+          },
+          "out": {
+            "x": 110,
+            "y": 30
+          }
+        },
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "rate",
+            "label": "feed rate",
+            "min": 0,
+            "max": 200,
+            "value": 10,
+            "unit": "t/h",
+            "bind": "feederRate",
+            "readBind": "feederRateActual"
+          }
+        ],
+        "adjustable": [
+          {
+            "param": "rate",
+            "default": 10
+          }
+        ],
+        "sim": {
+          "kind": "meteredFeeder",
+          "rateM3PerSec": 0.003858024691358025
+        },
+        "x": 2520,
+        "y": 470
+      },
+      {
+        "id": "filling-head-1",
+        "item": "filling-head",
+        "name": "FLEXICON FILLING HEAD",
+        "tag": "52.703.L00",
+        "type": "fillingHead",
+        "w": 90,
+        "h": 70,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 45,
+            "y": 0
+          },
+          "out": {
+            "x": 45,
+            "y": 70
+          }
+        },
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "batchSize",
+            "label": "bag size",
+            "min": 500,
+            "max": 1500,
+            "value": 1000,
+            "unit": "kg",
+            "bind": "batchSize"
+          },
+          {
+            "id": "cycleTime",
+            "label": "fill time",
+            "min": 15,
+            "max": 120,
+            "value": 45,
+            "unit": "s",
+            "bind": "batchCycleTime"
+          }
+        ],
+        "adjustable": [
+          {
+            "param": "batchSize",
+            "default": 1000
+          },
+          {
+            "param": "cycleTime",
+            "default": 45
+          }
+        ],
+        "sim": {
+          "kind": "batchCycle",
+          "chargeM3": 1.3888888888888888,
+          "phases": [
+            {
+              "name": "fill",
+              "durationSec": 45
+            }
+          ]
+        },
+        "x": 2590,
+        "y": 530
+      },
+      {
+        "id": "custom-roller-conveyors-1",
+        "item": "custom-roller-conveyors",
+        "name": "ROLLER CONVEYORS 1-4 + BELT SCALE",
+        "tag": "52.704.K00",
+        "type": "rollerScale",
+        "w": 180,
+        "h": 26,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 90,
+            "y": 0
+          },
+          "out": {
+            "x": 170,
+            "y": 13
+          }
+        },
+        "label": {
+          "side": "below",
+          "align": "center"
+        },
+        "sim": {
+          "kind": "passThrough"
+        },
+        "x": 2540,
+        "y": 630
+      },
+      {
+        "id": "grain-out-2",
+        "item": "grain-out",
+        "name": "GRAIN OUT 2",
+        "tag": "",
+        "type": "grainOut",
+        "w": 60,
+        "h": 34,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": []
+        },
+        "anchors": {
+          "in": {
+            "x": 30,
+            "y": 0
+          }
+        },
+        "label": {
+          "side": "right",
+          "align": "center"
+        },
+        "sim": {
+          "kind": "terminalSink"
+        },
+        "x": 2730,
+        "y": 680
+      },
+      {
+        "id": "custom-auto-sampler-2",
+        "item": "custom-auto-sampler",
+        "name": "AUTO SAMPLER",
+        "tag": "52.605.X00",
+        "type": "sampler",
+        "w": 60,
+        "h": 36,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 30,
+            "y": 0
+          },
+          "out": {
+            "x": 30,
+            "y": 36
+          }
+        },
+        "smallLabel": true,
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "sim": {
+          "kind": "passThrough"
+        },
+        "x": 3160,
+        "y": 110
+      },
+      {
+        "id": "concetti-pre-bin-1",
+        "item": "concetti-pre-bin",
+        "name": "CONCETTI PRE-BIN",
+        "tag": "52.705.H00",
+        "type": "bin",
+        "w": 90,
+        "h": 90,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 45,
+            "y": 0
+          },
+          "out": {
+            "x": 45,
+            "y": 90
+          }
+        },
+        "fill": 0,
+        "instruments": [
+          "LT",
+          "LSHH",
+          "LSH",
+          "LSL"
+        ],
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "level",
+            "label": "fill level",
+            "min": 0,
+            "max": 100,
+            "value": 0,
+            "unit": "%",
+            "bind": "levelJump"
+          }
+        ],
+        "setpointSliders": [
+          {
+            "switch": "LSL",
+            "label": "LSL recover",
+            "min": 0,
+            "max": 55
+          },
+          {
+            "switch": "LSH",
+            "label": "LSH set point",
+            "min": 35,
+            "max": 90
+          },
+          {
+            "switch": "LSHH",
+            "label": "LSHH trip set point",
+            "min": 55,
+            "max": 100
+          }
+        ],
+        "adjustable": [
+          {
+            "id": "capacity",
+            "label": "capacity",
+            "unit": "m³",
+            "kind": "number",
+            "min": 0.2,
+            "max": 2,
+            "default": 0.72,
+            "bind": "capacity"
+          }
+        ],
+        "sim": {
+          "kind": "accumulator",
+          "capacityM3": 0.72,
+          "atomicDischarge": true
+        },
+        "x": 3150,
+        "y": 260
+      },
+      {
+        "id": "bagging-scale-1",
+        "item": "bagging-scale",
+        "name": "BAGGING SCALE",
+        "tag": "TBC-16",
+        "type": "scale",
+        "w": 80,
+        "h": 46,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 40,
+            "y": 0
+          },
+          "out": {
+            "x": 40,
+            "y": 46
+          }
+        },
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "params": [
+          {
+            "id": "batchSize",
+            "label": "bag size",
+            "min": 10,
+            "max": 100,
+            "value": 50,
+            "unit": "kg",
+            "bind": "batchSize"
+          },
+          {
+            "id": "cycleTime",
+            "label": "fill time",
+            "min": 5,
+            "max": 60,
+            "value": 15,
+            "unit": "s",
+            "bind": "batchCycleTime"
+          }
+        ],
+        "adjustable": [
+          {
+            "param": "batchSize",
+            "default": 50
+          },
+          {
+            "param": "cycleTime",
+            "default": 15
+          }
+        ],
+        "sim": {
+          "kind": "batchCycle",
+          "chargeM3": 0.06944444444444445,
+          "phases": [
+            {
+              "name": "fill",
+              "durationSec": 15
+            }
+          ]
+        },
+        "x": 3150,
+        "y": 380
+      },
+      {
+        "id": "filling-sewing-1",
+        "item": "filling-sewing",
+        "name": "FILLING & SEWING",
+        "tag": "TBC-17",
+        "type": "filler",
+        "w": 100,
+        "h": 70,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 50,
+            "y": 0
+          },
+          "out": {
+            "x": 50,
+            "y": 70
+          }
+        },
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "sim": {
+          "kind": "passThrough"
+        },
+        "x": 3140,
+        "y": 460
+      },
+      {
+        "id": "palletiser-1",
+        "item": "palletiser",
+        "name": "PALLETISING (COLLAPSED)",
+        "tag": "TBC-18",
+        "type": "palletiser",
+        "w": 140,
+        "h": 80,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": [
+            "out"
+          ]
+        },
+        "anchors": {
+          "in": {
+            "x": 70,
+            "y": 0
+          },
+          "out": {
+            "x": 70,
+            "y": 80
+          }
+        },
+        "label": {
+          "side": "left",
+          "align": "center"
+        },
+        "sim": {
+          "kind": "passThrough"
+        },
+        "x": 3120,
+        "y": 570
+      },
+      {
+        "id": "grain-out-5",
+        "item": "grain-out",
+        "name": "GRAIN OUT 5",
+        "tag": "",
+        "type": "grainOut",
+        "w": 60,
+        "h": 34,
+        "ports": {
+          "inputs": [
+            "in"
+          ],
+          "outputs": []
+        },
+        "anchors": {
+          "in": {
+            "x": 30,
+            "y": 0
+          }
+        },
+        "label": {
+          "side": "right",
+          "align": "center"
+        },
+        "sim": {
+          "kind": "terminalSink"
+        },
+        "x": 3160,
+        "y": 700
+      }
+    ],
+    "connections": [
+      {
+        "from": {
+          "machine": "grain-in-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "custom-metal-remover-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-metal-remover-1",
+          "port": "waste"
+        },
+        "to": {
+          "machine": "grain-out-1",
+          "port": "in"
+        },
+        "kind": "waste"
+      },
+      {
+        "from": {
+          "machine": "custom-metal-remover-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "treater-buffer-bin-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "treater-buffer-bin-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "custom-drum-feeder-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-drum-feeder-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "bucket-elevator-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "bucket-elevator-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "treater-pre-bin-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "treater-pre-bin-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "batch-treater-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "batch-treater-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "treater-after-bin-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-outlet-valve-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "custom-scalping-screen-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-scalping-screen-1",
+          "port": "waste"
+        },
+        "to": {
+          "machine": "custom-discard-bin-1",
+          "port": "in"
+        },
+        "kind": "waste"
+      },
+      {
+        "from": {
+          "machine": "custom-scalping-screen-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "discharge-hopper-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "treater-after-bin-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "custom-outlet-valve-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "pro-box-station-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "custom-drum-feeder-2",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-drum-feeder-2",
+          "port": "out"
+        },
+        "to": {
+          "machine": "pendulum-conveyor-1",
+          "port": "in1"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-drum-feeder-3",
+          "port": "out"
+        },
+        "to": {
+          "machine": "pendulum-conveyor-1",
+          "port": "in2"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "discharge-hopper-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "custom-drum-feeder-3",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "pendulum-conveyor-1",
+          "port": "outBuffer"
+        },
+        "to": {
+          "machine": "custom-grain-break-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-grain-break-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "outload-buffer-bin-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "outload-buffer-bin-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "custom-diverter-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-diverter-1",
+          "port": "out1"
+        },
+        "to": {
+          "machine": "metal-bin-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-diverter-1",
+          "port": "out2"
+        },
+        "to": {
+          "machine": "metal-bin-2",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "metal-bin-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "grain-out-3",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "metal-bin-2",
+          "port": "out"
+        },
+        "to": {
+          "machine": "grain-out-4",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "pendulum-conveyor-1",
+          "port": "outBinSeg"
+        },
+        "to": {
+          "machine": "custom-auto-sampler-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-auto-sampler-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "flexicon-pre-bin-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "flexicon-pre-bin-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "custom-vibrating-conveyor-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-vibrating-conveyor-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "filling-head-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "filling-head-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "custom-roller-conveyors-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-roller-conveyors-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "grain-out-2",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "pendulum-conveyor-1",
+          "port": "outConcetti"
+        },
+        "to": {
+          "machine": "custom-auto-sampler-2",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "custom-auto-sampler-2",
+          "port": "out"
+        },
+        "to": {
+          "machine": "concetti-pre-bin-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "concetti-pre-bin-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "bagging-scale-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "bagging-scale-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "filling-sewing-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "filling-sewing-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "palletiser-1",
+          "port": "in"
+        },
+        "kind": "product"
+      },
+      {
+        "from": {
+          "machine": "palletiser-1",
+          "port": "out"
+        },
+        "to": {
+          "machine": "grain-out-5",
+          "port": "in"
+        },
+        "kind": "product"
+      }
+    ],
+    "interlocks": [],
+    "machineRules": []
+  }
+}

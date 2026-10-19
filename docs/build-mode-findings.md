@@ -16,7 +16,7 @@ Shows the latest run of each combo.
 | S4 Packaging smoke | #100 | 2026-10-16 | 6e8dedb | 67 | 10 | 3 | #128 #132 |
 | G1 Golden: treating section | #101 | 2026-10-16 | 6e8dedb | 48 | 5 | 7 | #131 |
 | G2 Golden: outload | #102 | 2026-10-16 | 7b0bcd6 | 45 | 6 | 4 | #131 #133 #134 |
-| G3 Golden: packaging | #103 | | | | | | |
+| G3 Golden: packaging | #103 | 2026-10-19 | 6029015 | 47 | 5 | 5 | #131 #134 |
 | G4 Golden: interlocks & rules | #104 | | | | | | |
 | G5 Golden: side-by-side run | #105 | | | | | | |
 | C1 Level conditions × actions | #106 | | | | | | |
@@ -58,6 +58,8 @@ Each session keeps this list current, so later sessions know what to work around
 | No real catalogue item for the golden inlet drum feeders, grain break or diverter either; only the custom ones are listed | #131 | G2 | No |
 | Two feeds into one machine (both inlet drum feeders into the pendulum) lose whatever is above its capacity, with no event. Keep the feeders' total under the rating, e.g. one gate at 50 % | #133 | G2 | No |
 | A built line gets no SOURCE selector and no combined DESTINATION, only one plain selector per diverter/pendulum, set separately | #134 | G2 | No |
+| No real catalogue item for the golden auto sampler, vibrating conveyor or roller conveyors and belt scale either. The custom vibrating conveyor reaches 0–200 t/h (golden 0–20) | #131 | G3 | No |
+| The pendulum selector names each outlet after its first machine, so on the golden packaging line both the big bag and Concetti outlets read "AUTO SAMPLER" (the first is big bag) | #134 | G3 | No |
 
 ## Entries
 
@@ -520,3 +522,82 @@ Screenshots: [G2-1 rebuilt line in BUILD](findings-img/G2-1.png) · [G2-2 plant 
 - G3: wire outBinSeg and outConcetti, then re-check the destination choices once #134 is fixed.
 - B2 (merge & fan-out): two Grain ins into one Conveyor rated below their sum, to check #133 on a plain line.
 - Re-run G2 check 2 and the conservation check after #133 and #134 are fixed, switching SOURCE between the feeders.
+
+## G3 Golden: packaging
+
+### G3 — 2026-10-19 — 6029015
+
+**Result:** 47 PASS · 5 FAIL · 5 QUESTION · blocked by: #131 (four machines built from their custom items)
+**Tool:** Playwright CLI (`@playwright/cli`, in its own isolated session), not the Playwright MCP or Claude in Chrome, because two other test sessions ran at the same time. Every change was made with real mouse and keyboard input: HTML5 drags from the catalogue, port-to-port drags, typing in the right panel, popup sliders moved with the keyboard, and the plant-control and toolbar buttons. Scripts only read state (DOM text, chart polylines, the SAVE download). Dev server on port 5181. Viewport 1600 × 1000.
+
+**Steps**
+1. Fresh browser, so localStorage was already empty. BUILD → OPEN `docs/findings-lines/G2.json`. It loaded with 24 machines and PROBLEMS (4).
+2. Dragged in 12 items at the golden positions, shifted 90 units up as in G1 and G2. Six were real items: Flexicon pre-bin, Big bag filling head (Flexicon), Concetti pre-bin, and the Concetti Bagging scale, Filling and sewing and Palletiser. Four were custom, because no real item is listed for them (#131): Auto sampler ×2, Vibrating conveyor and Roller conveyors. Two Grain outs stand in for the "filled big bags · out" and "bagged product · pallets out" stubs. A drop snaps to the 10-unit grid, so three machines sit 5 units off golden (see observations).
+3. Wired the 12 connections by dragging port dots, from the pendulum's open `outBinSeg` and `outConcetti` down each branch.
+4. In the right panel, typed the golden name, tag and every value into each machine, pressing Enter after each. Then deselected, reselected and read every field back.
+5. SIM. There's no SOURCE selector (#134), so I stood in for golden's SOURCE = PRO BOX by setting INLET DRUM FEEDER 2's gate to 0 % in its popup. Plotted the Pro box, the pendulum and every packaging machine (levels and rates). Set the pendulum selector to the first AUTO SAMPLER (`outBinSeg`), then ran at 20× to about 2440 s. Then switched to the second AUTO SAMPLER (`outConcetti`) and ran to 3125 s.
+6. BUILD → SAVE. Kept the download as `docs/findings-lines/G3.json`, then opened it again through OPEN.
+7. SETTINGS → START OVER for a golden baseline. Read the golden packaging right panels in BUILD. Then in SIM set SOURCE = PRO BOX and DESTINATION = FLEXICON, ran to 1245 s, switched to CONCETTI and ran to 1700 s ([G3-5](findings-img/G3-5.png)).
+8. Reopened G3.json and set feeder 2 to 0 % again. Sent the pendulum to the big bag branch, set the vibrating conveyor to 5 t/h in its popup, and ran to 1147 s.
+9. Read console messages after each stage. There were no errors or warnings all session.
+
+**Checks.** Check numbers follow the ticket: 1 connections and problems · 2 destination selector and routing · 3 batch cycles · 4 vibrating conveyor meters · 5 popups and values match golden · 6 SAVE · 7 console. Check 5 is two columns in the machine table, the right panel and the popup. The other two columns, the catalogue item and the wiring, are as in G1 and G2.
+
+| Machine (tag) | Item used | Real item | Wired | Right panel (5) | Popup (5) | Evidence |
+|---------------|-----------|-----------|-------|-----------------|-----------|----------|
+| AUTO SAMPLER (52.609.X00) | custom-auto-sampler | **FAIL** #131 | PASS | PASS | PASS | No real auto sampler listed (no maker, no sensors). No adjustable settings, the same as golden. Popup: EVENT LOG and PLOT RATE, as golden. |
+| FLEXICON PRE-BIN (52.701.H00) | flexicon-pre-bin | PASS | PASS | QUESTION | QUESTION | Capacity 2.5 m³ (0.6–8), as golden. Golden's panel also has LSH set point 85, LSL set point 35 and a 5 s signal delay. The popup has a "x / 1.80 t" readout, the fill level slider and an "LSL set point 35 %" slider. Golden's popup also has "LSH set point 85 %" (see questions). |
+| VIBRATING CONVEYOR (52.702.C00) | custom-vibrating-conveyor | **FAIL** #131 | PASS | PASS | PASS | No real vibrating conveyor listed. Feed rate 10 t/h was accepted, but the custom limits are 0–200 t/h (golden 0–20), both in the panel and on the popup slider. Popup: feed rate slider and PLOT RATE, as golden. |
+| FLEXICON FILLING HEAD (52.703.L00) | filling-head | PASS | PASS | PASS | PASS | Flexicon. Bag size 1000 kg (500–1500) and fill time 45 s (15–120), as golden. Popup: both sliders, PLOT LEVEL and PLOT RATE, as golden. |
+| ROLLER CONVEYORS 1-4 + BELT SCALE (52.704.K00) | custom-roller-conveyors | **FAIL** #131 | PASS | PASS | PASS | No real item listed. No settings, the same as golden. Popup: EVENT LOG and PLOT RATE, as golden. |
+| GRAIN OUT 2 (for "filled big bags · out") | grain-out | PASS | PASS | – | – | The app named it GRAIN OUT 2, reusing the number G2 freed. |
+| AUTO SAMPLER (52.605.X00) | custom-auto-sampler | **FAIL** #131 | PASS | PASS | PASS | As the first sampler. |
+| CONCETTI PRE-BIN (52.705.H00) | concetti-pre-bin | PASS | PASS | QUESTION | QUESTION | Capacity 0.72 m³ (0.2–2), as golden. Golden's panel also has LSL recover 35, LSH 85 and LSHH trip 95. Golden's popup has those three sliders; this one has only the "x / 0.52 t" readout and the fill level slider. |
+| BAGGING SCALE (TBC-16) | bagging-scale | PASS | PASS | PASS | PASS | Concetti. Bag size 50 kg (10–100) and fill time 15 s (5–60), as golden. Popup as golden. |
+| FILLING & SEWING (TBC-17) | filling-sewing | PASS | PASS | PASS | PASS | Concetti. No settings, as golden. Popup: EVENT LOG and PLOT RATE, as golden. |
+| PALLETISING (COLLAPSED) (TBC-18) | palletiser | PASS | PASS | PASS | PASS | Concetti. No settings, as golden. Popup as golden. |
+| GRAIN OUT 5 (for "bagged product · pallets out") | grain-out | PASS | PASS | – | – | |
+
+On check 5: every name and tag took on Enter and read back after deselecting. All the golden values equal the item defaults, so they were retyped and read back rather than changed from something else. The golden popups match the built ones, apart from the pre-bin set point sliders.
+
+**Line checks**
+
+| # | Check | Expected | Actual | Result |
+|---|-------|----------|--------|--------|
+| 1a | All connections can be made | 12 connections | All 12 were made port to port. The saved file lists `outBinSeg → AUTO SAMPLER → FLEXICON PRE-BIN → VIBRATING CONVEYOR → FLEXICON FILLING HEAD → ROLLER CONVEYORS 1-4 + BELT SCALE → GRAIN OUT 2` and `outConcetti → AUTO SAMPLER → CONCETTI PRE-BIN → BAGGING SCALE → FILLING & SEWING → PALLETISING (COLLAPSED) → GRAIN OUT 5` ([G3-1](findings-img/G3-1.png)) | PASS |
+| 1b | Problems list | Only the replaced stubs, or nothing | PROBLEMS fell from 26 to 2: "NIKLAS WNS/200 BATCH TREATER: input not connected" and "… output not connected", which are its chemical inlet and waste outlet. Golden shows the same two. This is G1's question 2, still open | QUESTION |
+| 2a | Destination selector offers big bag and Concetti | As golden's DESTINATION (CONCETTI / FLEXICON / METAL BIN 1 / METAL BIN 2) | There's no DESTINATION, only the pendulum's own selector, which reads `GRAIN BREAK · AUTO SAMPLER · AUTO SAMPLER`. Each outlet is named after its first machine, and both golden samplers are called AUTO SAMPLER. Only the order shows that the first is big bag (`outBinSeg`) and the second is Concetti ([G3-2](findings-img/G3-2.png)) | **FAIL** #134 |
+| 2b | Big bag choice routes only to the big bag branch | Big bag branch only | By 1547 s, sampler 1 was at 12.00 t/h with 4.528 t through. Sampler 2, the Concetti pre-bin, the scale, the filler and the palletiser all stayed at 0.000 t ([G3-3](findings-img/G3-3.png)) | PASS |
+| 2c | Concetti choice routes only to the Concetti branch | Concetti branch only | Switched at 2440 s. By 2921 s, sampler 2 was at 12.00 t/h and sampler 1 at 0.00, with its total held at 7.585 t. The big bag branch drained what it held: the pre-bin fell from 100 % to 33 % while the vibrating conveyor kept feeding the head ([G3-4](findings-img/G3-4.png)) | PASS |
+| 3a | Filling head cycles at the golden bag size | 1000 kg bags | The head fills 0 → 100 % in 360 s at 10 t/h, holds 45 s, drops to 0.4 % and repeats. Drops at 525, 930 and 1336 s give a 405 s period. Golden dropped at 533 and 937 s, a 404 s period (its pendulum runs at 94 %, so its first bag comes later) | PASS |
+| 3b | Bagging scale cycles at the golden bag size | 50 kg bags | The Concetti pre-bin saws between 0 and 9.5 % of its 0.52 t, about 50 kg, and drops every 15.0 s: 35 drops from 2615 to 3125 s. Scale, filler and palletiser run at 11.99 t/h. Golden showed the same sawtooth, every 15.0 s (1433 → 1704 s), at 11.98 t/h | PASS |
+| 4a | Vibrating conveyor meters into the filling head | The head fills at the conveyor's rate | At 10 t/h the head rises 1.15 % every 4 s and stays at 100 % through the 45 s hold. The conveyor stops then, because the next bag starts at 0.4 %. Its plotted rate is a slow average, so the plot dips only to 5.3 t/h (see observations) | PASS |
+| 4b | Changing the feed rate changes the fill | Slower fill | Popup slider moved from 10 to 5 t/h on the reopened line. The head was at 63.2 % at 574 s (5 t/h × 455 s = 0.632 t). Its first bag dropped at 884 s = 119 s transit + 720 s fill + 45 s | PASS |
+| – | Conservation, big bag branch | Totals balance | At 1547 s the Pro box had sent 12 t/h × 1547 s = 5.157 t. On the pendulum to `outBinSeg`: 119 s × 12 t/h = 0.396 t. Pre-bin: 64.9 % × 1.80 t = 1.169 t. Head: 3 bags = 3.000 t, plus 59.4 % = 0.594 t. That totals 5.159 t, 2 kg over. Read from the chart's level polylines and the bag count (read-only). Grain out 2 plots 0 (#126), so bags were counted from the head's drops | PASS |
+| – | Conservation, Concetti branch | Totals balance | Steady by 2900 s: sampler 2 at 12.00 t/h, pre-bin out 11.99, scale 11.99, filling & sewing 11.99 and palletising 11.99. The pre-bin holds a steady 0–50 kg sawtooth. Grain out 5 plots 0 (#126) | PASS |
+| 6 | SAVE, then commit as G3.json | A valid line file | Downloaded as `g2.json` (51 KB, `grain-sim-line` v3): 36 machines, 35 connections, no interlocks or rules. Committed as [`docs/findings-lines/G3.json`](findings-lines/G3.json). Opening it again through OPEN loads 36 machines with PROBLEMS (2), and the app names the line "G3". Inside the file the name is still "G2", as in G2. The feeder 2 gate override set in SIM isn't saved (it's 100 % in the file) | PASS |
+| 7 | Console | No errors | No errors or warnings all session | PASS |
+
+Screenshots: [G3-1 both branches wired, problems list](findings-img/G3-1.png) · [G3-2 plant controls: two AUTO SAMPLER outlets](findings-img/G3-2.png) · [G3-3 big bag branch cycling, at 2394 s](findings-img/G3-3.png) · [G3-4 after switching to Concetti, at 3125 s](findings-img/G3-4.png) · [G3-5 golden baseline, FLEXICON then CONCETTI](findings-img/G3-5.png)
+
+**Bugs filed / commented**
+- #134 A built line's plant controls don't offer the golden SOURCE and DESTINATION choices (existing, commented: the two packaging outlets both show as "AUTO SAMPLER")
+- #131 Five golden treating machines have no real catalogue item (existing, commented: the auto sampler, vibrating conveyor and roller conveyors have none either, and the custom vibrating conveyor reaches 0–200 t/h)
+
+**Questions for the user**
+- The Flexicon and Concetti pre-bins can't be given their golden set points in the right panel. The Flexicon pre-bin's are LSH 85, LSL 35 and a 5 s delay; the Concetti pre-bin's are LSL recover 35, LSH 85 and LSHH 95. Their popups also lack golden's set point sliders, apart from the Flexicon pre-bin's LSL. This is G1's and G2's question again: do these belong to G4, with the interlocks and the Concetti feed schedule, rather than counting as failures here?
+- PROBLEMS still shows the batch treater's chemical inlet and waste outlet, as on golden. That is G1's question 2, still open: should an unwired chemical inlet or waste outlet count as a problem?
+
+**Observations**
+- With the big bag branch selected, the Flexicon pre-bin takes 12 t/h but passes on only 8.9 t/h on average (10 t/h, less the 45 s holds). It reached 100 % at about 2200 s, and the pendulum and then the Pro box throttled down with no event (#125, known). Golden avoids this with its pre-bin high trip interlock, which G4 rebuilds.
+- The vibrating conveyor's plotted rate is a slow average. The conveyor stops during each 45 s hold, but the plot dips only to about 5.3 t/h, so its integrated tonnes trail the real flow by about 0.19 t. The head's level is the better reading.
+- Both samplers keep golden's name, so the chart key lists two identical "AUTO SAMPLER" entries. Golden does the same.
+- The Grain outs show no bag count (S4's open question) and plot 0 t/h (#126). Golden's two stubs count bags.
+- A drop snaps to the 10-unit grid. The Flexicon pre-bin landed at x 2510 (golden 2515), the filling head at 2590 (2585) and the Concetti pre-bin at 3150 (3145). Holding Alt should place them off the grid, but I didn't try it.
+- In BUILD the right panel covers the right-hand 280 px of the canvas. A catalogue drop released over it is silently ignored: my first drop of the big bag Grain out did nothing until I panned.
+- The Flexicon pre-bin popup reads "0.00 / 1.80 t" and the Concetti one "0.00 / 0.52 t". Both show tonnes for a capacity typed in m³.
+
+**Follow-up combo ideas**
+- G4: rebuild the Flexicon pre-bin high trip and the Concetti feed schedule on G3.json, then check that the Flexicon pre-bin no longer fills to 100 %.
+- Re-run G3 check 2a after #134 is fixed, and check that the destination labels say big bag and Concetti rather than AUTO SAMPLER.
+- Re-run G3 check 1 for the four custom stand-ins once #131 is decided.
