@@ -29,3 +29,15 @@
 - Code changed: none (confirmed by `git diff --name-only origin/main...HEAD` before every push: only docs/build-mode-findings.md, docs/findings-img/*, docs/findings-lines/*, docs/nightly-runs.md were ever touched)
 - Where the results are: main (43f61c7 for G4, 3e41222 for G5)
 - Next tickets in line: C3 #108, C4 #109, C5 #110, C6 #111, then the B-series (#112-#117), D-series (#118-#120) and E-series (#121-#122)
+
+### 2026-10-20
+- Tickets: C3 #108 - 15 PASS / 2 FAIL / 0 QUESTION; C4 #109 - 13 PASS / 4 FAIL / 0 QUESTION
+- Bugs filed / commented:
+  - New: #143 Dragging a bin's set point slider in SIM mode is lost on return to BUILD mode — sync only works Build→SIM, never SIM→Build (C3). #145 A bin fed by a Diverter or Scalping screen gets no suggested high-level interlock at all, because neither's behaviour kind (`router`/`splitter`) defines a `stop` verb that `holdAction()` needs (C4).
+  - Commented with confirmed repros: #137 (C3 — reconfirmed a custom Bin's LSH slider still carries the Treater pre-bin's 35-90% range instead of 0-100%). #136 (C4 — reconfirmed no conveyor-running suggestion pattern exists; Drum feeder→Conveyor and Conveyor→Elevator legs got no suggestion).
+  - Also: a sub-agent testing C3 accidentally created a throwaway placeholder issue (#144) while finding the right GitHub tool call; it closed that issue itself as not_planned immediately. No lasting effect, noted for transparency.
+- Questions for the owner: none this run.
+- Problems with the run itself: none. Both sub-agents committed cleanly on `main` on their first attempt (no detached-HEAD issue this time). `gh` CLI auth is still invalid (GH_TOKEN), so all GitHub steps (search/file/comment/close bugs, close tickets, tick #96, post ticket comments) were routed through the GitHub MCP tools instead, which worked throughout with no fallback to docs/nightly-gh-actions.md needed. Both pushes to main succeeded on the first attempt. No code change was ever made or needed reverting.
+- Code changed: none (confirmed by `git diff --name-only origin/main...HEAD` before each push: only docs/build-mode-findings.md, docs/findings-img/*, docs/findings-lines/* were touched)
+- Where the results are: main (346a1a0 for C3, 67855f7 for C4)
+- Next tickets in line: C5 #110, C6 #111, then the B-series (#112-#117), D-series (#118-#120) and E-series (#121-#122)
