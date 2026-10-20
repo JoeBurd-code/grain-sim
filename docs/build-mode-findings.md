@@ -21,7 +21,7 @@ Shows the latest run of each combo.
 | G5 Golden: side-by-side run | #105 | 2026-10-19 | 43f61c7 | 21 | 5 | 1 | #138 #139 #140 #141 #142 |
 | C1 Level conditions × actions | #106 | 2026-10-19 | 6029015 | 36 | 1 | 1 | #137 |
 | C2 Running/stopped & cascades | #107 | 2026-10-19 | 6029015 | 8 | 2 | 2 | #135 #136 |
-| C3 Delays, alarm-only, sliders | #108 | | | | | | |
+| C3 Delays, alarm-only, sliders | #108 | 2026-10-19 | 158c589 | 15 | 2 | 0 | #143 #137 |
 | C4 Suggested interlocks | #109 | | | | | | |
 | C5 Interlock lifecycle | #110 | | | | | | |
 | C6 Machine rules & feed rate links | #111 | | | | | | |
@@ -68,6 +68,7 @@ Each session keeps this list current, so later sessions know what to work around
 | A rebuilt line's own SAVE output can fail its own OPEN validation: building an interlock on a bin's level switch (e.g. flexiconPreBinHighTrip) auto-writes a duplicate `sim.levelSwitches` entry that OPEN then rejects as a name clash with the interlock itself | #140 | G5 | No |
 | On a rebuilt line, selecting PENDULUM CONVEYOR → GRAIN BREAK (the metal-bin branch) never passes any grain through to OUTLOAD BUFFER BIN / either metal bin, even after 10+ sim-minutes; the Flexicon and Concetti branches on the same line flow normally | #141 | G5 | No |
 | No Build mode UI creates or names a zone, so a rebuilt line never gets the golden line's TREATING/PACKAGING & OUTLOAD/BAGGING fit-view shortcut buttons (cosmetic only, no behavioural effect) | #142 | G5 | No |
+| Dragging a bin's set point slider in SIM mode has no lasting effect: switch back to BUILD and the Interlocks sentence/set-point field still show the old value. The other direction (edit in BUILD, then open SIM) works fine | #143 | C3 | No |
 
 ## Entries
 
@@ -901,3 +902,64 @@ Screenshots: [C1-1 LSH slider moved live, event log](findings-img/C1-1.png) · [
 - Re-run G5's behaviour checks once #141 lands: confirm METAL BIN 1/2 reach comparable levels to golden's 13 %/36 % (5/10 min) and 12 %/45 %.
 - Re-run check 3.3's procedure against `metalBin1HighTrip`/`metalBin2HighTrip` once #141 is fixed, to directly confirm the same `armedWhen` divergence check 3.3 found on the Flexicon branch.
 - Once #140 is fixed, re-save G4 (or re-run G4) and confirm the committed `G4.json` re-opens without the patched workaround this run needed.
+
+## C3 Delays, alarm-only rules and sliders
+
+### C3 — 2026-10-19 — 158c589
+
+**Result:** 15 PASS · 2 FAIL · 0 QUESTION · blocked by: none
+**Tool:** Playwright CLI only
+
+**Steps**
+1. NEW LINE. Dragged Grain in, a custom Bin, a custom Drum feeder and Grain out onto the canvas; connected Grain in -> Bin -> Drum feeder -> Grain out (PROBLEMS reached 0). No console errors at any point in the session (checked after every major step).
+2. In Build mode, raised GRAIN IN 1's own "source rate" field to its max, 20 t/h (its own Build-mode field, separate from the interlocks under test), so the bin could be driven to 80 % quickly and repeatably during timing tests; this never changed during the run except as noted.
+3. INTERLOCKS → + ADD. WATCH = BIN 1, ABOVE, SWITCH = LSH, set point 80, FOR 5 s, THEN + MACHINE = DRUM FEEDER 1 → STOP. Sentence: "When BIN 1 is above 80 % for 5 s, stop DRUM FEEDER 1." (screenshot C3-2).
+4. Switched to SIM, opened BIN 1's popup: exactly one slider besides the manual "fill level" jump control, "LSH set point 80 %" (screenshot C3-3).
+5. Tested the delay at 1×: with the Drum feeder's own live gate slider (SIM-mode popup) held at 3 % (so inflow 20 t/h outpaces the ~0.5 t/h the feeder can pass), ran until BIN 1 crossed 80 %. BIN 1's own event log: `172.1s LSH ON at 80 % (setpoint 80 %)`, then `177.1s above 80 % for 5 s, DRUM FEEDER 1 stopped` — exactly 5.0 s (screenshot C3-6, elapsed shown 203.0 s after the trip).
+6. Repeated step 5 at 5× (RESTART, same gate=3 % setup): `172.1s LSH ON…`, `177.1s …stopped` — again exactly 5.0 s (screenshot C3-8).
+7. Repeated step 5 at 20× (RESTART, default gate=100 %, so the asymmetry was GRAIN IN's 20 t/h against the feeder's own ~16.7 t/h top rate instead): `422.5s LSH ON…`, `427.5s …stopped` — again exactly 5.0 s.
+8. Tested the cancel: RESTART, gate=3 %, ran to the exact instant BIN 1's event log showed "LSH ON" (used a single run-code script that polls the page every 100 ms and clicks PAUSE the moment the text appears, since a human-speed round trip at 1× cannot react inside a 5 s window reliably — two earlier attempts at this missed the window and the trip fired anyway). Paused at elapsed 172.1/172.2 s, confirmed via event log that only "LSH ON" had fired. With the sim frozen, set GRAIN IN 1's rate to 0 (its own SIM-mode live slider) so the feeder's gate=3 % output now drains the bin net-negative, then resumed. 12+ s later (elapsed 184.5 s, i.e. past the 177.1 s the stop would have fired at), BIN 1's event log still showed only the one `172.1s LSH ON…` entry and no "stopped" entry ever appeared; the level read 80 % exactly (0.94/1.17 t), consistent with the condition clearing right at the boundary with no separate recover/hysteresis band on this switch (screenshot C3-7).
+9. Tested the delay field's own limits: typed 0 into the delay box → committed as "0 s", sentence read "...for 0 s...", interlock still showed "will run" (valid). Typed 600 → accepted as "600 s". Typed 601 → silently clamped back to 600 on blur (the Stepper component's own `min`/`max`, confirmed in source: `Stepper label="delay" … min={0} max={600}`).
+10. Built a second interlock on BIN 1: WATCH = BIN 1, BELOW, SWITCH = LSL, set point 20, FOR 3 s, THEN + ALARM only (no machine step) → sentence "When BIN 1 is below 20 % for 3 s, raise an alarm." (screenshot C3-4). Ran from a fresh RESTART (bin starts at 0 %, already below 20 %): event log `3.1s below 20% for 3s, ALARM` (screenshot C3-5). DRUM FEEDER 1's own popup was unaffected (its gate/cap readout never changed because of this interlock — the THEN list has only the alarm step, nothing else to affect a machine).
+11. Earlier, while building the first interlock, added a MACHINE step (DRUM FEEDER 1) before pressing STOP: the window showed "THIS INTERLOCK WILL NOT RUN YET … Machines run on their own. A step can only stop a machine or close a valve. To leave DRUM FEEDER 1 running, remove this step." — the explanation check 3 asks for.
+12. Tested bidirectional sync of the slider: in Build mode set the set point to 82 via the Interlocks window; switched to SIM — BIN 1's popup slider read "82 %" (screenshot confirms Build → SIM works). Separately, in SIM mode dragged the same slider to 60 % (confirmed via the input's own `.value` and its displayed label, both "60"); switched to BUILD and re-opened INTERLOCKS: the sentence and set-point field still read 80 %/82 % as last set from Build — the SIM-mode drag had no lasting effect at all (filed as #143).
+13. Checked the custom Bin's slider limits via a read-only eval of the `<input type=range>`: `min="35" max="90"` — the Treater pre-bin's own limits, not a generic 0–100 range (known #137; also true for this combo's plain custom Bin, not just a bin carrying golden set points).
+14. Checked both machines' Build-mode popups for a "signal delay" field: neither the custom Bin nor the custom Drum feeder has one ("This machine has no adjustable settings." for the feeder; the Bin's popup only offers name/tag/capacity). This matches `catalogue.js`'s own comment — "An item drops the golden machine's set point and signal delay fields, because those values live on the interlocks, and an added machine has none yet" — so no machine in a Build-mode line can ever show this field; scored PASS (N/A by design) rather than FAIL.
+15. Deleted the LSH interlock (DELETE INTERLOCK → confirm DELETE IT). INTERLOCKS count dropped from 2 to 1. Switched to SIM: BIN 1's popup no longer offered the "LSH set point" slider, while "LSL recover" (from the still-present alarm-only interlock) remained (screenshot C3-9).
+
+**Checks**
+| # | Check | Expected | Actual | Result |
+|---|-------|----------|--------|--------|
+| 1 | Delay at 1× | Feeder stops ~5 sim-s after the 80 % crossing | LSH ON 172.1s → stopped 177.1s = 5.0s | PASS |
+| 2 | Delay at 5× | Same, independent of speed | LSH ON 172.1s → stopped 177.1s = 5.0s | PASS |
+| 3 | Delay at 20× | Same, independent of speed | LSH ON 422.5s → stopped 427.5s = 5.0s | PASS |
+| 4 | Dip below set point before 5 s cancels the trip | No "stopped" event fires | Armed at 172.1/172.2s, level pushed back to 80%/falling, no "stopped" entry 12+s past when it would have fired | PASS |
+| 5 | Delay accepts 0 s | Valid, interlock runs | "for 0 s", still "will run" | PASS |
+| 6 | Delay accepts its max (600 s) | Valid | Accepted as 600 | PASS |
+| 7 | Delay past the max is refused | Refused/clamped | 601 silently clamped to 600 on blur | PASS |
+| 8 | Alarm-only raises an alarm/event | Event appears | `3.1s below 20% for 3s, ALARM` | PASS |
+| 9 | Alarm-only changes no machine | No machine affected | THEN list has only the alarm step; Drum feeder's own popup never changed because of this rule | PASS |
+| 10 | Window explains a step left without an action | Explanatory text shown | "Machines run on their own. A step can only stop a machine or close a valve…" shown for an un-set MACHINE step | PASS |
+| 11 | Exactly one slider per switch in the bin's popup | 1 slider for 1 switch-based interlock | "LSH set point" slider shown, none extra | PASS |
+| 12 | Slider label/limits come from the switch | Custom Bin's own range | Label correct ("LSH set point") but limits are 35–90 %, the Treater pre-bin's, not the custom Bin's own | FAIL #137 |
+| 13 | Dragging the slider moves the trip point, Build → SIM sync | Interlocks sentence reflects a Build-mode edit when you open SIM | Editing to 82 in Build then opening SIM showed 82 % on the slider | PASS |
+| 14 | Dragging the slider moves the trip point, SIM → Build sync ("back the other way") | Interlocks sentence reflects a SIM-mode slider drag when you return to Build | Dragging to 60 % in SIM had no effect once back in Build (still 80/82) | FAIL #143 |
+| 15 | Machine's signal delay field matches the interlock's delay, where the item has one | N/A or matching | Neither custom item exposes this field at all (by design — catalogue.js strips it from every added machine) | PASS (N/A) |
+| 16 | Delete the interlock → its slider disappears | Slider gone, others stay | "LSH set point" gone after delete; "LSL recover" (other interlock) stayed | PASS |
+| 17 | No console errors | None | 0 errors throughout (checked after every major step) | PASS |
+
+**Bugs filed / commented**
+- #143 Dragging a bin's set point slider in SIM mode is lost on return to BUILD mode (one-way sync only) (new)
+- #137 A custom Bin's set point sliders keep the Treater pre-bin's 35–90 % / 0–55 % limits and "LSL recover" label (existing, commented)
+
+**Questions for the user**
+- none
+
+**Observations**
+- Catching the "cancel before 5 s" behaviour by hand (clicking PAUSE after seeing an event-log line appear) is not reliable at 1×: a human-speed round trip through the Playwright CLI (open a snapshot, read it, click) easily takes longer than the 5 s window and the trip fires anyway, as happened on the first two attempts. A single run-code script polling the page every ~100 ms and clicking PAUSE itself, all inside one browser-side call, is what actually caught it.
+- The Drum feeder's own popup (gate position / "interlock cap") never visibly changes when the interlock's STOP step fires — the only confirmation a STOP actually happened is the event log entry on the *watched* machine (BIN 1), never anything on the Drum feeder's own popup. Reading `src/sim/behaviors.js` shows the feeder stops through a separate `runPermit`, not the gate dial's own cap, so this is consistent with the engine's design, but combined with #135 (no machine popup has a running/stopped indicator) it means there is no UI-visible confirmation on the acted-upon machine itself that a stop interlock actually took hold — only the sentence/event log on the machine being watched.
+- A custom Bin and custom Drum feeder fed at typical rates (grain in ≤ 20 t/h, feeder base ~16.7 t/h at 100 % gate) barely fill at all on this exact topology (Bin → Drum feeder → Grain out, nothing downstream pulling harder than the feeder itself lets through), so every timed test in this entry needed either GRAIN IN 1 turned up to its 20 t/h max, the feeder's own gate dialled down, or both, to reach the 80 % set point inside a reasonable test window.
+
+**Follow-up combo ideas**
+- Re-run this combo's check 14 once #143 is fixed, confirming a SIM-mode slider drag now shows up in the Build-mode sentence.
+- A dedicated check for whether a STOP step on a gated feeder ever surfaces anywhere in that feeder's own popup (tracks #135's broader "no running/stopped indicator" theme, but specific to the interlock-stop case here).
