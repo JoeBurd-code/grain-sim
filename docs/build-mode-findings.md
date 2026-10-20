@@ -22,7 +22,7 @@ Shows the latest run of each combo.
 | C1 Level conditions × actions | #106 | 2026-10-19 | 6029015 | 36 | 1 | 1 | #137 |
 | C2 Running/stopped & cascades | #107 | 2026-10-19 | 6029015 | 8 | 2 | 2 | #135 #136 |
 | C3 Delays, alarm-only, sliders | #108 | 2026-10-19 | 158c589 | 15 | 2 | 0 | #143 #137 |
-| C4 Suggested interlocks | #109 | | | | | | |
+| C4 Suggested interlocks | #109 | 2026-10-20 | 346a1a0 | 13 | 4 | 0 | #145 #136 |
 | C5 Interlock lifecycle | #110 | | | | | | |
 | C6 Machine rules & feed rate links | #111 | | | | | | |
 | B1 Topology edge cases | #112 | | | | | | |
@@ -69,6 +69,7 @@ Each session keeps this list current, so later sessions know what to work around
 | On a rebuilt line, selecting PENDULUM CONVEYOR → GRAIN BREAK (the metal-bin branch) never passes any grain through to OUTLOAD BUFFER BIN / either metal bin, even after 10+ sim-minutes; the Flexicon and Concetti branches on the same line flow normally | #141 | G5 | No |
 | No Build mode UI creates or names a zone, so a rebuilt line never gets the golden line's TREATING/PACKAGING & OUTLOAD/BAGGING fit-view shortcut buttons (cosmetic only, no behavioural effect) | #142 | G5 | No |
 | Dragging a bin's set point slider in SIM mode has no lasting effect: switch back to BUILD and the Interlocks sentence/set-point field still show the old value. The other direction (edit in BUILD, then open SIM) works fine | #143 | C3 | No |
+| A bin fed by a Diverter or Scalping screen gets no suggested high-level interlock at all (those items' behaviours have no `stop` verb for the suggestion engine's `holdAction()` to find); a Pendulum conveyor's bins are unaffected since its behaviour does define `stop` | #145 | C4 | No |
 
 ## Entries
 
@@ -963,3 +964,60 @@ Screenshots: [C1-1 LSH slider moved live, event log](findings-img/C1-1.png) · [
 **Follow-up combo ideas**
 - Re-run this combo's check 14 once #143 is fixed, confirming a SIM-mode slider drag now shows up in the Build-mode sentence.
 - A dedicated check for whether a STOP step on a gated feeder ever surfaces anywhere in that feeder's own popup (tracks #135's broader "no running/stopped indicator" theme, but specific to the interlock-stop case here).
+
+## C4 Suggested interlocks
+
+### C4 — 2026-10-20 — 346a1a0
+
+**Result:** 13 PASS · 4 FAIL · 0 QUESTION · blocked by: none
+**Tool:** Playwright CLI only
+
+**Steps**
+1. NEW LINE. Built a conveying chain mixing real and custom items, each wired port to port through the UI: Grain in → Bin (Custom) → Drum feeder (Custom) → Belt conveyor (Simatek B100) → Bucket elevator (Simatek E200) → Treater buffer bin → Outlet valve (Custom), leaving Outlet valve unconnected to Grain out (not needed for interlock-suggestion checks; its own output-not-connected problem was left on PROBLEMS). This single chain covers 5 of the 12 pairs: Bin→Drum feeder, Drum feeder→Conveyor, Conveyor→Bucket elevator, Elevator→Bin, Bin→Outlet valve. SAVE → `docs/findings-lines/C4.json`. Screenshot `C4-1.png` (first suggestion), `C4-2.png` (Elevator→Bin suggestion before dismiss), `C4-3.png` (full chain, FIT ALL).
+2. After BIN 1 (fed by Grain in) crossed the only pair that reaches a real level condition in this chain, INTERLOCKS showed "BIN 1 +1 suggested — When BIN 1 is above 85 % for 5 s, close GRAIN IN 1." Ticked it (✓): INTERLOCKS count went 0→1, the row became a plain editable interlock ("will run …"), no longer marked SUGGESTED.
+3. Verified it fires when run: switched to SIM, used BIN 1's own "fill level" jump slider to push it to 92 % (no Grain in flow-rate tuning needed), pressed RUN. Event log: `5.1s above 85% for 5s, GRAIN IN 1 closed`. Confirms check 3 (tick → normal interlock → runs).
+4. After Bucket elevator → Treater buffer bin connected, INTERLOCKS showed a second group, "TREATER BUFFER BIN 1 +1 suggested — … stop BUCKET ELEVATOR 1." Dismissed it (✕): group vanished. Deleted the connection (selected the connection path on canvas → DELETE CONNECTION) and reconnected Elevator → Bin: no suggestion reappeared (still only the 1 accepted Bin 1 interlock). Reloaded the page (full page reload, autosaved "new line" restored): still no suggestion reappeared. Confirms check 4 (cross persists across both reconnect and reload).
+5. NEW LINE (discarding the first scratch; confirmed via the "Discard the work on new line and start a new line?" dialog). Built Grain in → Diverter (Custom) → Metal bin + Bin (Custom) (two outlets, one real item one custom). INTERLOCKS showed **no** suggestion for either bin, despite both having a real level (LT/LSH instruments) and being connected. Screenshot `C4-4.png`.
+6. Added a Pendulum conveyor (Simatek E200, no custom version exists) with its 3 outlets wired to 3 separate bins (Flexicon pre-bin, Outload buffer bin, a 3rd custom Bin). INTERLOCKS now showed **3** separate "+1 suggested" groups, one per bin, each proposing "… stop PENDULUM CONVEYOR 1." — confirms check 6 (grouped by machine, 3 distinct groups visible together). Screenshot `C4-5.png`.
+7. Accepted the 3rd bin's suggestion (✓ → became a normal interlock, count 0→1). Deleted the Pendulum→Flexicon pre-bin connection (selected the connection, DELETE CONNECTION): the Flexicon pre-bin's still-pending (never ticked or crossed) suggestion disappeared along with it — confirms check 5 (delete removes an unaccepted suggestion). Re-queried `src/sim/behaviors.js`: `router` (Diverter) and `splitter` (Scalping screen) have no `stop` verb in their behaviour entries, while `routedTransportDelay` (Pendulum) does (`stop: stopVerb(commandRoutedTransportDelay)`) — the suggestion engine's `holdAction()` needs that verb, which explains step 5's empty result precisely and rules out a tooling artifact.
+8. Added a Scalping screen (Custom) → Discard bin (Custom), wiring the screen's `out` port (not `waste`) to the bin's input. No suggestion appeared for the Discard bin either, confirming the same root cause as step 5 (splitter also has no stop verb). Filed as #145 (new); commented on #136 (existing, reconfirmed by steps 1's Drum feeder→Conveyor and Conveyor→Elevator legs, which never offered a conveyor-running suggestion).
+9. On the same canvas, connected: Bin (custom)→Batch treater (Niklas WNS/200, real), Bin (custom)→Bagging scale (Concetti, real), Metal bin→Big bag filling head (Custom), and Vibrating conveyor (Custom)→Big bag filling head (Flexicon, real). None of the four produced a suggestion. All four destinations are `batchCycle` machines with no level/switch instrument, so `conditionOptions(line, destination).includes("above")` is false and no suggestion is possible by design — correct/sensible absence, not a bug. Screenshot `C4-6.png` (full combined canvas, FIT ALL).
+10. Checked the console after every major step (`console error`) throughout: 0 errors, 0 warnings for the whole session (one React DevTools info line only).
+
+**Checks**
+| # | Check | Pair / item | Expected | Actual | Result |
+|---|-------|-------------|----------|--------|--------|
+| 1 | Suggestion on connect | Bin → Drum feeder | None sensible (destination has no level) | None appeared | PASS (N/A, correct) |
+| 1 | Suggestion on connect | Drum feeder → Conveyor | A conveyor-running interlock ("when K1 stopped, stop F1") | None appeared | FAIL #136 |
+| 1 | Suggestion on connect | Conveyor → Bucket elevator | A conveyor-running interlock | None appeared | FAIL #136 |
+| 1 | Suggestion on connect | Elevator → Bin | "When ‹bin› above 85 %, stop elevator" | Appeared, worded exactly that | PASS |
+| 1 | Suggestion on connect | Bin → Outlet valve | None obviously sensible (no golden-grounded pattern for this direction) | None appeared | PASS (N/A) |
+| 1 | Suggestion on connect | Diverter → two Bins (Metal bin, custom Bin) | "When ‹bin› above 85 %, stop Diverter" on each | None on either bin | FAIL #145 |
+| 1 | Suggestion on connect | Pendulum → Bins on each of 3 outlets | "… stop Pendulum conveyor" on each of the 3 bins | Appeared on all 3, each its own group | PASS |
+| 1 | Suggestion on connect | Scalping screen → Discard bin | "When Discard bin above 85 %, stop Scalping screen" | None appeared | FAIL #145 |
+| 1 | Suggestion on connect | Bin → Batch treater | None (destination has no level) | None | PASS (N/A) |
+| 1 | Suggestion on connect | Bin → Bagging scale | None (destination has no level) | None | PASS (N/A) |
+| 1 | Suggestion on connect | Bin → Big bag filling head | None (destination has no level) | None | PASS (N/A) |
+| 1 | Suggestion on connect | Vibrating conveyor → Filling head | None (destination has no level) | None | PASS (N/A) |
+| 3 | Tick adds it and it then works when run | BIN 1 (fed by Grain in) | Becomes a normal interlock; fires in SIM | Count 0→1, no longer SUGGESTED; `5.1s … GRAIN IN 1 closed` on run | PASS |
+| 4 | Cross dismisses; doesn't come back on reconnect or reload | TREATER BUFFER BIN 1 (fed by Elevator) | Stays dismissed after delete+reconnect and after a full reload | Stayed dismissed both times | PASS |
+| 5 | Deleting the connection removes an unaccepted suggestion | Pendulum → Flexicon pre-bin | Suggestion vanishes with the connection | Vanished immediately | PASS |
+| 6 | Suggestions grouped by machine | 3 simultaneous Pendulum-outlet suggestions | One group header per machine | 3 distinct "▾ ‹BIN› +1 suggested" groups shown together | PASS |
+| 7 | No console errors | Whole session | None | 0 errors / 0 warnings throughout | PASS |
+
+**Bugs filed / commented**
+- #145 A bin fed by a diverter or scalping screen gets no suggested high-level interlock (feeder has no stop verb) (new)
+- #136 No conveyor-running interlock is suggested when machines are connected (existing, reconfirmed — commented with this combo's Drum feeder→Conveyor / Conveyor→Elevator repro)
+
+**Questions for the user**
+- none
+
+**Observations**
+- The suggestion engine (`src/line/suggestedInterlocks.js`) only ever looks one hop upstream of a bin. Where that one hop is a multi-output "router"-family machine with no `stop` verb (Diverter, Scalping screen), the bin gets no protection at all from suggestions, even though walking one more hop upstream (to whatever feeds the diverter) would often find something stoppable. Pendulum conveyor escapes this only because its particular behaviour kind (`routedTransportDelay`) happens to define `stop`, not because the one-hop logic is routing-aware.
+- `/opt/pw-browsers/chromium` plus the Playwright CLI reliably connects ports only when query + mousedown + mousemove + mouseup are all issued inside one `run-code` call; splitting them across separate CLI invocations silently drops the drag (the pointerdown registers on the catalogue/body click but the subsequent move/up are dispatched against a fresh, button-up Playwright mouse object.  This cost several retries before the pattern above was adopted uniformly and should save time for any future CLI-driven session doing the same port-to-port wiring.
+- A newly dropped catalogue item always lands at the same canvas point, which on a busy line can coincide pixel-for-pixel with an existing port (seen between a Flexicon pre-bin's output and a freshly dropped Bin's input, and separately between a Pendulum outlet and a Bin input). The fix each time was to move the new machine away immediately after dropping it, before wiring it.
+- Opening the INTERLOCKS or PROBLEMS side panel narrows the canvas; a port that sits far right/top in world space (the Pendulum conveyor's outlets especially, which can be off the default viewport entirely) can end up physically covered by that panel even though its DOM coordinates look valid. Closing the panel before taking a fresh port-position reading avoided several otherwise-mysterious failed connections.
+
+**Follow-up combo ideas**
+- Re-run the Diverter and Scalping screen checks in this entry once #145 is fixed, confirming both now offer the same per-bin suggestion the Pendulum conveyor already gets.
+- A dedicated check for whether the suggestion engine could walk more than one hop upstream past a non-stoppable router/splitter to the next stoppable machine, once #145's immediate fix is in.
