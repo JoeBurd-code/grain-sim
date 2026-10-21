@@ -53,3 +53,8 @@
 - Code changed: none (confirmed by `git diff --name-only origin/main...HEAD` before each push: only docs/build-mode-findings.md, docs/findings-img/*, docs/findings-lines/* were touched)
 - Where the results are: main (f861ecd for C5, 2947b47 for C6)
 - Next tickets in line: B1 #112, B2 #113, then the rest of the B-series (#114-#117), D-series (#118-#120) and E-series (#121-#122)
+
+### 2026-10-21 - review of the 2026-10-20 and 2026-10-21 runs
+- Hard rule held: every nightly commit touches only allowed docs paths. Tickets C3-C6 closed with counts and ticked in #96; new bugs labelled; known bugs commented, not duplicated.
+- Defects: the C3/C4 commits (346a1a0, 67855f7) carry Co-Authored-By/Claude-Session trailers, because the sub-agent wasn't given the no-trailer rule; left in history. C4 and C6 saved line files without re-OPENing them. Two likely bugs were left under Observations: filed in review as #147 (deleted machine's id reused, orphaned interlock re-attaches; C5's "matched by name" reading was wrong) and #148 (PROBLEMS badge lag, C6). C5's question on suggested interlocks defaulting to LATCHED was never put to the owner.
+- Prompt updated the same day: trailer rule passed to sub-agents and checked before push; SAVE re-OPEN is its own check row; app behaviour seen under Observations must be filed or asked; follow the ticket's setup literally; speed doesn't matter, tickets strictly one after the other.
