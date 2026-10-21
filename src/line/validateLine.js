@@ -6,7 +6,7 @@ import { isSimExempt } from "./simExempt";
 import { isLiveControlBind, isLiveReadBind } from "../sim/liveControls";
 import { adjustableFieldErrors } from "./adjustableFields";
 import { plantControlErrors } from "./plantControls";
-import { isSentence, lineRules, interlockSensorMachine, ruleSwitches, SWITCH_FIELDS, isRuleOff, isFeedRateLinkOff } from "./interlocks";
+import { isSentence, SWITCH_FIELDS, isRuleOff, isFeedRateLinkOff } from "./interlocks";
 
 // The rules a machine runs that are not interlock sentences (issue #85).
 const MACHINE_RULE_KINDS = new Set(["gradedFeedSchedule", "holdNextBatch"]);
@@ -185,8 +185,11 @@ export function validateLine(line) {
   }
 
   // Issue #83: a bin's display-only level switches (control.js
-  // initLevelSwitches). A code an interlock on the same bin also names would
-  // draw two set points for one lamp.
+  // initLevelSwitches). A code an interlock on the same bin also names is the
+  // app's own mirror of that rule's set point (sentenceEditor.js mirrorSwitch
+  // writes it on every edit, and the canvas lamp reads it); the popup shows
+  // the interlock's value first, so there is no second set point (issue #140:
+  // the app's own SAVE output must re-OPEN without a validation error).
   for (const m of line.machines) {
     const switches = m.sim?.levelSwitches;
     if (switches === undefined) continue;
@@ -197,9 +200,6 @@ export function validateLine(line) {
       } else if (typeof setpoint !== "number" || !(setpoint >= 0 && setpoint <= 1)) {
         errors.push(`machine "${m.id}" needs an ${code} set point from 0 to 100 %`);
       }
-      const rule = lineRules(line).find((r) => interlockSensorMachine(r) === m.id && ruleSwitches(r).includes(code));
-      const what = rule && isSentence(rule) ? "interlock" : "machine rule";
-      if (rule) errors.push(`machine "${m.id}" level switch "${code}" is also named by ${what} "${rule.id}"`);
     }
   }
 

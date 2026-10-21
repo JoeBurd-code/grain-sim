@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import { validateLine, wiringGaps } from "./validateLine";
 import { isRuleOff } from "./interlocks";
 
@@ -359,7 +360,7 @@ describe("validateLine", () => {
     expect(validateLine(line).errors.join("\n")).toMatch(/bufferBin" has level switches but no level/);
   });
 
-  it("rejects a display-only level switch that an interlock on the same bin also names", () => {
+  it("accepts a display-only level switch that mirrors the interlock naming it (the app's own SAVE shape, #140)", () => {
     const line = makeValidLine();
     line.machines[1].sim.levelSwitches = { LSH: 0.85 };
     line.machines.push({
@@ -371,6 +372,14 @@ describe("validateLine", () => {
       when: { machine: "bufferBin", condition: "above", setpoint: 0.85, switch: "LSH", delaySec: 1 },
       then: [{ action: "close", machine: "valve" }], reset: "auto",
     }];
-    expect(validateLine(line).errors.join("\n")).toMatch(/bufferBin" level switch "LSH" is also named by interlock "high"/);
+    const result = validateLine(line);
+    expect(result.errors.join("\n")).not.toMatch(/is also named by/);
+  });
+
+  it("opens this app's own saved output: G4.json validates cleanly (#140)", () => {
+    const saved = JSON.parse(readFileSync(new URL("../../docs/findings-lines/G4.json", import.meta.url), "utf8"));
+    const result = validateLine(saved.line);
+    expect(result.ok).toBe(true);
+    expect(result.errors).toEqual([]);
   });
 });
