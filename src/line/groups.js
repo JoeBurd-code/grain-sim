@@ -2,7 +2,7 @@
 // selected with a box or Shift+click is moved, deleted, copied and pasted
 // as one edit. Like every other line document function, none of these ever
 // changes the line it is given.
-import { firstFree, deleteMachine } from "./editing";
+import { firstFree, deleteMachine, namedIds } from "./editing";
 import { machineFootprint, nearestFree, rectsOverlap, snapPosition } from "./layout";
 import { ruleMachines } from "./interlocks";
 import { withHeldFields } from "./adjustableFields";
@@ -190,7 +190,7 @@ export function pasteMachines(line, clipboard, pos) {
   if (!at) return { ok: false, error: "There is no free place for the group here." };
   const delta = { x: at.x - corner.x, y: at.y - corner.y };
 
-  const takenIds = new Set(line.machines.map((m) => m.id));
+  const takenIds = namedIds(line);
   const takenNames = new Set(line.machines.map((m) => m.name));
   const ids = new Map();
   const machines = clipboard.machines.map((m) => {

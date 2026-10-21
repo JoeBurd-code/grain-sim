@@ -3,6 +3,7 @@
 // changes the line it is given.
 import { catalogueItem } from "../catalogue/catalogue";
 import { nearestFree, overlappingMachine, snapPosition } from "./layout";
+import { lineRules, ruleMachines } from "./interlocks";
 
 // NEW LINE. A built line has no zones (FIT only) and no declared plant
 // controls: its panel is generated (plantControls.js).
@@ -15,6 +16,32 @@ export function firstFree(base, taken, sep = " ") {
   let n = 1;
   while (taken.has(`${base}${sep}${n}`)) n += 1;
   return `${base}${sep}${n}`;
+}
+
+// Every machine id a line document still names (#147): a machine's own id,
+// plus the ids its rules, feed-rate links and connections still carry. A rule
+// orphaned by a deleted machine keeps naming it, and the id allocator must
+// never hand that id to a new machine, or the orphan silently attaches to it
+// and the rule runs against a machine it was never pointed at.
+export function namedIds(line) {
+  const ids = new Set((line.machines ?? []).map((m) => m.id));
+  for (const rule of lineRules(line)) {
+    for (const id of ruleMachines(rule)) ids.add(id);
+  }
+  for (const link of line.feedRateDerivations ?? []) {
+    for (const end of [link.elevator, link.feeder]) {
+      const targets = Array.isArray(end) ? end : [end];
+      for (const t of targets) {
+        if (t && typeof t.machine === "string") ids.add(t.machine);
+      }
+    }
+  }
+  for (const c of line.connections ?? []) {
+    for (const end of [c.from, c.to]) {
+      if (end && typeof end.machine === "string") ids.add(end.machine);
+    }
+  }
+  return ids;
 }
 
 // The free place on the grid nearest `pos` for `machine`, or null.
@@ -34,7 +61,7 @@ export function addMachine(line, itemId, pos) {
   if (!pos || !Number.isFinite(pos.x) || !Number.isFinite(pos.y)) {
     return { ok: false, error: "A position must be two numbers." };
   }
-  const id = firstFree(item.id, new Set(line.machines.map((m) => m.id)), "-");
+  const id = firstFree(item.id, namedIds(line), "-");
   const name = firstFree(item.name.toUpperCase(), new Set(line.machines.map((m) => m.name)));
   const machine = { id, item: item.id, name, tag: "", ...structuredClone(item.machine) };
   const at = nearestFreePosition(line, machine, snapPosition(pos, pos.snap !== false));

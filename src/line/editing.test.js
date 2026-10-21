@@ -59,6 +59,26 @@ describe("addMachine", () => {
     expect(catalogueItem("metal-bin")).toEqual(itemBefore);
   });
 
+  it("never hands a deleted machine's id to a new machine a rule still names (#147)", () => {
+    // C5's shape: a bin carries an interlock, the bin is deleted, and the
+    // orphaned rule keeps naming it. The freed id must not be handed to the
+    // next bin of the same kind, or the orphan silently attaches to it and a
+    // rule meant for the deleted machine runs against the new one.
+    let line = emptyLine();
+    const first = add(line, "custom-bin", { x: 100, y: 200 });
+    line = first.line;
+    const rule = { id: "interlock-1", kind: "sentence",
+      when: { machine: first.id, condition: "above", percent: 85, seconds: 5 },
+      then: [] };
+    line = { ...line, interlocks: [...line.interlocks, rule] };
+    line = remove(line, first.id);
+    expect(isRuleOff(line, rule)).toBe(true); // the interlock lost its machine
+    const second = add(line, "custom-bin", { x: 100, y: 260 });
+    expect(second.id).not.toBe(first.id); // the freed id is not handed back
+    expect(second.id).toBe("custom-bin-2");
+    expect(isRuleOff(second.line, rule)).toBe(true); // it did not silently re-attach
+  });
+
   it("gives each new machine a name and id no other machine has", () => {
     let line = emptyLine();
     const ids = [];

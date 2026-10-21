@@ -123,6 +123,25 @@ describe("copyMachines and pasteMachines", () => {
     return { line, ids, group, clip, result };
   }
 
+  it("never pastes a machine onto an id an orphaned rule still names (#147)", () => {
+    // Paste allocates ids like addMachine does, so a deleted machine's freed id
+    // must not come back here either: an orphaned rule naming it would attach
+    // to the pasted copy without anyone pointing it there.
+    let line = emptyLine();
+    const placed = add(line, "custom-bin", { x: 100, y: 200 });
+    const bin = placed.line.machines[0];
+    const rule = { id: "interlock-1", kind: "sentence",
+      when: { machine: placed.id, condition: "above", percent: 85, seconds: 5 },
+      then: [] };
+    line = { ...placed.line, interlocks: [...placed.line.interlocks, rule] };
+    line = deleteMachines(line, [placed.id]).line;
+    expect(ruleMachines(rule)).toContain(placed.id); // the orphan still names it
+    const clip = { machines: [structuredClone(bin)], connections: [] };
+    const result = ok(pasteMachines(line, clip, { x: 500, y: 200 }));
+    expect(result.ids[0]).not.toBe(placed.id);
+    expect(result.ids[0]).toBe("custom-bin-2");
+  });
+
   it("pastes the group with new ids and new unique names", () => {
     const { line, result } = pasteLane(["bin", "feeder", "belt"]);
     expect(result.ids).toHaveLength(3);
