@@ -100,7 +100,8 @@ Anything odd that isn't a failure: slow UI, confusing wording, layout glitches.
 ```
 
 Then update the summary table at the top of the findings file: one row per combo,
-showing the latest run.
+showing the latest run. Add each QUESTION as a new row in "Open questions for the
+owner" too (next free Q number, the combo id under From, Answer left blank).
 
 Save screenshots to `docs/findings-img/<combo-id>-<n>.png` and link them from the
 entry. Save any line that SAVE downloads to `docs/findings-lines/<combo-id>.json`

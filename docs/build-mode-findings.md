@@ -73,6 +73,37 @@ Each session keeps this list current, so later sessions know what to work around
 | A broken interlock (its watched machine deleted) or an incomplete one (left blank) is correctly flagged in PROBLEMS, but RUN never blocks on it and it's skipped with no message anywhere — UI, event log or console | #146 | C5 | No |
 | A deleted machine's id goes to the next machine of that kind added or pasted, so an interlock orphaned by the delete silently re-attaches to the newcomer. After deleting a watched machine, delete or re-point its interlock before adding another of the same kind | #147 | C5 | No |
 
+## Open questions for the owner
+
+Every question a session raised that the owner hasn't answered yet, in one place. Each
+session adds its QUESTIONs here as new rows (next free Q number), as well as in its own
+entry. Once the owner answers one, write the answer into the Answer column, add
+"**Answer: …**" after the question in the entry it came from, and file a bug or ticket
+if the answer calls for a change. Plant-behaviour gaps for the engineer go in
+`docs/OPEN_QUESTIONS.md`, not here.
+
+| Q | Question | From | Answer |
+|---|----------|------|--------|
+| Q1 | A fresh Flexicon pre-bin ships with LSL at 35 % and its set point slider, with no interlock. The other bins have none. Is that intended? (Answered "not sure yet") | S1 | |
+| Q2 | A pendulum with only one of its two inlets wired shows "input not connected" without saying which inlet, and the line still runs. Should an unused second inlet count as a problem, and if so should the message name the inlet? | S2 | |
+| Q3 | The custom Drum feeder has no settings, so its capacity is fixed at about 12.5 t/h; only the gate % changes the flow. Should it get a rate or capacity field (0.5–200 t/h) like the other custom items? | S2 | |
+| Q4 | After a pendulum switches outlet, grain on the chain still reaches the old outlet for up to ~160 s (#69), but that outlet's connector stops animating at once. Should a connector keep animating until the chain has cleared it? | S2 | |
+| Q5 | The batch treater's unwired chemical inlet and waste outlet show as problems (golden too), and the messages don't name the port. Should they count as problems? If so, should the message name the port? No catalogue item can feed the chemical inlet, and a Grain in wired to it is accepted and feeds grain into the batch: should a grain source be refused there? | G1, S3, G3 | |
+| Q6 | Golden set points on the bins (buffer bin, pre-bins, after-bin, metal bins, Flexicon/Concetti pre-bins) can't be set in the right panel and their popups lack golden's sliders. Are these G4's to rebuild (they live on interlocks and feed schedules) rather than G1/G2/G3 failures? (G4 then rebuilt them as interlocks, so this may be settled; confirm) | G1, G2, G3 | |
+| Q7 | The custom Scalping screen keeps the real 0–20 % limit on its scalpings split. Should the custom screen reach 0–100 %? | S3 | |
+| Q8 | A batch treater fed through a drum feeder cycles in fill time plus cycle time, so the Niklas passes ~6 t/h instead of 12. On golden the pre-bin charges it in one tick. Is the longer cycle right, or should the cycle time include the fill? | S3 | |
+| Q9 | Nothing counts bags in Build mode (golden's end stubs show "76 bags"). Should a batch machine's popup show bags completed, or should a Grain out fed by a batch machine count bags? | S4 | |
+| Q10 | The bagging scale and filling head symbols don't change while filling, holding and discharging, unlike the batch treater (#66). Should they light up or show their fill? | S4 | |
+| Q11 | Filling and sewing, palletiser and roller conveyors have no capacity, real or custom, so they pass any rate. Should they get a rate limit (t/h or bags/h), at least the custom versions? | S4 | |
+| Q12 | A pendulum can be sent to an outlet with nothing wired to it (a fresh one starts on outConcetti), and the grain leaves the line with no SIM event; only PROBLEMS says "output not connected". Should the selector refuse an unwired outlet, should the pendulum hold the grain, or is the problems entry enough? | G2 | |
+| Q13 | On golden the metal bins fill (their outlets go to TBC stubs); wired to a Grain out they pass grain straight through at 0 %. The pre-bins (#123) do the opposite. Should a metal bin hold its grain until emptied, or discharge into whatever it's wired to? | G2 | |
+| Q14 | A cascade stops one step a second (1 s delays) but restarts all at once, within 0.2 s, because an auto-reset interlock has no delay on clearing. Is an instant restart right, or should restarts be staggered too? | C2 | |
+| Q15 | A step can only stop a machine or close a valve, so "When K1 is running, open the valve" has to be written "When K1 is stopped, close the valve". Is that the intended way, or should OPEN be offered for a valve? | C2 | |
+| Q16 | Moving a set point slider in a SIM popup isn't written back to the interlock (RESTART goes back to the old value). Should the slider stay a live tuning control, or change the interlock's set point? (C3 has since filed this as bug #143, taking the second answer; confirm) | C1 | |
+| Q17 | Once a Concetti high-high trip escalates to a full-line trip, is a full RESTART the only intended recovery, or should an operator action let the pre-bin drain so the `whenClears` restart sequence can run? | G5 | |
+| Q18 | Accepting a suggested bin high-level interlock saves it as LATCHED, and nothing in the accept button, sentence or collapsed row says so; a hand-built one defaults to AUTO. Is LATCHED the intended default for suggestions, and should the row show it? | C5 | |
+| Q19 | Should the graded feed schedule bands (boost/normal/throttle) and the after-bin's "block new batches" hold become Interlocks-window sentences (a throttle-style THEN step, a distinct block-batches action), or stay a separate rule type Build mode never creates? | C6 | |
+
 ## Entries
 
 <!-- One "## <combo id> <name>" heading per combo, entries appended under it. -->
