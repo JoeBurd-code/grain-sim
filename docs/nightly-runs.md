@@ -54,6 +54,19 @@
 - Where the results are: main (f861ecd for C5, 2947b47 for C6)
 - Next tickets in line: B1 #112, B2 #113, then the rest of the B-series (#114-#117), D-series (#118-#120) and E-series (#121-#122)
 
+### 2026-10-21 (B-series start)
+- Tickets: B1 #112 - 8 PASS / 2 FAIL / 1 QUESTION; B2 #113 - 5 PASS / 2 FAIL / 0 QUESTION
+- Bugs filed / commented:
+  - New: #151 (severe) A machine's own output wired back to its own input (same machine, two different ports) is silently accepted with no PROBLEMS entry; switching to SIM then throws an uncaught "sim graph has a cycle" error with no error boundary, blanking the whole app. The broken line autosaves, so even a full reload repeats the crash — only `localStorage.clear()` recovers it (B1).
+  - Commented with confirmed repros: #126 (B1 — reconfirmed on the simplest possible line, Grain in → Grain out direct: Grain out's rate/amount never shows, so conservation can't be read even here). #133 (B2 — reproduced on a plain two-Drum-feeder-into-one-Conveyor merge, not just the pendulum case it was first filed on: ~4.4 t/h silently dropped once combined inflow exceeds the conveyor's rated cap, no event). #123 (B2 — root-caused via a code read of `behaviors.js`'s `atomicDischarge`: a Diverter's source bin either atomic-dumps or permanently deadlocks instead of discharging continuously). #141 (B2 — cross-referenced only, as #123's `atomicDischarge` root cause is likely the same mechanism stalling the rebuilt line's metal-bin branch).
+  - Also folded into existing row rather than a new one: Q5 (B1 — the Scalping screen's/Metal remover's "output not connected" PROBLEMS message has the same unnamed-port ambiguity already raised for the batch treater; added "B1" to Q5's From column, no new Q number).
+- Questions for the owner: none new this run (B1's one QUESTION matched existing Q5 and was folded in; B2 raised none).
+- Problems with the run itself: none. Both sub-agents committed cleanly on `main`, each rebased onto the other's just-pushed commit before committing. The GitHub MCP tools worked throughout for every GitHub step (read, search, file, comment, close, tick #96) — `docs/nightly-gh-actions.md` was never needed. Both pushes to main succeeded on the first attempt. No code change was ever made or needed reverting; both hard-rule checks (`git status --porcelain` / `git diff --name-only origin/main...HEAD` / the trailer grep) came back clean before each push, verified by the coordinator independently of each sub-agent's own report.
+- Code changed: none (confirmed by `git diff --name-only origin/main...HEAD` before each push: only docs/build-mode-findings.md, docs/findings-img/*, docs/findings-lines/* were touched)
+- Trailers: none (confirmed by `git log origin/main..HEAD --format=%B | grep -iE 'co-authored-by|claude-session|claude\.ai/code'` before each push: no output)
+- Where the results are: main (2681f0f for B1, f1f0d70 for B2)
+- Next tickets in line: B3 #114, B4 #115, B5 #116, B6 #117, then the D-series (#118-#120) and E-series (#121-#122)
+
 ### 2026-10-21 - review of the 2026-10-20 and 2026-10-21 runs
 - Hard rule held: every nightly commit touches only allowed docs paths. Tickets C3-C6 closed with counts and ticked in #96; new bugs labelled; known bugs commented, not duplicated.
 - Defects: the C3/C4 commits (346a1a0, 67855f7) carry Co-Authored-By/Claude-Session trailers, because the sub-agent wasn't given the no-trailer rule; left in history. C4 and C6 saved line files without re-OPENing them. Two likely bugs were left under Observations: filed in review as #147 (deleted machine's id reused, orphaned interlock re-attaches; C5's "matched by name" reading was wrong) and #148 (PROBLEMS badge lag, C6). C5's question on suggested interlocks defaulting to LATCHED was never put to the owner.
