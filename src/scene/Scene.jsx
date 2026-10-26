@@ -149,11 +149,13 @@ function SelectionButtons({ machine: m, onFlip, onDelete }) {
 // never a machine drag; its click never reselects.
 const HANDLE_W = 20;
 const HANDLE_H = 12;
+// Drawn at this size, the pill and its chevrons together.
+const HANDLE_SCALE = 0.8;
 function LengthHandles({ machine: m, handles, onHandlePointerDown }) {
   return handles.map((h) => (
     <g
       key={h.id}
-      transform={`translate(${h.x},${h.y})${h.axis === "y" ? " rotate(90)" : ""}`}
+      transform={`translate(${h.x},${h.y})${h.axis === "y" ? " rotate(90)" : ""} scale(${HANDLE_SCALE})`}
       style={{ cursor: h.axis === "x" ? "ew-resize" : "ns-resize" }}
       onPointerDown={(e) => onHandlePointerDown(e, m.id, h.id)}
       onClick={(e) => e.stopPropagation()}
