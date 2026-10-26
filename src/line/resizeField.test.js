@@ -5,6 +5,7 @@
 import { describe, it, expect } from "vitest";
 import { setAdjustableValue, readAdjustableValue } from "./adjustableFields";
 import { goldenLine } from "./goldenLine";
+import { overlappingMachine } from "./layout";
 import { createSim, getMachineState } from "../sim/engine";
 
 const byId = (line, id) => line.machines.find((m) => m.id === id);
@@ -87,14 +88,63 @@ describe("resize fields (length, height)", () => {
     expect(byId(next, "treatingElevator").sim.distanceM).toBeCloseTo(10, 9);
   });
 
-  it("refuses a resize that would make the machine overlap another", () => {
-    // The elevator sits directly under the drum feeder that fills it
-    // (lineData.js's own comment on treatingElevator's height); growing it
-    // enough (still well inside the field's own 4-20 m limits) closes that
-    // gap and must be refused, not silently resized.
-    const result = setAdjustableValue(goldenLine, "treatingElevator", "height", 19);
+  // Issue #154: the elevator sits directly under the drum feeder that fills
+  // it (lineData.js's own comment on treatingElevator's height); growing it
+  // enough (still well inside the field's own 4-20 m limits) closes that gap.
+  // The new height stays and the elevator moves to the nearest free spot.
+  it("keeps an overlapping resize and moves the machine to the nearest free spot", () => {
+    const before = byId(goldenLine, "treatingElevator");
+    const next = set(goldenLine, "treatingElevator", "height", 19);
+    const after = byId(next, "treatingElevator");
+    expect(readAdjustableValue(next, "treatingElevator", "height")).toBeCloseTo(19, 9);
+    expect({ x: after.x, y: after.y }).not.toEqual({ x: before.x, y: before.y });
+    expect(overlappingMachine(next, "treatingElevator", after)).toBeNull();
+  });
+
+  it("leaves the machine where it is when the resize overlaps nothing", () => {
+    const before = byId(goldenLine, "treatingElevator");
+    const after = byId(set(goldenLine, "treatingElevator", "height", 9), "treatingElevator");
+    expect({ x: after.x, y: after.y }).toEqual({ x: before.x, y: before.y });
+  });
+
+  it("refuses an overlapping resize when no free spot is in range, leaving the line unchanged", () => {
+    // Four thick walls fence the elevator in at exactly its current box, so
+    // any taller elevator overlaps a wall wherever the search tries it.
+    const m = byId(goldenLine, "treatingElevator");
+    const wall = (id, x, y, w, h) => ({ id, name: id, x, y, w, h, anchors: {} });
+    const T = 5000;
+    const fenced = {
+      ...goldenLine,
+      machines: [
+        ...goldenLine.machines.filter((o) => o.id === "treatingElevator"),
+        wall("wallTop", m.x - T, m.y - T, m.w + 2 * T, T),
+        wall("wallBottom", m.x - T, m.y + m.h, m.w + 2 * T, T),
+        wall("wallLeft", m.x - T, m.y, T, m.h),
+        wall("wallRight", m.x + m.w, m.y, T, m.h),
+      ],
+      connections: [],
+    };
+    const snapshot = structuredClone(fenced);
+    const result = setAdjustableValue(fenced, "treatingElevator", "height", 19);
     expect(result.ok).toBe(false);
-    expect(result.error).toMatch(/overlap/);
+    expect(result.error).toMatch(/no free place/);
+    expect(fenced).toEqual(snapshot);
+  });
+
+  it("re-routes a moved machine's connections", () => {
+    const withBend = {
+      ...goldenLine,
+      connections: goldenLine.connections.map((c) => (
+        c.to.machine === "treatingElevator" ? { ...c, via: [{ x: 1, y: 1 }], coupling: true } : c
+      )),
+    };
+    const next = set(withBend, "treatingElevator", "height", 19);
+    const into = next.connections.filter((c) => c.to.machine === "treatingElevator");
+    expect(into.length).toBeGreaterThan(0);
+    for (const c of into) {
+      expect(c.via).toBeUndefined();
+      expect(c.coupling).toBeUndefined();
+    }
   });
 
   it("drops a connection's via/coupling on resize, the same as a move", () => {

@@ -17,6 +17,8 @@ export { setAdjustableValue, differsFromDefault } from "./adjustableFields";
 export { diffFromBase, applyChanges } from "./lineChanges";
 // Moving a machine (issue #86).
 export { moveMachine } from "./layout";
+// A shape edit that settles an overlapping machine into a free spot (issue #154).
+export { applyGeometryEdit } from "./layout";
 // Adding and deleting machines, and NEW LINE (issue #87).
 export { addMachine, deleteMachine, emptyLine, setMachineText } from "./editing";
 // Connecting and disconnecting ports (issue #88).

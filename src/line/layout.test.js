@@ -1,7 +1,7 @@
 // Issue #86: moving a machine in Build mode is a pure line document function.
 import { describe, it, expect } from "vitest";
 import { snapPosition, machineFootprint } from "./layout";
-import { moveMachine } from "./lineDocument";
+import { moveMachine, applyGeometryEdit } from "./lineDocument";
 import { goldenLine } from "./goldenLine";
 import { elevatorChain } from "../scene/elevatorMotion";
 
@@ -14,6 +14,51 @@ function move(line, id, pos) {
   if (!result.ok) throw new Error(result.error);
   return result.line;
 }
+
+describe("applyGeometryEdit (issue #154)", () => {
+  const box = (id, x, y, w, h) => ({ id, name: id, x, y, w, h, anchors: {} });
+  const line = {
+    machines: [box("a", 0, 0, 20, 20), box("b", 40, 0, 20, 20)],
+    connections: [{ from: { machine: "a", port: "out" }, to: { machine: "b", port: "in" }, via: [{ x: 1, y: 1 }] }],
+  };
+  const widen = (w) => (l, m) => { m.w = w; };
+
+  it("keeps the machine in place when the new shape overlaps nothing", () => {
+    const result = applyGeometryEdit(line, "a", widen(40));
+    expect(result.ok).toBe(true);
+    expect(byId(result.line, "a")).toMatchObject({ x: 0, y: 0, w: 40 });
+  });
+
+  it("moves an overlapping machine to the nearest free spot and re-routes its connections", () => {
+    const result = applyGeometryEdit(line, "a", widen(50));
+    expect(result.ok).toBe(true);
+    const a = byId(result.line, "a");
+    expect(a.w).toBe(50);
+    expect({ x: a.x, y: a.y }).toEqual({ x: -10, y: 0 });
+    expect(result.line.connections[0].via).toBeUndefined();
+    expect(byId(line, "a")).toMatchObject({ x: 0, w: 20 });
+  });
+
+  it("refuses when no free spot is in range, leaving the line unchanged", () => {
+    // Walls flush around `a`'s current box: it fits now, and only the edit
+    // pushes it into a wall wherever the search tries it.
+    const T = 5000;
+    const walled = {
+      ...line,
+      machines: [
+        line.machines[0],
+        box("top", -T, -T, 20 + 2 * T, T), box("bottom", -T, 20, 20 + 2 * T, T),
+        box("left", -T, 0, T, 20), box("right", 20, 0, T, 20),
+      ],
+    };
+    const snapshot = structuredClone(walled);
+    expect(applyGeometryEdit(walled, "a", widen(20)).ok).toBe(true);
+    const result = applyGeometryEdit(walled, "a", widen(30));
+    expect(result).toMatchObject({ ok: false });
+    expect(result.error).toMatch(/no free place/);
+    expect(walled).toEqual(snapshot);
+  });
+});
 
 describe("snapPosition", () => {
   it("snaps to the 10 px grid", () => {

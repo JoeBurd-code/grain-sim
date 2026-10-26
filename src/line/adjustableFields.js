@@ -18,7 +18,7 @@
 import { tPerHourToM3PerSec, m3PerSecToTPerHour, kgToM3, m3ToKg } from "../sim/units";
 import { lineRules, interlockSensorMachine, interlockValue, putInterlockValue, SWITCH_FIELDS } from "./interlocks";
 import { switchSlider, SWITCH_BINDS } from "./setpointSliders";
-import { overlappingMachine } from "./layout";
+import { applyGeometryEdit } from "./layout";
 
 // Plant unit <-> line (engine) unit.
 const SAME = { toLine: (v) => v, fromLine: (v) => v };
@@ -105,9 +105,9 @@ const SETPOINT_BINDS = new Set(["interlockLowSetpoint", "interlockHighSetpoint",
 // `axis` is the drawn dimension the field lengthens: "w" for a conveyor's
 // length, "h" for an elevator's height. Connections touching the machine
 // drop their hand-placed bend points, the same as a move (layout.js
-// placeMachine), so routing.js re-routes them to the moved ports. The
-// caller (setAdjustableValue) still has to refuse the edit if the new size
-// would overlap another machine.
+// placeMachine), so routing.js re-routes them to the moved ports. If the
+// new size overlaps another machine, the caller (setAdjustableValue) moves
+// the machine to the nearest free spot (layout.js applyGeometryEdit, issue #154).
 const RESIZE_BINDS = new Set(["length", "height"]);
 function resizeField(axis) {
   const coord = axis === "w" ? "x" : "y";
@@ -266,18 +266,20 @@ export function setAdjustableValue(line, machineId, fieldId, value) {
   const error = valueError(field, value);
   if (error) return refuse(error);
 
-  const next = structuredClone(line);
-  const machine = findMachine(next, machineId);
   const bind = BINDS[field.bind];
-  bind.put(next, machine, field.kind === "option" ? value : bind.convert.toLine(value));
-  if (field.param !== undefined) machine.params.find((p) => p.id === field.param).value = value;
+  const apply = (next, machine) => {
+    bind.put(next, machine, field.kind === "option" ? value : bind.convert.toLine(value));
+    if (field.param !== undefined) machine.params.find((p) => p.id === field.param).value = value;
+  };
+  // A new size can overlap another machine, which moves the machine to the
+  // nearest free spot (issue #154).
+  if (RESIZE_BINDS.has(field.bind)) return applyGeometryEdit(line, machineId, apply);
 
+  const next = structuredClone(line);
+  apply(next, findMachine(next, machineId));
   if (SETPOINT_BINDS.has(field.bind)) {
     const orderError = setpointOrderError(next, machineId);
     if (orderError) return refuse(orderError);
-  }
-  if (RESIZE_BINDS.has(field.bind) && overlappingMachine(next, machineId, { x: machine.x, y: machine.y })) {
-    return refuse(`${original.name} would overlap another machine at this size.`);
   }
   return { ok: true, line: next };
 }

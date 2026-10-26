@@ -34,7 +34,8 @@ export function rectsOverlap(a, b) {
   return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 }
 
-// How far from the drop point an overlapping drop looks for a free place.
+// How far an overlapping drop, or an overlapping shape edit, looks for a
+// free place.
 const SEARCH_RINGS = 60;
 
 // The place on the grid nearest `pos` that `fits` accepts, searched ring by
@@ -82,6 +83,30 @@ export function placeMachine(line, id, pos) {
       return rerouted;
     }),
   };
+}
+
+// Issue #154: one rule for every edit that changes a machine's shape (a
+// panel resize, a flip, a released elevator segment handle). `edit(line,
+// machine)` changes a copy of the line in place; the machine keeps its new
+// shape and, if it now overlaps another machine, moves to the nearest free
+// spot, its connections re-routed as for a move. Refused only when no free
+// spot is in range. Returns { ok: true, line } or { ok: false, error }.
+export function applyGeometryEdit(line, id, edit) {
+  const next = structuredClone(line);
+  const m = next.machines.find((x) => x.id === id);
+  if (!m) return { ok: false, error: `There is no machine "${id}" on this line.` };
+  edit(next, m);
+  return settleMachine(next, id);
+}
+
+// The line with machine `id` where it is, or moved to the nearest free spot
+// if it overlaps another machine there. Never changes `line`.
+function settleMachine(line, id) {
+  const m = line.machines.find((x) => x.id === id);
+  const at = nearestFree({ x: m.x, y: m.y }, (p) => !overlappingMachine(line, id, p));
+  if (!at) return { ok: false, error: `There is no free place for ${m.name} at its new shape.` };
+  if (at.x === m.x && at.y === m.y) return { ok: true, line };
+  return { ok: true, line: placeMachine(line, id, at) };
 }
 
 // Returns { ok: true, line } or { ok: false, error, overlaps? }.
