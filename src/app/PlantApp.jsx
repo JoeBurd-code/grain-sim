@@ -66,6 +66,10 @@ function isTyping(target) {
 // was copied from, so a copied lane sits beside it as a second lane.
 const PASTE_GAP = 60;
 
+// Issue #155: how long a refused flip's message stays in the header, the
+// same as a refused connection's (useConnectionDrag.js).
+const FLIP_ERROR_MS = 2600;
+
 // "golden line" -> "golden-line.json".
 function fileNameFor(name) {
   const slug = name.trim().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase();
@@ -330,18 +334,26 @@ export default function PlantApp() {
     return result;
   }, [line, recordEdit]);
 
-  // Issue #155: a flip is one undo step, the same double-apply pattern as
-  // onEditField.
+  // Issue #155: a flip, from the button over the selected machine, is one
+  // undo step, the same double-apply pattern as onEditField. A refusal shows
+  // for a moment in the header, as a refused connection does.
+  const [flipError, setFlipError] = useState(null);
+  const flipErrorTimerRef = useRef(null);
+  useEffect(() => () => clearTimeout(flipErrorTimerRef.current), []);
   const onFlipMachine = useCallback((machineId) => {
     const result = flipMachine(line, machineId);
-    if (result.ok) {
-      recordEdit(line);
-      setCurrent((c) => {
-        const next = flipMachine(c.line, machineId);
-        return next.ok ? { ...c, line: next.line } : c;
-      });
+    clearTimeout(flipErrorTimerRef.current);
+    if (!result.ok) {
+      setFlipError(result.error);
+      flipErrorTimerRef.current = setTimeout(() => setFlipError(null), FLIP_ERROR_MS);
+      return;
     }
-    return result;
+    setFlipError(null);
+    recordEdit(line);
+    setCurrent((c) => {
+      const next = flipMachine(c.line, machineId);
+      return next.ok ? { ...c, line: next.line } : c;
+    });
   }, [line, recordEdit]);
 
   // Issue #92: every interlock sentence edit (add, change a blank, add/
@@ -896,9 +908,9 @@ export default function PlantApp() {
                 : "click a machine · drag to pan · wheel to zoom"}
           </div>
         </div>
-        {building && connectionDrag.error && (
+        {building && (connectionDrag.error || flipError) && (
           <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 10, color: C.red }}>
-            {connectionDrag.error}
+            {connectionDrag.error ?? flipError}
           </div>
         )}
         {building && confirmingNewLine && (
@@ -974,6 +986,7 @@ export default function PlantApp() {
                 highlightMachineIds={building ? highlightIds : null}
                 selectionBox={building ? boxSelect.box : null}
                 canvasCursor={boxing ? "crosshair" : "grab"}
+                onFlipMachine={building ? onFlipMachine : undefined}
               />
             )}
             {selected && !building && (
@@ -1027,7 +1040,6 @@ export default function PlantApp() {
               onStartOver={onStartOver}
               onEditField={onEditField}
               onEditText={onEditText}
-              onFlipMachine={onFlipMachine}
               onDeleteMachine={onDeleteMachine}
               onDeleteGroup={onDeleteGroup}
               onDeleteConnection={() => onDisconnect(selectedConnectionKey)}
