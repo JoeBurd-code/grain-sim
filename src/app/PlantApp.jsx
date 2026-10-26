@@ -987,6 +987,7 @@ export default function PlantApp() {
                 selectionBox={building ? boxSelect.box : null}
                 canvasCursor={boxing ? "crosshair" : "grab"}
                 onFlipMachine={building ? onFlipMachine : undefined}
+                onDeleteMachine={building ? onDeleteMachine : undefined}
               />
             )}
             {selected && !building && (
@@ -1040,7 +1041,6 @@ export default function PlantApp() {
               onStartOver={onStartOver}
               onEditField={onEditField}
               onEditText={onEditText}
-              onDeleteMachine={onDeleteMachine}
               onDeleteGroup={onDeleteGroup}
               onDeleteConnection={() => onDisconnect(selectedConnectionKey)}
               onGoToProblem={onGoToProblem}
