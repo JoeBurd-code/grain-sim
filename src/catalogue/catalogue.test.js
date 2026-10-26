@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import { ALL_ITEMS, CATALOGUE, CATALOGUE_GROUPS, catalogueItem, makerLabel, searchCatalogue } from "./catalogue";
 import { goldenLine } from "../line/goldenLine";
 import { adjustableFields } from "../line/adjustableFields";
+import { MIN_TOTAL_M } from "../line/elevatorPath";
 
 describe("the catalogue", () => {
   it("has one item for each of its ids, in a known group, with a name and a maker and model", () => {
@@ -111,7 +112,10 @@ describe("custom items", () => {
           expect([g.min, g.max], at).toEqual([f.min, f.max]);
         } else {
           expect(g.max, at).toBeGreaterThanOrEqual(f.max * 2);
-          if (f.min > 0) expect(g.min, at).toBeLessThan(f.min);
+          // Issue #156: no elevator's path is shorter than its column's and
+          // runs' minimums, so the real E200's 5 m is already the floor.
+          if (f.bind === "pathLength") expect(g.min, at).toBe(MIN_TOTAL_M);
+          else if (f.min > 0) expect(g.min, at).toBeLessThan(f.min);
           widened += 1;
         }
       });

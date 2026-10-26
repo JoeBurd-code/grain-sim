@@ -71,7 +71,8 @@ const chainSpeedField = (value) => ({ id: "chainSpeed", label: "chain speed", un
 // *is* `sim.distanceM` (adjustableFields.js's resizeField) so the drawn size
 // and the transit distance never disagree.
 const lengthField = (min, max, value) => ({ id: "length", label: "length", unit: "m", kind: "number", min, max, default: value, bind: "length" });
-const heightField = (min, max, value) => ({ id: "height", label: "height", unit: "m", kind: "number", min, max, default: value, bind: "height" });
+// Issue #156: a bucket elevator's full path, floor run to head run.
+const pathLengthField = (min, max, value) => ({ id: "pathLength", label: "path length", unit: "m", kind: "number", min, max, default: value, bind: "pathLength" });
 
 export const line = {
   zones: [
@@ -310,17 +311,18 @@ export const line = {
       tag: "52.506.E00",
       status: "new",
       zone: "treating",
-      // Height taken from 240 to 264 so the boot sits clear of the inlet
-      // drum feeder above it. At 240 the boot's top surface was exactly the
-      // feeder's underside, so the run between them had nowhere to be drawn
-      // and disappeared under the two machines. Grown rather than moved down
-      // because `out` is measured from the top: lowering y would have
-      // dragged the head discharge down with it and turned the short drop
-      // into the pre-bin into a slant.
-      x: 250, y: 222, w: 420, h: 264,
-      geom: { colX: 200, duct: 36 },
+      // Issue #156: drawn from its path's three segments at the true scale
+      // (elevatorPath.js), which add up to the 8.731 m below. The climb from
+      // under the drum feeder to above the pre-bin needs nearly all of it,
+      // so both runs are at their 0.5 m minimum and the column takes the
+      // rest; the chutes either side (connections below) carry grain the
+      // rest of the way. The boot's floor run sits a 10 px drop under the
+      // feeder's outlet, and `out` is measured from the top, so the head
+      // discharge clears the pre-bin by the same.
+      x: 315, y: 250, w: 135, h: 231.93,
+      geom: { colX: 40, duct: 36, segmentsM: { floor: 0.5, column: 7.731, head: 0.5 } },
       ports: { inputs: ["in"], outputs: ["out"] },
-      anchors: { in: { x: 25, y: 228 }, out: { x: 376, y: 44 } },
+      anchors: { in: { x: 25, y: 195.93 }, out: { x: 91, y: 44 } },
       instruments: ["ST"],
       label: { side: "above", align: "center" },
       // `readBind` (issue #34): the pre-bin's graded feed schedule
@@ -337,11 +339,13 @@ export const line = {
       // feeders' upper range), not a resolution of the §8 anomaly — working
       // the drawing's own geometry gives a capacity well below the line's
       // sustained ~12 t/h rate. Both are logged as open, not quietly picked;
-      // see docs/OPEN_QUESTIONS.md.
+      // see docs/OPEN_QUESTIONS.md. Issue #156 made `distanceM` the whole
+      // path, floor run to head run; it keeps the rise's 8.731 m so the
+      // transit time (and the golden interlock baseline) is unchanged.
       adjustable: [
         ratedCapacityField("rated capacity", 5, 40, 20),
         chainSpeedField(10.08),
-        heightField(4, 20, 8.731),
+        pathLengthField(5, 20, 8.731),
       ],
       sim: {
         kind: "transportDelay",
@@ -359,7 +363,7 @@ export const line = {
       tag: "52.507.H00",
       status: "new",
       zone: "treating",
-      x: 590, y: 290, w: 90, h: 100,
+      x: 590, y: 310, w: 90, h: 100,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 100 } },
       fill: 0,
@@ -1581,8 +1585,8 @@ export const line = {
     // Drops out of the feeder, steps across, and falls into the boot from
     // above — 12 units of clear air under the feeder and 12 over the boot,
     // so the whole run is visible rather than hidden along the two edges.
-    { from: { machine: "treatDrumFeeder", port: "out" }, to: { machine: "treatingElevator", port: "in" }, kind: "product", via: [{ x: 225, y: 438 }, { x: 275, y: 438 }] },
-    { from: { machine: "treatingElevator", port: "out" }, to: { machine: "treaterPreBin", port: "in" }, kind: "product", via: [] },
+    { from: { machine: "treatDrumFeeder", port: "out" }, to: { machine: "treatingElevator", port: "in" }, kind: "product", via: [{ x: 225, y: 436 }, { x: 340, y: 436 }] },
+    { from: { machine: "treatingElevator", port: "out" }, to: { machine: "treaterPreBin", port: "in" }, kind: "product", via: [{ x: 406, y: 302 }, { x: 635, y: 302 }] },
     { from: { machine: "treaterPreBin", port: "out" }, to: { machine: "batchTreater", port: "in" }, kind: "product" },
     { from: { machine: "batchTreater", port: "out" }, to: { machine: "treaterAfterBin", port: "in" }, kind: "product", via: [] },
     // Issue #73: the after-bin's outlet now passes through its own valve

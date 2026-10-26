@@ -10,9 +10,14 @@
 // Every storage access is wrapped: storage that is blocked, full, missing or
 // holding something unreadable only means "no saved work".
 import { diffFromBase, applyChanges, exportLine, importLine } from "../line/lineDocument";
+import { changesFromHeightModel } from "../line/elevatorPath";
 
 export const SAVED_WORK_KEY = "grain-sim:saved-work";
-const SAVED_WORK_VERSION = 1;
+// Version 2 (issue #156): a bucket elevator's height is its path length.
+// Version 1 work still loads: its golden line changes are read under the old
+// height model, and a file migrates the way OPEN migrates it.
+const SAVED_WORK_VERSION = 2;
+const HEIGHT_MODEL_VERSION = 1;
 
 function browserStorage() {
   return window.localStorage;
@@ -24,9 +29,12 @@ export function loadSavedWork(golden, getStorage = browserStorage) {
     const text = getStorage().getItem(SAVED_WORK_KEY);
     if (text === null) return null;
     const saved = JSON.parse(text);
-    if (saved?.version !== SAVED_WORK_VERSION) return null;
+    if (saved?.version !== SAVED_WORK_VERSION && saved?.version !== HEIGHT_MODEL_VERSION) return null;
     if (saved.kind === "changes") {
-      return { ...golden, line: applyChanges(golden.line, saved.changes) };
+      const changes = saved.version === HEIGHT_MODEL_VERSION && Array.isArray(saved.changes)
+        ? changesFromHeightModel(golden.line, saved.changes)
+        : saved.changes;
+      return { ...golden, line: applyChanges(golden.line, changes) };
     }
     if (saved.kind === "file") {
       const result = importLine(saved.file);

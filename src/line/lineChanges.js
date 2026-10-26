@@ -15,6 +15,7 @@
 // repo on the next load.
 import { adjustableFields, readAdjustableValue, setAdjustableValue, closeTo } from "./adjustableFields";
 import { moveMachine, overlappingMachine, setFlipped } from "./layout";
+import { isBucketElevator, migrateMachine } from "./elevatorPath";
 import { deleteMachine, setMachineText } from "./editing";
 import { connectPorts, disconnectConnection } from "./connecting";
 import { REGISTERED_KINDS } from "../sim/behaviors";
@@ -160,10 +161,15 @@ function isChange(c) {
 }
 
 // An added machine goes on only where it overlaps nothing, and only if its
-// id is free.
+// id is free. An elevator stored before issue #156 is migrated to a path
+// length and goes on whatever its new shape overlaps, settling into a free
+// spot where there is one (elevatorPath.js migrateMachine).
 function addStoredMachine(line, machine) {
   if (line.machines.some((m) => m.id === machine.id)) return { ok: false };
   const placed = { ...line, machines: [...line.machines, machine] };
+  if (isBucketElevator(machine) && machine.geom.segmentsM === undefined) {
+    return { ok: true, line: migrateMachine(placed, machine.id) };
+  }
   if (overlappingMachine(placed, machine.id, machine)) return { ok: false };
   return { ok: true, line: placed };
 }
@@ -208,7 +214,8 @@ function applyChange(line, c) {
   if (c.disconnect !== undefined) return disconnectConnection(line, c.disconnect.from);
   if (c.text !== undefined) return setMachineText(line, c.machine, c.text, c.value);
   if (c.flipped !== undefined) return setFlipped(line, c.machine, c.flipped);
-  return c.position ? moveMachine(line, c.machine, c.position) : setAdjustableValue(line, c.machine, c.field, c.value);
+  if (c.position) return moveMachine(line, c.machine, c.position);
+  return setAdjustableValue(line, c.machine, c.field, c.value);
 }
 
 // The base with the changes applied. A change the base refuses (a machine or

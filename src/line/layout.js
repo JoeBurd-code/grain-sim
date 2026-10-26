@@ -144,8 +144,9 @@ export function applyGeometryEdit(line, id, edit) {
 }
 
 // The line with machine `id` where it is, or moved to the nearest free spot
-// if it overlaps another machine there. Never changes `line`.
-function settleMachine(line, id) {
+// if it overlaps another machine there. Never changes `line`. Returns
+// { ok: true, line } or { ok: false, error } when no spot is in range.
+export function settleMachine(line, id) {
   const m = line.machines.find((x) => x.id === id);
   const at = nearestFree({ x: m.x, y: m.y }, (p) => !overlappingMachine(line, id, p));
   if (!at) return { ok: false, error: `There is no free place for ${m.name} at its new shape.` };
