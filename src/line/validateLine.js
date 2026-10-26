@@ -65,6 +65,14 @@ export function validateLine(line) {
     }
   }
 
+  // Issue #155: a flipped machine carries `flipped: true`. Build mode drops
+  // the flag on a flip back, but a hand-written `false` means the same.
+  for (const m of line.machines) {
+    if (m.flipped !== undefined && typeof m.flipped !== "boolean") {
+      errors.push(`machine "${m.id}" has flipped ${JSON.stringify(m.flipped)}; it must be true or false`);
+    }
+  }
+
   const seenIds = new Set();
   for (const m of line.machines) {
     if (seenIds.has(m.id)) errors.push(`two machines have the id "${m.id}"`);

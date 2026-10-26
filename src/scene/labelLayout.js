@@ -99,14 +99,18 @@ export function labelPlacement(m) {
   const side = m.label?.side ?? "below";
   const align = m.label?.align ?? "center";
   const hasInstruments = (m.instruments?.length ?? 0) > 0;
+  // Issue #155: the label keeps its side on a flipped machine, but the
+  // instrument dots are drawn mirrored onto the left, so the gutter that
+  // clears them moves with them.
+  const gap = (instrumentSide) => (hasInstruments && Boolean(m.flipped) === (instrumentSide === "left") ? INSTRUMENT_GUTTER : LABEL_GAP);
 
   let x, y, anchor;
   if (side === "left") {
-    x = -LABEL_GAP;
+    x = -gap("left");
     anchor = "end";
     y = baselineAlongEdge(align, m.h, cap, span);
   } else if (side === "right") {
-    x = m.w + (hasInstruments ? INSTRUMENT_GUTTER : LABEL_GAP);
+    x = m.w + gap("right");
     anchor = "start";
     y = baselineAlongEdge(align, m.h, cap, span);
   } else if (side === "above") {

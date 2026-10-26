@@ -191,7 +191,31 @@ function TextFieldRow({ label, value, onCommit }) {
   );
 }
 
-function MachineSettings({ line, machine, onEditField, onEditText, onDeleteMachine }) {
+// Issue #155: mirrors the machine left to right, or back. A flip with no
+// free place to go is refused, with the message under the button.
+function FlipRow({ machine, onFlipMachine }) {
+  const [error, setError] = useState(null);
+  return (
+    <div style={{ marginTop: 16 }}>
+      <button
+        className="zonebtn"
+        style={btnStyle}
+        onClick={() => {
+          const result = onFlipMachine(machine.id);
+          setError(result.ok ? null : result.error);
+        }}
+      >
+        FLIP
+      </button>
+      <span style={{ fontSize: 9, color: C.muted, marginLeft: 8 }}>
+        {machine.flipped ? "Flipped left to right." : "Mirror left to right."}
+      </span>
+      {error && <div style={{ fontSize: 9, color: C.red, marginTop: 3 }}>{error}</div>}
+    </div>
+  );
+}
+
+function MachineSettings({ line, machine, onEditField, onEditText, onFlipMachine, onDeleteMachine }) {
   const fields = adjustableFields(machine);
   const item = catalogueItem(machine.item);
   return (
@@ -215,6 +239,7 @@ function MachineSettings({ line, machine, onEditField, onEditText, onDeleteMachi
           />
         ))
       )}
+      <FlipRow machine={machine} onFlipMachine={onFlipMachine} />
       {/* Issue #87. The Delete key does the same. */}
       <div style={{ marginTop: 22 }}>
         <button
@@ -322,7 +347,7 @@ function ConnectionSettings({ line, connection, onDeleteConnection }) {
 
 export default function BuildPanel({
   line, machine, group, connection, settingsOpen, problemsOpen, problems, lineName,
-  onStartOver, onEditField, onEditText, onDeleteMachine, onDeleteGroup, onDeleteConnection, onGoToProblem,
+  onStartOver, onEditField, onEditText, onFlipMachine, onDeleteMachine, onDeleteGroup, onDeleteConnection, onGoToProblem,
 }) {
   // Nothing selected and neither SETTINGS nor PROBLEMS open: the panel
   // takes no width at all, so the canvas gets the room back. Opening it
@@ -348,7 +373,7 @@ export default function BuildPanel({
         ) : machine ? (
           // Keyed by machine, so a half-typed value or a refusal never
           // carries over to the next machine selected.
-          <MachineSettings key={machine.id} line={line} machine={machine} onEditField={onEditField} onEditText={onEditText} onDeleteMachine={onDeleteMachine} />
+          <MachineSettings key={machine.id} line={line} machine={machine} onEditField={onEditField} onEditText={onEditText} onFlipMachine={onFlipMachine} onDeleteMachine={onDeleteMachine} />
         ) : group ? (
           <GroupSettings group={group} onDeleteGroup={onDeleteGroup} />
         ) : connection ? (
