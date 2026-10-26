@@ -9,7 +9,8 @@
 // The boot, where the floor run meets the column, stays fixed on the canvas
 // when the segments change: the inlet moves out along the floor, and the
 // head and outlet move up and down with the column.
-import { rerouteConnections, settleMachine } from "./layout";
+import { applyGeometryEdit, rerouteConnections, settleMachine } from "./layout";
+import { draggedLengths } from "./lengthHandles";
 
 // The scale the old 264 px column for 8.731 m implied.
 export const PX_PER_M = 30;
@@ -103,6 +104,76 @@ export function pathLengthError(m, total) {
 export function setPathLength(m, total) {
   const { floor, head } = m.geom.segmentsM;
   shapeElevator(m, { floor, column: total - floor - head, head });
+}
+
+// Issue #157: the handles that reshape a selected elevator in Build mode,
+// in the machine's local space, mirrored on a flipped one (whose handles
+// then drag the mirrored way). Each trades length between two segments
+// (lengthHandles.js), so the path length never changes: the floor run's
+// end, dragged out along the floor, and the head run's end, dragged out
+// sideways, lengthen their run from the column; the column's top, dragged
+// up, lengthens the column from the head run. None on any other machine.
+const HANDLES = [
+  { id: "floor", axis: "x", sign: -1, grows: "floor", takesFrom: "column", at: (m) => ({ x: 0, y: m.h - m.geom.duct / 2 }) },
+  { id: "head", axis: "x", sign: 1, grows: "head", takesFrom: "column", at: (m) => ({ x: m.w, y: m.geom.duct / 2 }) },
+  { id: "column", axis: "y", sign: -1, grows: "column", takesFrom: "head", at: (m) => ({ x: m.geom.colX + m.geom.duct / 2, y: 0 }) },
+];
+const MIN_SEGMENT_M = { floor: MIN_RUN_M, column: MIN_COLUMN_M, head: MIN_RUN_M };
+// A drag moves in these steps of metres, or the fine ones with Alt held.
+const DRAG_STEP_M = 0.1;
+const FINE_STEP_M = 0.01;
+
+const isShaped = (m) => isBucketElevator(m) && m.geom.segmentsM !== undefined;
+
+export function elevatorHandles(m) {
+  if (!isShaped(m)) return [];
+  return HANDLES.map(({ at, ...handle }) => {
+    const p = at(m);
+    if (!m.flipped) return { ...handle, ...p };
+    return { ...handle, x: m.w - p.x, y: p.y, sign: handle.axis === "x" ? -handle.sign : handle.sign };
+  });
+}
+
+// The segments after handle `handleId` was dragged `deltaPx` ({ x, y }, in
+// world space) from where the drag began.
+export function segmentsAfterDrag(m, handleId, deltaPx, { fine = false } = {}) {
+  const handle = elevatorHandles(m).find((h) => h.id === handleId);
+  return draggedLengths(m.geom.segmentsM, handle, deltaPx, {
+    pxPerM: PX_PER_M, step: fine ? FINE_STEP_M : DRAG_STEP_M, min: MIN_SEGMENT_M,
+  });
+}
+
+// The line with elevator `id` shaped to `segments` and nothing else: the
+// live preview while a handle is dragged, which may overlap other machines.
+export function previewReshape(line, id, segments) {
+  return {
+    ...line,
+    machines: line.machines.map((m) => {
+      if (m.id !== id) return m;
+      const shaped = structuredClone(m);
+      shapeElevator(shaped, segments);
+      return shaped;
+    }),
+    connections: rerouteConnections(line.connections, id),
+  };
+}
+
+// A released handle: elevator `id` takes `segments`, which must add up to
+// its path length, its connections re-routed and, if its new shape overlaps
+// another machine, moved to the nearest free spot (issue #154). Returns
+// { ok: true, line } or { ok: false, error }.
+export function reshapeElevator(line, id, segments) {
+  const m = line.machines.find((x) => x.id === id);
+  if (!m) return { ok: false, error: `There is no machine "${id}" on this line.` };
+  if (!isShaped(m)) return { ok: false, error: `${m.name} is not a bucket elevator with a path to reshape.` };
+  const error = segmentsError(segments, m.sim.distanceM);
+  if (error) return { ok: false, error: `${m.name} ${error}.` };
+  return applyGeometryEdit(line, id, (next, machine) => {
+    shapeElevator(machine, segments);
+    // The total stays exactly as it was, free of the sum's float noise.
+    machine.sim.distanceM = m.sim.distanceM;
+    next.connections = rerouteConnections(next.connections, id);
+  });
 }
 
 // An old height becomes the total path length, raised to MIN_TOTAL_M if

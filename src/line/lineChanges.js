@@ -9,13 +9,14 @@
 // link the user added or changed, stored whole, { list, remove: id } for
 // each one they deleted, and { dismissSuggestion: id } for each suggested
 // interlock they crossed out, and (issue #155) { machine, flipped } for each
-// machine the user flipped. Browser
+// machine the user flipped, and (issue #157) { machine, segments } for each
+// bucket elevator the user reshaped with its handles. Browser
 // autosave stores this list for the golden line, never the whole line, so
 // every value the user did not change comes from the golden line in the
 // repo on the next load.
 import { adjustableFields, readAdjustableValue, setAdjustableValue, closeTo } from "./adjustableFields";
 import { moveMachine, overlappingMachine, setFlipped } from "./layout";
-import { isBucketElevator, migrateMachine } from "./elevatorPath";
+import { isBucketElevator, migrateMachine, reshapeElevator } from "./elevatorPath";
 import { deleteMachine, setMachineText } from "./editing";
 import { connectPorts, disconnectConnection } from "./connecting";
 import { REGISTERED_KINDS } from "../sim/behaviors";
@@ -56,6 +57,13 @@ export function diffFromBase(base, line) {
   }
   for (const m of kept) {
     const was = baseById.get(m.id);
+    // Issue #157: a new path length alone changes only the column, so a
+    // reshape shows in the runs. Stored whole, after the path length.
+    const [segments, wasSegments] = [m.geom?.segmentsM, was.geom?.segmentsM];
+    if (segments && wasSegments
+      && !(closeTo(segments.floor, wasSegments.floor) && closeTo(segments.head, wasSegments.head))) {
+      changes.push({ machine: m.id, segments: { ...segments } });
+    }
     // Issue #155: before the position, since a flip can move the machine
     // aside and the stored position then puts it back where the user had it.
     if (Boolean(m.flipped) !== Boolean(was.flipped)) changes.push({ machine: m.id, flipped: Boolean(m.flipped) });
@@ -157,6 +165,7 @@ function isChange(c) {
   if (c.disconnect !== undefined) return isEndpoint(c.disconnect.from);
   if (c.text !== undefined) return typeof c.machine === "string" && (c.text === "name" || c.text === "tag") && typeof c.value === "string";
   if (c.flipped !== undefined) return typeof c.machine === "string" && typeof c.flipped === "boolean";
+  if (c.segments !== undefined) return typeof c.machine === "string" && isObject(c.segments);
   return typeof c.machine === "string" && (typeof c.field === "string" || isObject(c.position));
 }
 
@@ -214,6 +223,7 @@ function applyChange(line, c) {
   if (c.disconnect !== undefined) return disconnectConnection(line, c.disconnect.from);
   if (c.text !== undefined) return setMachineText(line, c.machine, c.text, c.value);
   if (c.flipped !== undefined) return setFlipped(line, c.machine, c.flipped);
+  if (c.segments !== undefined) return reshapeElevator(line, c.machine, c.segments);
   if (c.position) return moveMachine(line, c.machine, c.position);
   return setAdjustableValue(line, c.machine, c.field, c.value);
 }

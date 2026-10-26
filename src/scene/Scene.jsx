@@ -15,6 +15,7 @@ import { useMachineMotion } from "./useMachineMotion";
 import { connectionPoints } from "../line/routing";
 import { anchorPoint, machineFootprint } from "../line/layout";
 import { connectionKey } from "../line/connecting";
+import { elevatorHandles } from "../line/elevatorPath";
 
 // Port dots (issue #88): shown only in Build mode (`onPortPointerDown` set).
 // An output port is filled solid (wheat, or the waste colour for a port
@@ -141,6 +142,24 @@ function SelectionButtons({ machine: m, onFlip, onDelete }) {
   ));
 }
 
+// Issue #157: the selected machine's length handles (line/elevatorPath.js
+// elevatorHandles), small squares on the machine's own outline. Each shows
+// the way it drags with its cursor. A press starts a handle drag
+// (useHandleDrag.js), never a machine drag; its click never reselects.
+const HANDLE_SIZE = 9;
+function LengthHandles({ machine: m, handles, onHandlePointerDown }) {
+  return handles.map((h) => (
+    <rect
+      key={h.id}
+      x={h.x - HANDLE_SIZE / 2} y={h.y - HANDLE_SIZE / 2} width={HANDLE_SIZE} height={HANDLE_SIZE} rx="1.5"
+      fill={C.panel} stroke={SELECT_STROKE} strokeWidth="1.5"
+      style={{ cursor: h.axis === "x" ? "ew-resize" : "ns-resize" }}
+      onPointerDown={(e) => onHandlePointerDown(e, m.id, h.id)}
+      onClick={(e) => e.stopPropagation()}
+    />
+  ));
+}
+
 // Single point of resolution for a machine's dynamic (per-tick) values.
 // `simSnap` is the live sim's published snapshot (Map<machineId, {...}>,
 // shape varies per sim.kind's own `snapshot`, see behaviors.js); a machine
@@ -165,11 +184,12 @@ function resolveDynamic(machine, simSnap) {
 // deletion (issue #88), also Build mode only.
 // `connectionDraft` is the in-progress drag's rubber-band line.
 // `onFlipMachine` (issue #155) and `onDeleteMachine` (issue #87), Build
-// mode only, show their buttons over a lone selected machine.
+// mode only, show their buttons over a lone selected machine, and
+// `onHandlePointerDown` (issue #157) its length handles, if it has any.
 export default function Scene({
   line, vb, handlers, wasDrag, selectedIds, onSelect, simSnap, running, speed, simTime,
   onMachinePointerDown, overlapIds, onPortPointerDown, selectedConnectionKey, onSelectConnection, connectionDraft,
-  highlightMachineIds, selectionBox, canvasCursor = "grab", onFlipMachine, onDeleteMachine,
+  highlightMachineIds, selectionBox, canvasCursor = "grab", onFlipMachine, onDeleteMachine, onHandlePointerDown,
 }) {
   const flowPathRef = useFlowAnimation(line, simSnap);
   const motion = useMachineMotion(running, speed);
@@ -310,6 +330,9 @@ export default function Scene({
             {onPortPointerDown && <PortDots machine={m} onPortPointerDown={onPortPointerDown} />}
             {selected && (onFlipMachine || onDeleteMachine) && selectedIds.length === 1 && (
               <SelectionButtons machine={m} onFlip={onFlipMachine} onDelete={onDeleteMachine} />
+            )}
+            {selected && onHandlePointerDown && selectedIds.length === 1 && (
+              <LengthHandles machine={m} handles={elevatorHandles(m)} onHandlePointerDown={onHandlePointerDown} />
             )}
           </g>
         );
