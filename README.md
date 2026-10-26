@@ -19,10 +19,6 @@ password.
 - **`src/app/`**: the UI. It includes transport controls, plant controls, machine
   popups, charts, and the event log.
 
-The `docs/adr/` folder explains the main design decisions. These include the
-hybrid sim model, volume as the primary currency, data-described topology,
-SVG-led rendering, and the stop mechanisms.
-
 ## Commands
 
 ```bash
@@ -32,5 +28,4 @@ npm run preview   # serve the production build locally
 npm run lint      # ESLint check
 npm test          # Vitest, single run
 npm run test:watch
-npm run census    # print the behaviour census: ENGINED/CONFIRMED counts per behaviour kind
 ```

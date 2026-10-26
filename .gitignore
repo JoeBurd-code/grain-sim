@@ -50,8 +50,7 @@ docs/TREATER_LINE2_WORKSHEET.html
 docs/treater-line2-filled-*.md
 
 # Internal planning/ops/agent-workflow docs — local reference only, not for
-# the public repo. docs/adr/ stays public (no proprietary content,
-# genuinely useful engineering documentation).
+# the public repo.
 CLAUDE.md
 CONTEXT.md
 docs/OPEN_QUESTIONS.md
@@ -59,6 +58,22 @@ docs/DEPLOY_ACCESS.md
 docs/PROJECT_BRIEF.md
 docs/agents/
 mockups/
+
+# Architecture decision records — local reference only, not for the public
+# repo (keeps the repo to deployment-needed files only).
+docs/adr/
+
+# Nightly browser-test process: prompts, findings, screenshots and saved
+# line files — local reference only, not for the public repo.
+docs/browser-testing.md
+docs/browser-test-prompt.md
+docs/build-mode-findings.md
+docs/nightly-runs.md
+docs/findings-img/
+docs/findings-lines/
+
+# Dev-only tooling, not needed to build or deploy the app.
+scripts/
 
 # Personal codebase-navigation page, used to demo the sim to non-technical
 # stakeholders - local reference only, not for the public repo.

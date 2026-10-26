@@ -10,8 +10,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "census": "node scripts/census.mjs"
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@vercel/functions": "^3.7.6",
