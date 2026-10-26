@@ -48,6 +48,7 @@ const GOLDEN_LINE_DOC = { line: goldenLine, name: GOLDEN_LINE_NAME, fromFile: fa
 // NEW LINE (issue #87). Like an opened file, a new line is stored whole.
 const NEW_LINE_NAME = "new line";
 const CATALOGUE_OPEN_KEY = "grain-sim:catalogue-open";
+const MODE_KEY = "grain-sim:mode";
 // Scroll bar thumb: lighter than the panel lines, so it shows on every panel.
 const SCROLL_THUMB = "#3a4143";
 const SCROLL_THUMB_HOVER = "#566064";
@@ -178,7 +179,22 @@ export default function PlantApp() {
   // either direction, is a full RESTART, so a design never applies to an old
   // run and Sim mode always starts from empty, paused. Selection and the
   // event panel are dropped too, so neither mode inherits the other's state.
-  const [mode, setMode] = useState("sim");
+  // The mode is remembered in this browser, so a reload comes back to it;
+  // blocked storage just means it starts in Sim mode.
+  const [mode, setMode] = useState(() => {
+    try {
+      return window.localStorage.getItem(MODE_KEY) === "build" ? "build" : "sim";
+    } catch {
+      return "sim";
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(MODE_KEY, mode);
+    } catch {
+      // Not remembered; a reload starts in Sim mode.
+    }
+  }, [mode]);
   const building = mode === "build";
   // Build mode's right panel shows the line settings or the selected
   // machine, never both: one panel, always in the same place.
