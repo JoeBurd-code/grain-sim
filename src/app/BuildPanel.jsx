@@ -191,7 +191,9 @@ function TextFieldRow({ label, value, onCommit }) {
   );
 }
 
-function MachineSettings({ line, machine, onEditField, onEditText, onDeleteMachine }) {
+// Flipping and deleting the machine are buttons over it on the canvas
+// (Scene.jsx); the Delete key deletes too.
+function MachineSettings({ line, machine, onEditField, onEditText }) {
   const fields = adjustableFields(machine);
   const item = catalogueItem(machine.item);
   return (
@@ -215,19 +217,6 @@ function MachineSettings({ line, machine, onEditField, onEditText, onDeleteMachi
           />
         ))
       )}
-      {/* Issue #87. The Delete key does the same. */}
-      <div style={{ marginTop: 22 }}>
-        <button
-          className="zonebtn"
-          style={{ ...btnStyle, color: C.red, borderColor: C.red }}
-          onClick={() => onDeleteMachine(machine.id)}
-        >
-          DELETE MACHINE
-        </button>
-        <div style={{ fontSize: 9, color: C.muted, marginTop: 6 }}>
-          Removes the machine and its connections.
-        </div>
-      </div>
     </>
   );
 }
@@ -322,7 +311,7 @@ function ConnectionSettings({ line, connection, onDeleteConnection }) {
 
 export default function BuildPanel({
   line, machine, group, connection, settingsOpen, problemsOpen, problems, lineName,
-  onStartOver, onEditField, onEditText, onDeleteMachine, onDeleteGroup, onDeleteConnection, onGoToProblem,
+  onStartOver, onEditField, onEditText, onDeleteGroup, onDeleteConnection, onGoToProblem,
 }) {
   // Nothing selected and neither SETTINGS nor PROBLEMS open: the panel
   // takes no width at all, so the canvas gets the room back. Opening it
@@ -348,7 +337,7 @@ export default function BuildPanel({
         ) : machine ? (
           // Keyed by machine, so a half-typed value or a refusal never
           // carries over to the next machine selected.
-          <MachineSettings key={machine.id} line={line} machine={machine} onEditField={onEditField} onEditText={onEditText} onDeleteMachine={onDeleteMachine} />
+          <MachineSettings key={machine.id} line={line} machine={machine} onEditField={onEditField} onEditText={onEditText} />
         ) : group ? (
           <GroupSettings group={group} onDeleteGroup={onDeleteGroup} />
         ) : connection ? (
