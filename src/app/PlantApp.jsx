@@ -28,6 +28,8 @@ import { loadSavedWork, storeWork, clearSavedWork, hasUnsavedWork } from "./save
 import { emptyHistory, pushHistory, undoHistory, redoHistory } from "./editHistory";
 import { useViewport } from "../scene/useViewport";
 import { useMachineDrag, toWorld } from "../scene/useMachineDrag";
+import { useHandleDrag } from "../scene/useHandleDrag";
+import { segmentsAfterDrag, previewReshape, reshapeElevator } from "../line/elevatorPath";
 import { useConnectionDrag } from "../scene/useConnectionDrag";
 import { useBoxSelect } from "../scene/useBoxSelect";
 import { useSimEngine } from "../sim/useSimEngine";
@@ -66,9 +68,10 @@ function isTyping(target) {
 // was copied from, so a copied lane sits beside it as a second lane.
 const PASTE_GAP = 60;
 
-// Issue #155: how long a refused flip's message stays in the header, the
-// same as a refused connection's (useConnectionDrag.js).
-const FLIP_ERROR_MS = 2600;
+// Issue #155: how long a refused flip's (or, issue #157, a refused
+// reshape's) message stays in the header, the same as a refused
+// connection's (useConnectionDrag.js).
+const SHAPE_ERROR_MS = 2600;
 
 // "golden line" -> "golden-line.json".
 function fileNameFor(name) {
@@ -337,24 +340,41 @@ export default function PlantApp() {
   // Issue #155: a flip, from the button over the selected machine, is one
   // undo step, the same double-apply pattern as onEditField. A refusal shows
   // for a moment in the header, as a refused connection does.
-  const [flipError, setFlipError] = useState(null);
-  const flipErrorTimerRef = useRef(null);
-  useEffect(() => () => clearTimeout(flipErrorTimerRef.current), []);
-  const onFlipMachine = useCallback((machineId) => {
-    const result = flipMachine(line, machineId);
-    clearTimeout(flipErrorTimerRef.current);
+  const [shapeError, setShapeError] = useState(null);
+  const shapeErrorTimerRef = useRef(null);
+  useEffect(() => () => clearTimeout(shapeErrorTimerRef.current), []);
+  // `edit(line)` returns { ok, line } or { ok: false, error }.
+  const applyShapeEdit = useCallback((edit) => {
+    const result = edit(line);
+    clearTimeout(shapeErrorTimerRef.current);
     if (!result.ok) {
-      setFlipError(result.error);
-      flipErrorTimerRef.current = setTimeout(() => setFlipError(null), FLIP_ERROR_MS);
+      setShapeError(result.error);
+      shapeErrorTimerRef.current = setTimeout(() => setShapeError(null), SHAPE_ERROR_MS);
       return;
     }
-    setFlipError(null);
+    setShapeError(null);
     recordEdit(line);
     setCurrent((c) => {
-      const next = flipMachine(c.line, machineId);
+      const next = edit(c.line);
       return next.ok ? { ...c, line: next.line } : c;
     });
   }, [line, recordEdit]);
+  const onFlipMachine = useCallback((machineId) => {
+    applyShapeEdit((l) => flipMachine(l, machineId));
+  }, [applyShapeEdit]);
+
+  // Issue #157: a released elevator handle reshapes it as one undo step;
+  // while it is dragged the scene previews the new shape (shownLine below),
+  // overlapping other machines if it must. A drag that changed nothing
+  // records nothing.
+  const onReleaseHandle = useCallback(({ machineId, handleId, delta, fine }) => {
+    const m = line.machines.find((x) => x.id === machineId);
+    if (!m) return;
+    const segments = segmentsAfterDrag(m, handleId, delta, { fine });
+    if (["floor", "column", "head"].every((k) => segments[k] === m.geom.segmentsM[k])) return;
+    applyShapeEdit((l) => reshapeElevator(l, machineId, segments));
+  }, [line, applyShapeEdit]);
+  const handleDrag = useHandleDrag(onReleaseHandle);
 
   // Issue #92: every interlock sentence edit (add, change a blank, add/
   // remove/reorder a step, delete the interlock) goes through sentenceEditor
@@ -621,11 +641,15 @@ export default function PlantApp() {
     [dragWasDrag, boxWasDrag, viewportWasDrag],
   );
   // While a drag is in progress the scene draws the machines where they
-  // would land; the current line changes only on release.
-  const shownLine = useMemo(
-    () => (drag.preview ? placeMachines(line, drag.preview.ids, drag.preview.delta) : line),
-    [line, drag.preview],
-  );
+  // would land, or (issue #157) the elevator in the shape its handle gives
+  // it; the current line changes only on release.
+  const shownLine = useMemo(() => {
+    if (drag.preview) return placeMachines(line, drag.preview.ids, drag.preview.delta);
+    const reshaping = handleDrag.preview;
+    const m = reshaping && line.machines.find((x) => x.id === reshaping.machineId);
+    if (!m) return line;
+    return previewReshape(line, m.id, segmentsAfterDrag(m, reshaping.handleId, reshaping.delta, { fine: reshaping.fine }));
+  }, [line, drag.preview, handleDrag.preview]);
 
   // Issue #95: Shift+click in Build mode adds a machine to the selection,
   // or takes it out if it is already in.
@@ -908,9 +932,9 @@ export default function PlantApp() {
                 : "click a machine · drag to pan · wheel to zoom"}
           </div>
         </div>
-        {building && (connectionDrag.error || flipError) && (
+        {building && (connectionDrag.error || shapeError) && (
           <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 10, color: C.red }}>
-            {connectionDrag.error ?? flipError}
+            {connectionDrag.error ?? shapeError}
           </div>
         )}
         {building && confirmingNewLine && (
@@ -988,6 +1012,7 @@ export default function PlantApp() {
                 canvasCursor={boxing ? "crosshair" : "grab"}
                 onFlipMachine={building ? onFlipMachine : undefined}
                 onDeleteMachine={building ? onDeleteMachine : undefined}
+                onHandlePointerDown={building ? handleDrag.onHandlePointerDown : undefined}
               />
             )}
             {selected && !building && (
