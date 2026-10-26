@@ -1,11 +1,11 @@
-// Issue #90: a conveyor's length or an elevator's height. One field drives
-// both the drawn size and the sim's transit distance, so a test that reads
-// only one of them and not the other would miss a regression that decouples
-// them.
+// Issue #90: a conveyor's length, and (issue #156) a bucket elevator's path
+// length. One field drives both the drawn size and the sim's transit
+// distance, so a test that reads only one of them and not the other would
+// miss a regression that decouples them. The elevator's own segment rules
+// are in elevatorPath.test.js.
 import { describe, it, expect } from "vitest";
 import { setAdjustableValue, readAdjustableValue } from "./adjustableFields";
 import { goldenLine } from "./goldenLine";
-import { overlappingMachine } from "./layout";
 import { createSim, getMachineState } from "../sim/engine";
 
 const byId = (line, id) => line.machines.find((m) => m.id === id);
@@ -16,35 +16,7 @@ function set(line, machineId, fieldId, value) {
   return result.line;
 }
 
-describe("resize fields (length, height)", () => {
-  it("scales the elevator's drawn height and its sim.distanceM by the same ratio", () => {
-    const before = byId(goldenLine, "treatingElevator");
-    const h0 = before.h;
-    const d0 = before.sim.distanceM;
-    const next = set(goldenLine, "treatingElevator", "height", 10);
-    const after = byId(next, "treatingElevator");
-    const ratio = 10 / d0;
-    expect(after.sim.distanceM).toBeCloseTo(10, 9);
-    expect(after.h / h0).toBeCloseTo(ratio, 9);
-    expect(after.h / after.sim.distanceM).toBeCloseTo(h0 / d0, 9);
-  });
-
-  // Issue #90's own words: a port moves "with the machine's end", not
-  // stretched proportionally from the origin. The boot (`in`, near the
-  // bottom) is the end that moves as the column grows taller, and stays
-  // exactly `duct` above the floor it sits on; the head discharge (`out`,
-  // near the top) does not drift down with it — lineData.js's own comment
-  // on treatingElevator explains why.
-  it("moves only the elevator's far (boot) port when it grows taller, and keeps the near (head) port fixed", () => {
-    const before = byId(goldenLine, "treatingElevator");
-    const outY0 = before.anchors.out.y;
-    const duct = before.geom.duct;
-    const next = set(goldenLine, "treatingElevator", "height", 10);
-    const after = byId(next, "treatingElevator");
-    expect(after.anchors.out.y).toBe(outY0);
-    expect(after.anchors.in.y).toBeCloseTo(after.h - duct, 9);
-  });
-
+describe("conveyor length", () => {
   it("scales the conveyor's width, its sim.distanceM and every portDistanceM by the same ratio", () => {
     const before = byId(goldenLine, "pendulumConveyor");
     const w0 = before.w;
@@ -62,10 +34,10 @@ describe("resize fields (length, height)", () => {
     }
   });
 
-  // Same "moves with the machine's end" rule as the elevator: the climb
-  // column and the infeed anchors sit on the conveyor's near (infeed) side
-  // and stay put; only the far (discharge) side's own anchors move, by the
-  // same pixel amount the belt grew by.
+  // A port moves "with the machine's end": the climb column and the infeed
+  // anchors sit on the conveyor's near (infeed) side and stay put; only the
+  // far (discharge) side's own anchors move, by the same pixel amount the
+  // belt grew by.
   it("moves only the conveyor's far (discharge) anchors when it grows longer, and keeps the near (infeed) side fixed", () => {
     const before = byId(goldenLine, "pendulumConveyor");
     const colX0 = before.geom.colX;
@@ -81,32 +53,9 @@ describe("resize fields (length, height)", () => {
     expect(after.anchors.in1.x).toBe(in1X0);
     expect(after.anchors.outConcetti.x).toBeCloseTo(outConcettiX0 + delta, 9);
   });
+});
 
-  it("reads back through readAdjustableValue in metres, matching sim.distanceM", () => {
-    const next = set(goldenLine, "treatingElevator", "height", 10);
-    expect(readAdjustableValue(next, "treatingElevator", "height")).toBeCloseTo(10, 9);
-    expect(byId(next, "treatingElevator").sim.distanceM).toBeCloseTo(10, 9);
-  });
-
-  // Issue #154: the elevator sits directly under the drum feeder that fills
-  // it (lineData.js's own comment on treatingElevator's height); growing it
-  // enough (still well inside the field's own 4-20 m limits) closes that gap.
-  // The new height stays and the elevator moves to the nearest free spot.
-  it("keeps an overlapping resize and moves the machine to the nearest free spot", () => {
-    const before = byId(goldenLine, "treatingElevator");
-    const next = set(goldenLine, "treatingElevator", "height", 19);
-    const after = byId(next, "treatingElevator");
-    expect(readAdjustableValue(next, "treatingElevator", "height")).toBeCloseTo(19, 9);
-    expect({ x: after.x, y: after.y }).not.toEqual({ x: before.x, y: before.y });
-    expect(overlappingMachine(next, "treatingElevator", after)).toBeNull();
-  });
-
-  it("leaves the machine where it is when the resize overlaps nothing", () => {
-    const before = byId(goldenLine, "treatingElevator");
-    const after = byId(set(goldenLine, "treatingElevator", "height", 9), "treatingElevator");
-    expect({ x: after.x, y: after.y }).toEqual({ x: before.x, y: before.y });
-  });
-
+describe("a resize that settles the machine (issue #154)", () => {
   it("refuses an overlapping resize when no free spot is in range, leaving the line unchanged", () => {
     // Four thick walls fence the elevator in at exactly its current box, so
     // any taller elevator overlaps a wall wherever the search tries it.
@@ -116,7 +65,7 @@ describe("resize fields (length, height)", () => {
     const fenced = {
       ...goldenLine,
       machines: [
-        ...goldenLine.machines.filter((o) => o.id === "treatingElevator"),
+        m,
         wall("wallTop", m.x - T, m.y - T, m.w + 2 * T, T),
         wall("wallBottom", m.x - T, m.y + m.h, m.w + 2 * T, T),
         wall("wallLeft", m.x - T, m.y, T, m.h),
@@ -125,45 +74,40 @@ describe("resize fields (length, height)", () => {
       connections: [],
     };
     const snapshot = structuredClone(fenced);
-    const result = setAdjustableValue(fenced, "treatingElevator", "height", 19);
+    const result = setAdjustableValue(fenced, "treatingElevator", "pathLength", 12);
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/no free place/);
     expect(fenced).toEqual(snapshot);
   });
 
-  it("re-routes a moved machine's connections", () => {
+  it("drops a resized machine's connections' via/coupling, the same as a move", () => {
     const withBend = {
       ...goldenLine,
       connections: goldenLine.connections.map((c) => (
-        c.to.machine === "treatingElevator" ? { ...c, via: [{ x: 1, y: 1 }], coupling: true } : c
+        c.from.machine === "treatingElevator" || c.to.machine === "treatingElevator"
+          ? { ...c, via: [{ x: 1, y: 1 }], coupling: true }
+          : c
       )),
     };
-    const next = set(withBend, "treatingElevator", "height", 19);
-    const into = next.connections.filter((c) => c.to.machine === "treatingElevator");
-    expect(into.length).toBeGreaterThan(0);
-    for (const c of into) {
+    const next = set(withBend, "treatingElevator", "pathLength", 12);
+    const touching = next.connections.filter((c) => c.from.machine === "treatingElevator" || c.to.machine === "treatingElevator");
+    expect(touching.length).toBe(2);
+    for (const c of touching) {
       expect(c.via).toBeUndefined();
       expect(c.coupling).toBeUndefined();
     }
   });
+});
 
-  it("drops a connection's via/coupling on resize, the same as a move", () => {
-    const withBend = {
-      ...goldenLine,
-      connections: goldenLine.connections.map((c) => (
-        c.from.machine === "treatingElevator" ? { ...c, via: [{ x: 1, y: 1 }], coupling: true } : c
-      )),
-    };
-    const touching = withBend.connections.find((c) => c.from.machine === "treatingElevator");
-    expect(touching.via).toBeDefined();
-    const next = set(withBend, "treatingElevator", "height", 9);
-    const after = next.connections.find((c) => c.from.machine === "treatingElevator");
-    expect(after.via).toBeUndefined();
-    expect(after.coupling).toBeUndefined();
+describe("elevator path length", () => {
+  it("reads back through readAdjustableValue in metres, matching sim.distanceM", () => {
+    const next = set(goldenLine, "treatingElevator", "pathLength", 10);
+    expect(readAdjustableValue(next, "treatingElevator", "pathLength")).toBeCloseTo(10, 9);
+    expect(byId(next, "treatingElevator").sim.distanceM).toBeCloseTo(10, 9);
   });
 
-  it("a taller elevator carries grain for proportionally longer (acceptance criterion)", () => {
-    const tall = set(goldenLine, "treatingElevator", "height", 10);
+  it("a longer path carries grain for proportionally longer", () => {
+    const long = set(goldenLine, "treatingElevator", "pathLength", 10);
 
     // engine.js's own initTransportDelay copies distanceM/speedMPerMin onto
     // the live machine state untouched; transit time is distance over
@@ -175,9 +119,7 @@ describe("resize fields (length, height)", () => {
       return state.distanceM / (state.speedMPerMin / 60);
     };
 
-    const shortTransit = transitSeconds(goldenLine);
-    const tallTransit = transitSeconds(tall);
     const ratio = 10 / byId(goldenLine, "treatingElevator").sim.distanceM;
-    expect(tallTransit / shortTransit).toBeCloseTo(ratio, 9);
+    expect(transitSeconds(long) / transitSeconds(goldenLine)).toBeCloseTo(ratio, 9);
   });
 });

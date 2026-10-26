@@ -5,6 +5,7 @@ import { REGISTERED_KINDS, BEHAVIORS, unregisteredKindMessage } from "../sim/beh
 import { isSimExempt } from "./simExempt";
 import { isLiveControlBind, isLiveReadBind } from "../sim/liveControls";
 import { adjustableFieldErrors } from "./adjustableFields";
+import { isBucketElevator, segmentsError } from "./elevatorPath";
 import { plantControlErrors } from "./plantControls";
 import { isSentence, lineRules, interlockSensorMachine, ruleSwitches, SWITCH_FIELDS, isRuleOff, isFeedRateLinkOff } from "./interlocks";
 
@@ -71,6 +72,14 @@ export function validateLine(line) {
     if (m.flipped !== undefined && typeof m.flipped !== "boolean") {
       errors.push(`machine "${m.id}" has flipped ${JSON.stringify(m.flipped)}; it must be true or false`);
     }
+  }
+
+  // Issue #156: a bucket elevator's path segments add up to its path length
+  // and keep their minimums.
+  for (const m of line.machines) {
+    if (!isBucketElevator(m)) continue;
+    const error = segmentsError(m.geom.segmentsM, m.sim?.distanceM);
+    if (error) errors.push(`machine "${m.id}" ${error}`);
   }
 
   const seenIds = new Set();

@@ -19,6 +19,7 @@ import { tPerHourToM3PerSec, m3PerSecToTPerHour, kgToM3, m3ToKg } from "../sim/u
 import { lineRules, interlockSensorMachine, interlockValue, putInterlockValue, SWITCH_FIELDS } from "./interlocks";
 import { switchSlider, SWITCH_BINDS } from "./setpointSliders";
 import { applyGeometryEdit, rerouteConnections } from "./layout";
+import { pathLengthError, setPathLength } from "./elevatorPath";
 
 // Plant unit <-> line (engine) unit.
 const SAME = { toLine: (v) => v, fromLine: (v) => v };
@@ -84,57 +85,49 @@ export function closeTo(a, b) {
 
 const SETPOINT_BINDS = new Set(["interlockLowSetpoint", "interlockHighSetpoint", "interlockHighHighSetpoint"]);
 
-// Issue #90: a conveyor's length or an elevator's height. One field drives
-// both the drawn size and the sim's transit distance, so they cannot
-// disagree: the stored value *is* `sim.distanceM`, and `w`/`h` scale by the
-// same ratio the edit moves `distanceM` by (so does each routed outlet's
-// own `portDistanceM`, a real-meters split, not a pixel one).
+// Issue #90: a conveyor's length. (An elevator's height was the same kind
+// of field until issue #156 made it a path length, `pathLength` below.) One
+// field drives both the drawn width and the sim's transit distance, so they
+// cannot disagree: the stored value *is* `sim.distanceM`, and `w` scales by
+// the same ratio the edit moves `distanceM` by (so does each routed
+// outlet's own `portDistanceM`, a real-meters split, not a pixel one).
 //
 // A port does not scale with the machine, it moves with the machine's own
-// end (the issue's own words): the elevator's boot stays exactly `duct`
-// above the floor it sits on as the column grows taller, and the head
-// discharge near the top does not drift down with it (lineData.js's own
-// comment on treatingElevator explains why `out` is measured from the top,
-// not scaled from `h`) — the same holds for a conveyor's infeed and its
-// discharge end. So only a port past the old size's own midpoint (the far
-// end) moves, and it moves by the same pixel delta the drawn size grew by,
-// not by the ratio: that is what keeps a fixed offset like `in.y = h -
-// duct` exact after the resize instead of drifting. `geom.colX` (the
-// elevator's climb column, the conveyor's own) follows the same rule: it
-// only shifts when it already sits on the growing axis' far side.
-// `axis` is the drawn dimension the field lengthens: "w" for a conveyor's
-// length, "h" for an elevator's height. Connections touching the machine
-// drop their hand-placed bend points, the same as a move (layout.js
-// placeMachine), so routing.js re-routes them to the moved ports. If the
-// new size overlaps another machine, the caller (setAdjustableValue) moves
-// the machine to the nearest free spot (layout.js applyGeometryEdit, issue #154).
-const RESIZE_BINDS = new Set(["length", "height"]);
-function resizeField(axis) {
-  const coord = axis === "w" ? "x" : "y";
-  return {
-    unit: "m", convert: SAME,
-    get: (line, m) => m.sim?.distanceM,
-    put: (line, m, value) => {
-      const ratio = value / m.sim.distanceM;
-      const oldSize = m[axis];
-      const delta = oldSize * ratio - oldSize;
-      m.sim.distanceM = value;
-      if (m.sim.portDistanceM) {
-        for (const key of Object.keys(m.sim.portDistanceM)) m.sim.portDistanceM[key] *= ratio;
-      }
-      m[axis] = oldSize + delta;
-      // Issue #155: a flipped machine is drawn mirrored, so its far end is
-      // on the left; the machine grows leftwards to keep its near end put.
-      if (axis === "w" && m.flipped) m.x -= delta;
-      if (m.geom && axis === "w" && m.geom.colX > oldSize / 2) m.geom.colX += delta;
-      for (const key of Object.keys(m.anchors)) {
-        const anchor = m.anchors[key];
-        if (anchor[coord] > oldSize / 2) anchor[coord] += delta;
-      }
-      line.connections = rerouteConnections(line.connections, m.id);
-    },
-  };
-}
+// end (the issue's own words): a conveyor's infeed stays put and its
+// discharge end moves. So only a port past the old width's own midpoint
+// (the far end) moves, and it moves by the same pixel delta the width grew
+// by, not by the ratio, so a fixed offset from an end stays exact after the
+// resize instead of drifting. `geom.colX` (the pendulum conveyor's climb
+// column) follows the same rule: it only shifts when it already sits on
+// the far side. Connections touching the machine drop their hand-placed
+// bend points, the same as a move (layout.js placeMachine), so routing.js
+// re-routes them to the moved ports. If the new size overlaps another
+// machine, the caller (setAdjustableValue) moves the machine to the nearest
+// free spot (layout.js applyGeometryEdit, issue #154).
+const RESIZE_BINDS = new Set(["length", "pathLength"]);
+const lengthField = {
+  unit: "m", convert: SAME,
+  get: (line, m) => m.sim?.distanceM,
+  put: (line, m, value) => {
+    const ratio = value / m.sim.distanceM;
+    const oldW = m.w;
+    const delta = oldW * ratio - oldW;
+    m.sim.distanceM = value;
+    if (m.sim.portDistanceM) {
+      for (const key of Object.keys(m.sim.portDistanceM)) m.sim.portDistanceM[key] *= ratio;
+    }
+    m.w = oldW + delta;
+    // Issue #155: a flipped machine is drawn mirrored, so its far end is
+    // on the left; the machine grows leftwards to keep its near end put.
+    if (m.flipped) m.x -= delta;
+    if (m.geom && m.geom.colX > oldW / 2) m.geom.colX += delta;
+    for (const key of Object.keys(m.anchors)) {
+      const anchor = m.anchors[key];
+      if (anchor.x > oldW / 2) anchor.x += delta;
+    }
+    line.connections = rerouteConnections(line.connections, m.id);
+  },
+};
 
 const BINDS = {
   sourceRate: simValue("rateM3PerSec", "t/h", T_PER_H),
@@ -165,8 +158,17 @@ const BINDS = {
   ratedCapacity: simValue("ceilingM3PerSec", "t/h", T_PER_H),
   chainSpeed: simValue("speedMPerMin", "m/min", SAME),
   hasGate: simValue("hasGate", "", SAME),
-  length: resizeField("w"),
-  height: resizeField("h"),
+  length: lengthField,
+  // Issue #156: a bucket elevator's full path, floor run to head run. A new
+  // total changes only the column (elevatorPath.js).
+  pathLength: {
+    unit: "m", convert: SAME,
+    get: (line, m) => (m.geom?.segmentsM ? m.sim?.distanceM : undefined),
+    put: (line, m, value) => {
+      setPathLength(m, value);
+      line.connections = rerouteConnections(line.connections, m.id);
+    },
+  },
 };
 
 // The machine's fields in one shape, whichever way each was declared.
@@ -261,6 +263,10 @@ export function setAdjustableValue(line, machineId, fieldId, value) {
   }
   const error = valueError(field, value);
   if (error) return refuse(error);
+  if (field.bind === "pathLength") {
+    const pathError = pathLengthError(original, value);
+    if (pathError) return refuse(pathError);
+  }
 
   const bind = BINDS[field.bind];
   const apply = (next, machine) => {

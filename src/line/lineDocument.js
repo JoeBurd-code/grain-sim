@@ -9,6 +9,7 @@
 // Every line reaches the app through importLine, the golden line included
 // (see goldenLine.js), so there is one loading path, not two.
 import { validateLine } from "./validateLine";
+import { migrateHeightModel } from "./elevatorPath";
 
 // Build mode edits (issue #77). The rules live in adjustableFields.js; a
 // line document is edited only through these.
@@ -64,13 +65,16 @@ export function importLine(text) {
   if (doc.formatVersion !== LINE_FORMAT_VERSION) {
     return refuse(`This line file is format version ${doc.formatVersion}; this app reads version ${LINE_FORMAT_VERSION}.`);
   }
-  const line = doc.line;
-  if (!line || typeof line !== "object"
-    || !Array.isArray(line.machines) || !Array.isArray(line.connections) || !Array.isArray(line.zones)) {
+  const saved = doc.line;
+  if (!saved || typeof saved !== "object"
+    || !Array.isArray(saved.machines) || !Array.isArray(saved.connections) || !Array.isArray(saved.zones)) {
     return refuse("This line file is missing its machines, connections or zones.");
   }
-  let validation;
+  let line, validation;
   try {
+    // Issue #156: a bucket elevator saved under the old height model
+    // migrates to a path length, in the same format version.
+    line = migrateHeightModel(saved);
     validation = validateLine(line);
   } catch (e) {
     return refuse(`This line file is damaged: ${e.message}`);

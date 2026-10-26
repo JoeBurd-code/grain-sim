@@ -7,11 +7,16 @@
   "model": "E200",
   "machine": {
     "type": "elevator",
-    "w": 420,
-    "h": 264,
+    "w": 135,
+    "h": 231.93,
     "geom": {
-      "colX": 200,
-      "duct": 36
+      "colX": 40,
+      "duct": 36,
+      "segmentsM": {
+        "floor": 0.5,
+        "column": 7.731,
+        "head": 0.5
+      }
     },
     "ports": {
       "inputs": [
@@ -24,10 +29,10 @@
     "anchors": {
       "in": {
         "x": 25,
-        "y": 228
+        "y": 195.93
       },
       "out": {
-        "x": 376,
+        "x": 91,
         "y": 44
       }
     },
@@ -72,14 +77,14 @@
         "bind": "chainSpeed"
       },
       {
-        "id": "height",
-        "label": "height",
+        "id": "pathLength",
+        "label": "path length",
         "unit": "m",
         "kind": "number",
-        "min": 4,
+        "min": 5,
         "max": 20,
         "default": 8.731,
-        "bind": "height"
+        "bind": "pathLength"
       }
     ],
     "sim": {

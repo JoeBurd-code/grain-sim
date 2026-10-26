@@ -9,6 +9,8 @@ import {
   exportLine, moveMachine, addMachine, deleteMachine, emptyLine, copyMachines, pasteMachines,
 } from "../line/lineDocument";
 import { ruleMachines } from "../line/interlocks";
+import { overlappingMachine } from "../line/layout";
+import { heightModelLine } from "../line/heightModelFixture";
 
 const GOLDEN = { line: goldenLine, name: GOLDEN_LINE_NAME, fromFile: false };
 
@@ -163,10 +165,71 @@ describe("loadSavedWork", () => {
     expect(readAdjustableValue(loadSavedWork(updated, () => storage).line, "metalBin1", "capacity")).toBe(6);
   });
 
+  // Issue #156: work saved while a bucket elevator's field was its height.
+  describe("saved under the old elevator height model", () => {
+    const sumOf = (s) => s.floor + s.column + s.head;
+    const elevator = (line) => line.machines.find((m) => m.id === "treatingElevator");
+
+    it("brings back an opened file with the old height as the elevator's total path length", () => {
+      const storage = memoryStorage();
+      storage.setItem(SAVED_WORK_KEY, JSON.stringify({
+        version: 1, kind: "file", file: exportLine(heightModelLine(10), "old trial"),
+      }));
+      const loaded = loadSavedWork(GOLDEN, () => storage);
+      expect(loaded).toMatchObject({ name: "old trial", fromFile: true });
+      const m = elevator(loaded.line);
+      expect(m.sim.distanceM).toBeCloseTo(10, 9);
+      expect(sumOf(m.geom.segmentsM)).toBeCloseTo(10, 9);
+      expect(readAdjustableValue(loaded.line, "treatingElevator", "pathLength")).toBeCloseTo(10, 9);
+      expect(overlappingMachine(loaded.line, m.id, m)).toBeNull();
+    });
+
+    it("brings back a golden line height change as the path length", () => {
+      const storage = memoryStorage();
+      storage.setItem(SAVED_WORK_KEY, JSON.stringify({
+        version: 1, kind: "changes", changes: [{ machine: "treatingElevator", field: "height", value: 12 }],
+      }));
+      const loaded = loadSavedWork(GOLDEN, () => storage);
+      expect(readAdjustableValue(loaded.line, "treatingElevator", "pathLength")).toBeCloseTo(12, 9);
+      expect(sumOf(elevator(loaded.line).geom.segmentsM)).toBeCloseTo(12, 9);
+    });
+
+    it("puts a moved golden elevator's boot where the old drawing had it", () => {
+      // The old drawing's boot was 218 px right of its top-left corner and
+      // 264 px down (column at x 200, 36 px duct, 264 px tall).
+      const storage = memoryStorage();
+      storage.setItem(SAVED_WORK_KEY, JSON.stringify({
+        version: 1, kind: "changes", changes: [{ machine: "treatingElevator", position: { x: 250, y: 22 } }],
+      }));
+      const m = elevator(loadSavedWork(GOLDEN, () => storage).line);
+      expect(m.x + m.geom.colX + m.geom.duct / 2).toBeCloseTo(250 + 218, 9);
+      expect(m.y + m.h).toBeCloseTo(22 + 264, 9);
+    });
+
+    it("stores new work as the current version, read back as it is", () => {
+      const storage = memoryStorage();
+      const line = edit(goldenLine, "treatingElevator", "pathLength", 12);
+      storeWork(GOLDEN, { ...GOLDEN, line }, () => storage);
+      expect(JSON.parse(storage.getItem(SAVED_WORK_KEY)).version).toBe(2);
+      expect(loadSavedWork(GOLDEN, () => storage).line).toEqual(line);
+    });
+
+    it("brings back an added old-model elevator, migrated", () => {
+      const old = elevator(heightModelLine(9));
+      const storage = memoryStorage();
+      storage.setItem(SAVED_WORK_KEY, JSON.stringify({
+        version: 1, kind: "changes", changes: [{ add: { ...old, id: "elevator-2", x: 0, y: -2000 } }],
+      }));
+      const added = loadSavedWork(GOLDEN, () => storage).line.machines.find((m) => m.id === "elevator-2");
+      expect(added.sim.distanceM).toBeCloseTo(9, 9);
+      expect(sumOf(added.geom.segmentsM)).toBeCloseTo(9, 9);
+    });
+  });
+
   it.each([
     ["text that is not JSON", "{not json"],
     ["an unknown kind", JSON.stringify({ version: 1, kind: "other" })],
-    ["a newer version", JSON.stringify({ version: 2, kind: "changes", changes: [] })],
+    ["a newer version", JSON.stringify({ version: 3, kind: "changes", changes: [] })],
     ["a damaged file", JSON.stringify({ version: 1, kind: "file", file: "{}" })],
     ["JSON null", "null"],
   ])("treats %s as no saved work", (_, text) => {

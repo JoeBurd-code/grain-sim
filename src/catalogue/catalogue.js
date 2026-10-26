@@ -14,6 +14,7 @@
 //
 // Custom items (issue #94) are made here from the files, and some real items
 // are not listed in the panel; see CUSTOM_ITEMS below.
+import { MIN_TOTAL_M } from "../line/elevatorPath";
 
 const files = import.meta.glob("./items/*.json", { eager: true, import: "default" });
 
@@ -44,11 +45,13 @@ const CUSTOM_LIMITS = {
   kg: { min: 1, max: 5000 },
   s: { min: 1, max: 600 },
 };
-// Length and height are both in metres but draw the machine at that size,
-// so each has a limit of its own.
+// A conveyor's length and an elevator's path length are both in metres but
+// draw the machine at that size, so each has a limit of its own. A path
+// length can be no shorter than its column's and runs' minimums allow
+// (elevatorPath.js).
 const CUSTOM_RESIZE_LIMITS = {
   length: { min: 1, max: 150 },
-  height: { min: 2, max: 50 },
+  pathLength: { min: MIN_TOTAL_M, max: 60 },
 };
 
 function widened(entry, limits) {
