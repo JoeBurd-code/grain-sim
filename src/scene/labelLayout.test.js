@@ -70,6 +70,13 @@ describe("labelPlacement", () => {
     expect(labelPlacement(machine({ label: { side: "left" }, instruments: ["LT"] })).x).toBe(-LABEL_GAP);
   });
 
+  // Issue #155: a flipped machine's instruments are drawn on its left.
+  it("clears the instrument stack on the left of a flipped machine", () => {
+    const flipped = { instruments: ["LT"], flipped: true };
+    expect(labelPlacement(machine({ label: { side: "left" }, ...flipped })).x).toBe(-INSTRUMENT_GUTTER);
+    expect(labelPlacement(machine({ label: { side: "right" }, ...flipped })).x).toBe(100 + LABEL_GAP);
+  });
+
   it("keeps a wrapped block flush with the edge it is aligned to", () => {
     const m = machine({ name: "NIKLAS WNS/200 BATCH TREATER", label: { side: "left", align: "bottom" } });
     const box = inkBox(m, 90);

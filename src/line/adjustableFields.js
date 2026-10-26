@@ -18,7 +18,7 @@
 import { tPerHourToM3PerSec, m3PerSecToTPerHour, kgToM3, m3ToKg } from "../sim/units";
 import { lineRules, interlockSensorMachine, interlockValue, putInterlockValue, SWITCH_FIELDS } from "./interlocks";
 import { switchSlider, SWITCH_BINDS } from "./setpointSliders";
-import { applyGeometryEdit } from "./layout";
+import { applyGeometryEdit, rerouteConnections } from "./layout";
 
 // Plant unit <-> line (engine) unit.
 const SAME = { toLine: (v) => v, fromLine: (v) => v };
@@ -123,19 +123,15 @@ function resizeField(axis) {
         for (const key of Object.keys(m.sim.portDistanceM)) m.sim.portDistanceM[key] *= ratio;
       }
       m[axis] = oldSize + delta;
+      // Issue #155: a flipped machine is drawn mirrored, so its far end is
+      // on the left; the machine grows leftwards to keep its near end put.
+      if (axis === "w" && m.flipped) m.x -= delta;
       if (m.geom && axis === "w" && m.geom.colX > oldSize / 2) m.geom.colX += delta;
       for (const key of Object.keys(m.anchors)) {
         const anchor = m.anchors[key];
         if (anchor[coord] > oldSize / 2) anchor[coord] += delta;
       }
-      line.connections = line.connections.map((c) => {
-        if (c.from.machine !== m.id && c.to.machine !== m.id) return c;
-        if (c.via === undefined && c.coupling === undefined) return c;
-        const rerouted = { ...c };
-        delete rerouted.via;
-        delete rerouted.coupling;
-        return rerouted;
-      });
+      line.connections = rerouteConnections(line.connections, m.id);
     },
   };
 }

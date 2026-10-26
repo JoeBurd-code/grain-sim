@@ -16,11 +16,33 @@ export function snapPosition(pos, snap = true) {
   return { x: Math.round(pos.x / step) * step, y: Math.round(pos.y / step) * step };
 }
 
+// Issue #155: a machine with `flipped: true` is drawn and placed mirrored
+// across the vertical line through its own centre. Its stored anchors and
+// `geom` stay as authored; whatever reads left and right in the world
+// mirrors them here (or, for the drawing, Scene.jsx mirrors the symbol).
+
+// A port's anchor in the machine's local space, mirrored when flipped.
+export function anchorPoint(m, port) {
+  const a = m.anchors[port];
+  return m.flipped ? { x: m.w - a.x, y: a.y } : a;
+}
+
+// The same anchor in world space.
+export function anchorWorld(m, port) {
+  const a = anchorPoint(m, port);
+  return { x: m.x + a.x, y: m.y + a.y };
+}
+
 // The rects the machine covers, in world space. A machine with a duct `geom`
 // covers the floor run, the climb and the ceiling run that ductBodyPaths
 // (scene/elevatorMotion.js) draws.
 export function machineFootprint(m) {
-  if (!m.geom) return [{ x: m.x, y: m.y, w: m.w, h: m.h }];
+  const rects = m.geom ? ductFootprint(m) : [{ x: m.x, y: m.y, w: m.w, h: m.h }];
+  if (!m.flipped) return rects;
+  return rects.map((r) => ({ ...r, x: 2 * m.x + m.w - r.x - r.w }));
+}
+
+function ductFootprint(m) {
   const { colX, duct } = m.geom;
   return [
     { x: m.x, y: m.y + m.h - duct, w: colX + duct, h: duct },
@@ -66,23 +88,45 @@ export function overlappingMachine(line, id, pos) {
   return other ? other.id : null;
 }
 
-// The line with the machine at `pos`, unchecked. The moved machine's
-// connections lose their hand-placed bend points and their coupling mark,
-// so the renderer routes them (routing.js). Every other connection keeps
-// its drawing.
+// The connections with machine `id`'s ones losing their hand-placed bend
+// points and their coupling mark, so the renderer routes them (routing.js).
+// Every other connection keeps its drawing.
+export function rerouteConnections(connections, id) {
+  return connections.map((c) => {
+    if (c.from.machine !== id && c.to.machine !== id) return c;
+    if (c.via === undefined && c.coupling === undefined) return c;
+    const rerouted = { ...c };
+    delete rerouted.via;
+    delete rerouted.coupling;
+    return rerouted;
+  });
+}
+
+// The line with the machine at `pos`, unchecked, its connections re-routed.
 export function placeMachine(line, id, pos) {
   return {
     ...line,
     machines: line.machines.map((m) => (m.id === id ? { ...m, x: pos.x, y: pos.y } : m)),
-    connections: line.connections.map((c) => {
-      if (c.from.machine !== id && c.to.machine !== id) return c;
-      if (c.via === undefined && c.coupling === undefined) return c;
-      const rerouted = { ...c };
-      delete rerouted.via;
-      delete rerouted.coupling;
-      return rerouted;
-    }),
+    connections: rerouteConnections(line.connections, id),
   };
+}
+
+// Issue #155: flips machine `id` left to right, or back. Only the flag
+// changes; its connections stay on the same ports and are re-routed, and a
+// flipped shape that overlaps a neighbour moves to the nearest free spot.
+export function flipMachine(line, id) {
+  return applyGeometryEdit(line, id, (next, m) => {
+    if (m.flipped) delete m.flipped;
+    else m.flipped = true;
+    next.connections = rerouteConnections(next.connections, id);
+  });
+}
+
+// The line with machine `id` flipped or not, as `flipped` says.
+export function setFlipped(line, id, flipped) {
+  const m = line.machines.find((x) => x.id === id);
+  if (!m) return { ok: false, error: `There is no machine "${id}" on this line.` };
+  return Boolean(m.flipped) === flipped ? { ok: true, line } : flipMachine(line, id);
 }
 
 // Issue #154: one rule for every edit that changes a machine's shape (a

@@ -12,13 +12,10 @@
 // pattern Scene's own per-tick motion uses.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toWorld } from "./useMachineDrag";
+import { anchorWorld } from "../line/layout";
 
 const PORT_HIT_RADIUS = 14;
 const ERROR_MS = 2600;
-
-function anchorWorld(m, port) {
-  return { x: m.x + m.anchors[port].x, y: m.y + m.anchors[port].y };
-}
 
 // Every port on the line's machines, each with its world position, for
 // hit-testing where a connection drag was released.

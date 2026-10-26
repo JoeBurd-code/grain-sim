@@ -8,11 +8,12 @@
 // motion freezes on pause and scales with the speed multiplier.
 import { C, SELECT_STROKE } from "./theme";
 import { MachineLabel } from "./symbols";
+import { MirroredContext } from "./mirrored";
 import { symbolFor } from "./symbolMap";
 import { useFlowAnimation, FLOW_DASH_PATTERN } from "./useFlowAnimation";
 import { useMachineMotion } from "./useMachineMotion";
 import { connectionPoints } from "../line/routing";
-import { machineFootprint } from "../line/layout";
+import { anchorPoint, machineFootprint } from "../line/layout";
 import { connectionKey } from "../line/connecting";
 
 // Port dots (issue #88): shown only in Build mode (`onPortPointerDown` set).
@@ -23,7 +24,7 @@ import { connectionKey } from "../line/connecting";
 const PORT_RADIUS = 3;
 function PortDots({ machine: m, onPortPointerDown }) {
   const dot = (port, isOutput) => {
-    const a = m.anchors[port];
+    const a = anchorPoint(m, port);
     const waste = isOutput && port.toLowerCase().startsWith("waste");
     const color = waste ? STREAM_STYLE.waste.stroke : C.wheat;
     return (
@@ -239,7 +240,14 @@ export default function Scene({
                 fill="none" stroke={SELECT_STROKE} strokeWidth="1.5" strokeDasharray="6 4" opacity="0.9" rx="4"
               />
             )}
-            <Symbol machine={m} dynamic={resolveDynamic(m, simSnap)} motion={motion} simTime={simTime} />
+            {/* Issue #155: a flipped machine's symbol, moving parts and
+                all, is mirrored across its own centre; its name label is
+                outside the mirror and keeps its side. */}
+            <MirroredContext.Provider value={Boolean(m.flipped)}>
+              <g transform={m.flipped ? `translate(${m.w},0) scale(-1,1)` : undefined}>
+                <Symbol machine={m} dynamic={resolveDynamic(m, simSnap)} motion={motion} simTime={simTime} />
+              </g>
+            </MirroredContext.Provider>
             {m.type !== "stub" && <MachineLabel machine={m} />}
             {overlapIds?.includes(m.id) && <OverlapOutline machine={m} />}
             {highlightMachineIds?.has(m.id) && <HighlightOutline machine={m} />}

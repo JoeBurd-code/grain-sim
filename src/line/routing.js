@@ -3,7 +3,7 @@
 // end moves (layout.js drops them). A connection without them is routed
 // here with right-angle bends: it leaves its output port through the side
 // that port sits on, and arrives at its input port through that port's side.
-import { machineFootprint } from "./layout";
+import { anchorWorld, machineFootprint } from "./layout";
 
 // How far a route runs straight out of a port before its first bend.
 const LEAD = 20;
@@ -24,7 +24,7 @@ const INPUT_SIDES = ["top", "left", "right", "bottom"];
 // anchor. A Z-shaped duct's port is read against the run it is on, so the
 // elevator's inlet is on top of its floor run.
 export function portSide(m, port) {
-  const a = { x: m.x + m.anchors[port].x, y: m.y + m.anchors[port].y };
+  const a = anchorWorld(m, port);
   const sides = m.ports.outputs.includes(port) ? OUTPUT_SIDES : INPUT_SIDES;
   let best = { dist: Infinity, side: sides[0] };
   for (const r of machineFootprint(m)) {
@@ -45,9 +45,7 @@ export function portSide(m, port) {
 }
 
 function anchorOf(byId, end) {
-  const m = byId.get(end.machine);
-  const a = m.anchors[end.port];
-  return { x: m.x + a.x, y: m.y + a.y };
+  return anchorWorld(byId.get(end.machine), end.port);
 }
 
 const plus = (p, d, k) => ({ x: p.x + d.x * k, y: p.y + d.y * k });

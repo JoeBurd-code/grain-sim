@@ -7,7 +7,7 @@ import { goldenLine, goldenLineErrors, GOLDEN_LINE_NAME } from "../line/goldenLi
 import {
   exportLine, importLineFile, setAdjustableValue, addMachine, emptyLine,
   connectPorts, disconnectConnection, connectionKey, setMachineText,
-  moveMachines, deleteMachines, copyMachines, pasteMachines,
+  moveMachines, deleteMachines, copyMachines, pasteMachines, flipMachine,
 } from "../line/lineDocument";
 import { catalogueItem } from "../catalogue/catalogue";
 import { placeMachines, pastePointBeside } from "../line/groups";
@@ -324,6 +324,20 @@ export default function PlantApp() {
       recordEdit(line);
       setCurrent((c) => {
         const next = setMachineText(c.line, machineId, key, value);
+        return next.ok ? { ...c, line: next.line } : c;
+      });
+    }
+    return result;
+  }, [line, recordEdit]);
+
+  // Issue #155: a flip is one undo step, the same double-apply pattern as
+  // onEditField.
+  const onFlipMachine = useCallback((machineId) => {
+    const result = flipMachine(line, machineId);
+    if (result.ok) {
+      recordEdit(line);
+      setCurrent((c) => {
+        const next = flipMachine(c.line, machineId);
         return next.ok ? { ...c, line: next.line } : c;
       });
     }
@@ -1013,6 +1027,7 @@ export default function PlantApp() {
               onStartOver={onStartOver}
               onEditField={onEditField}
               onEditText={onEditText}
+              onFlipMachine={onFlipMachine}
               onDeleteMachine={onDeleteMachine}
               onDeleteGroup={onDeleteGroup}
               onDeleteConnection={() => onDisconnect(selectedConnectionKey)}

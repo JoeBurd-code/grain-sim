@@ -8,12 +8,13 @@
 // #95) { list, put: rule } for each interlock, machine rule or feed rate
 // link the user added or changed, stored whole, { list, remove: id } for
 // each one they deleted, and { dismissSuggestion: id } for each suggested
-// interlock they crossed out. Browser
+// interlock they crossed out, and (issue #155) { machine, flipped } for each
+// machine the user flipped. Browser
 // autosave stores this list for the golden line, never the whole line, so
 // every value the user did not change comes from the golden line in the
 // repo on the next load.
 import { adjustableFields, readAdjustableValue, setAdjustableValue, closeTo } from "./adjustableFields";
-import { moveMachine, overlappingMachine } from "./layout";
+import { moveMachine, overlappingMachine, setFlipped } from "./layout";
 import { deleteMachine, setMachineText } from "./editing";
 import { connectPorts, disconnectConnection } from "./connecting";
 import { REGISTERED_KINDS } from "../sim/behaviors";
@@ -54,6 +55,9 @@ export function diffFromBase(base, line) {
   }
   for (const m of kept) {
     const was = baseById.get(m.id);
+    // Issue #155: before the position, since a flip can move the machine
+    // aside and the stored position then puts it back where the user had it.
+    if (Boolean(m.flipped) !== Boolean(was.flipped)) changes.push({ machine: m.id, flipped: Boolean(m.flipped) });
     if (m.x !== was.x || m.y !== was.y) {
       changes.push({ machine: m.id, position: { x: m.x, y: m.y } });
     }
@@ -151,6 +155,7 @@ function isChange(c) {
   }
   if (c.disconnect !== undefined) return isEndpoint(c.disconnect.from);
   if (c.text !== undefined) return typeof c.machine === "string" && (c.text === "name" || c.text === "tag") && typeof c.value === "string";
+  if (c.flipped !== undefined) return typeof c.machine === "string" && typeof c.flipped === "boolean";
   return typeof c.machine === "string" && (typeof c.field === "string" || isObject(c.position));
 }
 
@@ -202,6 +207,7 @@ function applyChange(line, c) {
   if (c.connect !== undefined) return connectStored(line, c.connect);
   if (c.disconnect !== undefined) return disconnectConnection(line, c.disconnect.from);
   if (c.text !== undefined) return setMachineText(line, c.machine, c.text, c.value);
+  if (c.flipped !== undefined) return setFlipped(line, c.machine, c.flipped);
   return c.position ? moveMachine(line, c.machine, c.position) : setAdjustableValue(line, c.machine, c.field, c.value);
 }
 

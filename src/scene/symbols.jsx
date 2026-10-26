@@ -1,8 +1,11 @@
 // Machine silhouettes. Construction rules per mockups/machine-style-snippet.html:
 // flat fills, hairline strokes, fill level clipped inside the silhouette and
 // coloured by ratioColor, no gradients. Every symbol draws in local coords;
-// the Scene positions it at the machine's world (x, y).
-import { useLayoutEffect, useRef } from "react";
+// the Scene positions it at the machine's world (x, y), mirrored when the
+// machine is flipped (issue #155). Text in a symbol goes through SymbolText,
+// never a bare <text>, or it reads backwards on a flipped machine.
+import { useContext, useLayoutEffect, useRef } from "react";
+import { MirroredContext } from "./mirrored";
 import { C, FONT_DISP, FONT_MONO, mixColor, ratioColor } from "./theme";
 import { labelPlacement } from "./labelLayout";
 import { ductBodyPaths, chainSceneSpeed, computeElevatorBuckets, bucketFrame, bucketPoolSize, BUCKET_EMPTY_THRESHOLD } from "./elevatorMotion";
@@ -10,6 +13,19 @@ import { treaterBatch, vibratoryFlowing } from "./litState";
 import { treaterGeometry, drumRibs, drumProngs, drumFillY, treaterDrumDegPerSec, DRUM_RIB_COUNT, DRUM_PRONG_COUNT } from "./treaterDrum";
 import { drumSpinDegPerSec, drumGateFraction } from "./drumFeederMotion";
 import { diverterFlapperPoint, diverterSwingPoint } from "./diverterMotion";
+
+// Issue #155: Scene draws a flipped machine's symbol inside a mirror across
+// the machine's centre, so every moving part mirrors with it. Text inside
+// the symbol mirrors back about its own x: it sits where the mirror puts it
+// but still reads left to right, and a start-anchored caption grows away
+// from the machine the other way.
+const MIRRORED_ANCHOR = { start: "end", end: "start", middle: "middle" };
+
+function SymbolText({ x, textAnchor = "start", ...props }) {
+  const mirrored = useContext(MirroredContext);
+  if (!mirrored) return <text x={x} textAnchor={textAnchor} {...props} />;
+  return <text x={x} textAnchor={MIRRORED_ANCHOR[textAnchor]} transform={`translate(${2 * x},0) scale(-1,1)`} {...props} />;
+}
 
 // Halo width for the knockout stroke painted behind a label's glyphs. A
 // connection path that has to run past a label reads as passing *behind* it
@@ -69,8 +85,8 @@ export function InstrumentDot({ x, y, code, leaderFrom, value = "–", signal = 
         <circle key={pulseGen} className="instrument-pulse" cx={x} cy={y} r="9" fill="none" stroke={lit} strokeWidth="1.5" />
       )}
       <circle cx={x} cy={y} r="9" fill={lit ?? C.bg} stroke={lit ?? C.muted} />
-      <text x={x} y={y - 1} fontFamily={FONT_MONO} fontSize="6.5" fill={lit ? C.bg : C.muted} textAnchor="middle">{code}</text>
-      <text x={x} y={y + 6} fontFamily={FONT_MONO} fontSize="6" fill={lit ? C.bg : C.muted} textAnchor="middle">{value}</text>
+      <SymbolText x={x} y={y - 1} fontFamily={FONT_MONO} fontSize="6.5" fill={lit ? C.bg : C.muted} textAnchor="middle">{code}</SymbolText>
+      <SymbolText x={x} y={y + 6} fontFamily={FONT_MONO} fontSize="6" fill={lit ? C.bg : C.muted} textAnchor="middle">{value}</SymbolText>
     </g>
   );
 }
@@ -298,9 +314,9 @@ export function ElevatorSymbol({ machine: m, dynamic, motion }) {
       <rect x={w + 2} y="6" width="30" height="26" fill={C.panel2} stroke={C.line} />
       <path d={`M${w + 6},10 L${w + 28},28 M${w + 6},28 L${w + 28},10`} stroke={C.line} strokeWidth="1" />
       {/* live chain speed readout (issue #31), already folding in the manual VFD dial and any interlock throttle */}
-      <text x={w + 17} y="46" fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="middle">
+      <SymbolText x={w + 17} y="46" fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="middle">
         {dynamic?.chainSpeedMPerMin != null ? `${dynamic.chainSpeedMPerMin.toFixed(1)} m/min` : "– m/min"}
-      </text>
+      </SymbolText>
       {(m.instruments ?? []).includes("ST") && (
         <InstrumentDot
           x={w + 17} y={-22} code="ST" leaderFrom={{ x: w + 17, y: 4 }}
@@ -419,9 +435,9 @@ export function ConveyorSymbol({ machine: m, dynamic, motion }) {
         )}
         {/* live chain speed readout, centred over the ceiling run */}
         {dynamic?.chainSpeedMPerMin != null && (
-          <text x={(colX + duct + w) / 2} y={duct + 14} fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="middle">
+          <SymbolText x={(colX + duct + w) / 2} y={duct + 14} fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="middle">
             {dynamic.chainSpeedMPerMin.toFixed(1)} m/min
-          </text>
+          </SymbolText>
         )}
         <Instruments machine={m} x={w + 24} y={14} dynamic={dynamic} />
       </g>
@@ -450,9 +466,9 @@ export function ConveyorSymbol({ machine: m, dynamic, motion }) {
       <circle cx={w} cy={r} r={r + 2} fill={C.panel2} stroke={C.muted} strokeWidth="1" />
       {/* live chain speed readout, same treatment ElevatorSymbol's own gives */}
       {dynamic?.chainSpeedMPerMin != null && (
-        <text x={w / 2} y={h + 14} fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="middle">
+        <SymbolText x={w / 2} y={h + 14} fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="middle">
           {dynamic.chainSpeedMPerMin.toFixed(1)} m/min
-        </text>
+        </SymbolText>
       )}
       <Instruments machine={m} x={w + 24} y={14} dynamic={dynamic} />
     </g>
@@ -959,16 +975,21 @@ const STUB_LABEL_X = 14;
 export function StubSymbol({ machine: m, dynamic }) {
   const count = dynamic?.bagCount;
   const halo = { stroke: C.bg, strokeWidth: 3, strokeLinejoin: "round", paintOrder: "stroke" };
+  // The caption is the stub's name label, which keeps its side when the
+  // stub is flipped (issue #155): mirroring it again undoes Scene's mirror.
+  const mirrored = useContext(MirroredContext);
   return (
     <g>
-      {count != null && (
-        <text x={STUB_LABEL_X} y="-20" fontFamily={FONT_MONO} fontSize="8" fill={C.wheat} {...halo}>
-          {count} bags
+      <g transform={mirrored ? `translate(${m.w},0) scale(-1,1)` : undefined}>
+        {count != null && (
+          <text x={STUB_LABEL_X} y="-20" fontFamily={FONT_MONO} fontSize="8" fill={C.wheat} {...halo}>
+            {count} bags
+          </text>
+        )}
+        <text x={STUB_LABEL_X} y="-10" fontFamily={FONT_MONO} fontSize="8" fill={C.muted} {...halo}>
+          {m.name}
         </text>
-      )}
-      <text x={STUB_LABEL_X} y="-10" fontFamily={FONT_MONO} fontSize="8" fill={C.muted} {...halo}>
-        {m.name}
-      </text>
+      </g>
       <circle cx="4" cy="4" r="3.5" fill={C.muted} />
     </g>
   );
