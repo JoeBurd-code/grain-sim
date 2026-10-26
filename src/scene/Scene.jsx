@@ -143,20 +143,30 @@ function SelectionButtons({ machine: m, onFlip, onDelete }) {
 }
 
 // Issue #157: the selected machine's length handles (line/elevatorPath.js
-// elevatorHandles), small squares on the machine's own outline. Each shows
-// the way it drags with its cursor. A press starts a handle drag
-// (useHandleDrag.js), never a machine drag; its click never reselects.
-const HANDLE_SIZE = 9;
+// elevatorHandles), pills on the machine's own outline with a pair of
+// chevrons, < >, pointing the two ways each drags: across for a run, turned
+// upright for the column. A press starts a handle drag (useHandleDrag.js),
+// never a machine drag; its click never reselects.
+const HANDLE_W = 20;
+const HANDLE_H = 12;
 function LengthHandles({ machine: m, handles, onHandlePointerDown }) {
   return handles.map((h) => (
-    <rect
+    <g
       key={h.id}
-      x={h.x - HANDLE_SIZE / 2} y={h.y - HANDLE_SIZE / 2} width={HANDLE_SIZE} height={HANDLE_SIZE} rx="1.5"
-      fill={C.panel} stroke={SELECT_STROKE} strokeWidth="1.5"
+      transform={`translate(${h.x},${h.y})${h.axis === "y" ? " rotate(90)" : ""}`}
       style={{ cursor: h.axis === "x" ? "ew-resize" : "ns-resize" }}
       onPointerDown={(e) => onHandlePointerDown(e, m.id, h.id)}
       onClick={(e) => e.stopPropagation()}
-    />
+    >
+      <rect
+        x={-HANDLE_W / 2} y={-HANDLE_H / 2} width={HANDLE_W} height={HANDLE_H} rx={HANDLE_H / 2}
+        fill={C.panel} stroke={SELECT_STROKE} strokeWidth="1"
+      />
+      <path
+        d="M-3,-3.5 L-7,0 L-3,3.5 M3,-3.5 L7,0 L3,3.5"
+        fill="none" stroke={C.wheat} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+      />
+    </g>
   ));
 }
 
