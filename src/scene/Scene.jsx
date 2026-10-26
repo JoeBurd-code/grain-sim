@@ -87,6 +87,30 @@ function HighlightOutline({ machine: m }) {
   ));
 }
 
+// Issue #155: the flip button, centred just above the selected machine's
+// dashed outline. A flip-horizontal glyph: two triangles mirrored across a
+// dashed line. Its press never starts a machine drag or reselects.
+const FLIP_SIZE = 18;
+function FlipButton({ machine: m, onFlip }) {
+  const s = FLIP_SIZE;
+  const x = m.w / 2 - s / 2;
+  const y = -10 - 6 - s;
+  return (
+    <g
+      transform={`translate(${x},${y})`}
+      style={{ cursor: "pointer" }}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => { e.stopPropagation(); onFlip(m.id); }}
+    >
+      <title>Flip left to right</title>
+      <rect width={s} height={s} rx="3" fill={C.panel} stroke={SELECT_STROKE} strokeWidth="1" />
+      <path d={`M${s / 2 - 2},4 L3,${s - 4} H${s / 2 - 2} Z`} fill={C.wheat} />
+      <path d={`M${s / 2 + 2},4 L${s - 3},${s - 4} H${s / 2 + 2} Z`} fill="none" stroke={C.wheat} strokeWidth="1" />
+      <line x1={s / 2} y1="2" x2={s / 2} y2={s - 2} stroke={C.muted} strokeWidth="1" strokeDasharray="2 1.5" />
+    </g>
+  );
+}
+
 // Single point of resolution for a machine's dynamic (per-tick) values.
 // `simSnap` is the live sim's published snapshot (Map<machineId, {...}>,
 // shape varies per sim.kind's own `snapshot`, see behaviors.js); a machine
@@ -110,10 +134,12 @@ function resolveDynamic(machine, simSnap) {
 // `selectedConnectionKey`/`onSelectConnection` select a connection for
 // deletion (issue #88), also Build mode only.
 // `connectionDraft` is the in-progress drag's rubber-band line.
+// `onFlipMachine` (issue #155, Build mode only) shows the flip button over a
+// lone selected machine.
 export default function Scene({
   line, vb, handlers, wasDrag, selectedIds, onSelect, simSnap, running, speed, simTime,
   onMachinePointerDown, overlapIds, onPortPointerDown, selectedConnectionKey, onSelectConnection, connectionDraft,
-  highlightMachineIds, selectionBox, canvasCursor = "grab",
+  highlightMachineIds, selectionBox, canvasCursor = "grab", onFlipMachine,
 }) {
   const flowPathRef = useFlowAnimation(line, simSnap);
   const motion = useMachineMotion(running, speed);
@@ -252,6 +278,7 @@ export default function Scene({
             {overlapIds?.includes(m.id) && <OverlapOutline machine={m} />}
             {highlightMachineIds?.has(m.id) && <HighlightOutline machine={m} />}
             {onPortPointerDown && <PortDots machine={m} onPortPointerDown={onPortPointerDown} />}
+            {selected && onFlipMachine && selectedIds.length === 1 && <FlipButton machine={m} onFlip={onFlipMachine} />}
           </g>
         );
       })}
