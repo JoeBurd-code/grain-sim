@@ -292,6 +292,26 @@ describe("running a machine with several ports", () => {
     expect(() => assertConserved(sim)).not.toThrow();
   });
 
+  // Overfed at the infeed, the chain only found out at its head minutes
+  // later, and then shut the infeed until the whole chain had drained.
+  it("takes no more than its rated capacity from two inlets, so it never backs up with room downstream", () => {
+    const { line, id } = elevatorLine("in2");
+    const second = add(line, "grain-in", { x: 100, y: 0 });
+    const both = connect(second.line, { machine: second.id, port: "out" }, { machine: id, port: "in1" });
+    const sim = createSim(both);
+    const { ceilingM3PerSec } = byId(both, id).sim;
+    let maxBacklog = 0;
+    for (let i = 0; i < Math.round(300 / DT); i++) {
+      if (i === Math.round(150 / DT)) setSelection(sim, id, "out2");
+      stepSim(sim, DT);
+      maxBacklog = Math.max(maxBacklog, getMachineState(sim, id).backlog);
+    }
+    expect(maxBacklog).toBeLessThan(ceilingM3PerSec * DT * 2);
+    const fed = both.machines.filter((m) => m.sim.kind === "source").reduce((a, m) => a + getMachineState(sim, m.id).fed, 0);
+    expect(fed / 300).toBeCloseTo(ceilingM3PerSec, 3);
+    expect(() => assertConserved(sim)).not.toThrow();
+  });
+
   it("gives a machine with one outlet no selector", () => {
     const { line } = placed("custom-conveyor");
     expect(plantControlsFor(line).selectors).toEqual([]);
