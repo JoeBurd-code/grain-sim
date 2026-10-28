@@ -182,6 +182,26 @@ describe("carryBucketLoads", () => {
     expect(last).toBeLessThanOrEqual(0.8);
   });
 
+  // Issue #152: grain fed at an inlet partway along the run loads the
+  // buckets passing under that inlet, not only those at the boot.
+  it("loads buckets under each inlet it is given, not only at the boot", () => {
+    const inlet = 0.3;
+    const density = { densityProfile: Array.from({ length: BANDS }, (_, i) => (i / BANDS >= inlet ? 0.6 : 0)) };
+    const held = new Map();
+    const { totalLen } = elevatorChain(FIXTURE);
+    let buckets = [];
+    for (let phase = 0; phase < totalLen * 0.6; phase += 2) {
+      buckets = carryBucketLoads(computeElevatorBuckets(FIXTURE, density, phase), phase, held, {
+        bandCount: BANDS, loadingStartFracs: [0, inlet],
+      });
+    }
+    const past = buckets.filter((b) => b.pathFrac > inlet + loadingFrac && b.pathFrac < 0.55);
+    const before = buckets.filter((b) => b.pathFrac < inlet);
+    expect(past.length).toBeGreaterThan(0);
+    for (const b of past) expect(b.fillRatio).toBeGreaterThan(0.5);
+    for (const b of before) expect(b.fillRatio).toBe(0);
+  });
+
   it("carries a bucket's load unchanged once clear of the boot, instead of resampling the band under it", () => {
     const held = new Map();
     carryBucketLoads(computeElevatorBuckets(FIXTURE, withDensity(1), 0), 0, held, { bandCount: BANDS });

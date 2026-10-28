@@ -278,6 +278,24 @@ function LegacyBuckets({ m, dynamic }) {
   ));
 }
 
+// A discharge gap in the duct floor under each outlet (issue #152: a
+// machine can have several), at `y`. The one grain leaves by, the selected
+// outlet or the only one, pulses while actively discharging.
+function DischargeGaps({ machine: m, dynamic, y }) {
+  const live = dynamic?.selected ?? m.ports.outputs.at(-1);
+  return m.ports.outputs.map((port) => {
+    const a = m.anchors?.[port];
+    if (!a) return null;
+    const lit = port === live && dynamic?.backlogVol > 0;
+    return (
+      <rect
+        key={port} x={(a.x - 16).toFixed(1)} y={y} width="32" height="9"
+        fill={lit ? C.wheat : C.bg} opacity={lit ? 0.5 : 1}
+      />
+    );
+  });
+}
+
 // Simatek pendulum bucket elevator: lower horizontal run, climb, upper run.
 // Geometry from machine data: w, h, geom.colX (column left edge), geom.duct.
 // `dynamic.densityProfile` (issue #31, transportDelay's snapshot) gives each
@@ -295,7 +313,6 @@ function LegacyBuckets({ m, dynamic }) {
 export function ElevatorSymbol({ machine: m, dynamic, motion }) {
   const { w } = m;
   const { duct } = m.geom;
-  const gapX = w - 60;
   const bandCount = dynamic?.densityProfile?.length ?? 0;
   const { outline, centerline } = ductBodyPaths(m);
 
@@ -308,8 +325,7 @@ export function ElevatorSymbol({ machine: m, dynamic, motion }) {
       ) : (
         <LegacyBuckets m={m} dynamic={dynamic} />
       )}
-      {/* discharge gap in the duct floor; pulses while actively discharging */}
-      <rect x={gapX} y={duct - 4} width="32" height="9" fill={dynamic?.backlogVol > 0 ? C.wheat : C.bg} opacity={dynamic?.backlogVol > 0 ? 0.5 : 1} />
+      <DischargeGaps machine={m} dynamic={dynamic} y={duct - 4} />
       {/* head motor */}
       <rect x={w + 2} y="6" width="30" height="26" fill={C.panel2} stroke={C.line} />
       <path d={`M${w + 6},10 L${w + 28},28 M${w + 6},28 L${w + 28},10`} stroke={C.line} strokeWidth="1" />
@@ -393,9 +409,8 @@ export function DiverterSymbol({ machine: m, dynamic, motion }) {
 // `selected` port. `dynamic.densityProfile` already arrives pre-masked past
 // whichever outlet is currently selected (behaviors.js's own
 // snapshotRoutedTransportDelay masking), so the buckets themselves need no
-// awareness of the selection — only the discharge-gap indicator below reads
-// `dynamic.selected`, to draw itself at the right outlet's own anchor
-// position.
+// awareness of the selection — only the discharge gaps below read
+// `dynamic.selected`, to light the selected outlet's own gap.
 //
 // Issue #70: with a real `geom` block (lineData.js's own pendulumConveyor,
 // the only machine this symbol draws), the body follows the same Z-shaped
@@ -410,7 +425,6 @@ export function DiverterSymbol({ machine: m, dynamic, motion }) {
 export function ConveyorSymbol({ machine: m, dynamic, motion }) {
   const { w, h, geom } = m;
   const bandCount = dynamic?.densityProfile?.length ?? 0;
-  const dischargeAnchor = dynamic?.selected ? m.anchors?.[dynamic.selected] : null;
   const buckets = bandCount > 0 ? (
     <ElevatorBuckets m={m} dynamic={dynamic} motion={motion} />
   ) : (
@@ -425,14 +439,7 @@ export function ConveyorSymbol({ machine: m, dynamic, motion }) {
         <path className="body" d={outline} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
         <path d={centerline} fill="none" stroke={C.line} strokeWidth="1.5" strokeDasharray="3 5" />
         {buckets}
-        {/* discharge gap in the ceiling duct's floor, at the selected outlet's own anchor position; pulses while actively discharging */}
-        {dischargeAnchor && (
-          <rect
-            x={(dischargeAnchor.x - 16).toFixed(1)} y={duct - 4} width="32" height="9"
-            fill={dynamic?.backlogVol > 0 ? C.wheat : C.bg}
-            opacity={dynamic?.backlogVol > 0 ? 0.5 : 1}
-          />
-        )}
+        {dynamic?.selected && <DischargeGaps machine={m} dynamic={dynamic} y={duct - 4} />}
         {/* live chain speed readout, centred over the ceiling run */}
         {dynamic?.chainSpeedMPerMin != null && (
           <SymbolText x={(colX + duct + w) / 2} y={duct + 14} fontFamily={FONT_MONO} fontSize="8" fill={C.muted} textAnchor="middle">
@@ -454,14 +461,7 @@ export function ConveyorSymbol({ machine: m, dynamic, motion }) {
         <line key={x} x1={x} y1="2" x2={x} y2={h - 2} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
       ))}
       {buckets}
-      {/* discharge gap at the selected outlet's own anchor position; pulses while actively discharging */}
-      {dischargeAnchor && (
-        <rect
-          x={(dischargeAnchor.x - 16).toFixed(1)} y={h - 9} width="32" height="9"
-          fill={dynamic?.backlogVol > 0 ? C.wheat : C.bg}
-          opacity={dynamic?.backlogVol > 0 ? 0.5 : 1}
-        />
-      )}
+      {dynamic?.selected && <DischargeGaps machine={m} dynamic={dynamic} y={h - 9} />}
       <circle cx="0" cy={r} r={r + 2} fill={C.panel2} stroke={C.muted} strokeWidth="1" />
       <circle cx={w} cy={r} r={r + 2} fill={C.panel2} stroke={C.muted} strokeWidth="1" />
       {/* live chain speed readout, same treatment ElevatorSymbol's own gives */}

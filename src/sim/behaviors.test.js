@@ -524,7 +524,7 @@ describe("transportDelay (issue #21)", () => {
     const state = initState(); // 10s transit
     for (let i = 0; i < 100; i++) { // 5s of feed
       const cap = BEHAVIORS.transportDelay.capacityAvailable(state, 0.05);
-      BEHAVIORS.transportDelay.apply(state, 0.05, 1, cap);
+      BEHAVIORS.transportDelay.apply(state, 0.05, cap, cap); // a feeder sends what the chain can take
     }
     expect(state.queue.length).toBeGreaterThan(0);
 
