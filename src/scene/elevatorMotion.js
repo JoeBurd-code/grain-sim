@@ -229,39 +229,30 @@ const LOADING_ZONE_BANDS = 1;
 // still renders its real material rather than needing a full transit to
 // refill.
 //
-// `held` is the caller's own Map<generation, { load, cutoff }>, carried
+// `held` is the caller's own Map<generation, { load, frac }>, carried
 // across frames (ElevatorBuckets keeps it in a ref) and pruned here to the
 // buckets currently on the chain. Mutates each bucket's fillRatio in place
 // and returns the same array. A no-op without a live density profile: both
 // fallback paths (the binary leadingProgress sweep, the static decoration)
 // keep their position-sampled fill exactly as before.
 //
-// `loadingCutoffFrac` (issue #69) is where the material being fed *right
-// now* leaves the chain — the selected outlet's own fraction of the whole
-// run, from the routed machine's own snapshot. It is stamped onto a bucket
-// while that bucket is loading and never rewritten afterwards, exactly the
-// way routedTransportDelay (behaviors.js) stamps each packet's own port and
-// distance at accept time. That per-bucket stamp is the whole point: a
-// single live "wherever the selector points now" cutoff, applied to every
-// bucket at once, is what broke a mid-run destination switch — picking a
-// nearer outlet erased grain still legitimately riding to the previous,
-// farther one, and picking a farther outlet made already-loaded buckets pop
-// back into view further down the belt. Carrying the cutoff with the load
-// keeps each bucket honest about where *its own* grain is going, so a
-// switch only ever changes what the buckets loading from now on do. Left
-// undefined (plain transportDelay's own snapshot, which has a single
-// discharge at the head) means no cutoff at all.
+// `outletFrac` (issue #69) is where the selected outlet sits along the
+// drawn chain. A bucket tips its grain out as it reaches that point, so a
+// switch acts on every bucket that has not reached the new outlet yet, as
+// it does on the grain in the sim (behaviors.js routedTransportDelay). A
+// bucket already past a newly selected nearer outlet keeps its grain and
+// rides on to the end of the run, where the sim has it come round the
+// chain; a bucket that has tipped stays empty, so a farther outlet never
+// brings tipped grain back into view. Left undefined (plain
+// transportDelay's own snapshot, which has a single discharge at the head)
+// means no outlet along the chain at all.
 //
 // `loadingStartFracs` (issue #152) are where along the drawn chain grain is
 // fed: the boot, and each inlet partway along the run. A bucket passing
 // under a later inlet tops up to the live density there, which already
 // counts what it brought from earlier inlets, and never loses what it had.
-//
-// `jammed` (issue #152): the machine's grain is waiting on a full outlet.
-// The sim sends that grain on to whichever outlet is selected next, so every
-// bucket loaded while it waited is marked, and once the jam has cleared it
-// takes the live cutoff instead of the one it was stamped with.
-export function carryBucketLoads(buckets, phase, held, { bandCount, hasMaterial = true, spacing = BUCKET_SPACING, loadingCutoffFrac, loadingStartFracs = [0], jammed = false } = {}) {
+
+export function carryBucketLoads(buckets, phase, held, { bandCount, hasMaterial = true, spacing = BUCKET_SPACING, outletFrac, loadingStartFracs = [0] } = {}) {
   if (!(bandCount > 0)) return buckets;
   // Nothing left in transit at all (a cleared plant, or a chain that has
   // fully drained): drop every carried load rather than letting buckets
@@ -273,29 +264,28 @@ export function carryBucketLoads(buckets, phase, held, { bandCount, hasMaterial 
     const gen = bucketGeneration(b.pos, phase, spacing);
     live.add(gen);
     const zone = loadingStartFracs.find((f) => b.pathFrac >= f && b.pathFrac < f + loadingFrac);
+    const seen = held.get(gen);
+    let entry = seen;
     if (zone === 0) {
       // Still under the inlet: keep topping this bucket up to the boot's own
-      // live density, and (re-)stamp where this grain is bound for, so a
-      // switch made while it is loading applies to it.
-      held.set(gen, { load: b.fillRatio * (b.pathFrac / loadingFrac), cutoff: loadingCutoffFrac });
+      // live density.
+      entry = { ...seen, load: b.fillRatio * (b.pathFrac / loadingFrac) };
     } else if (zone !== undefined) {
       const ramped = b.fillRatio * ((b.pathFrac - zone) / loadingFrac);
-      held.set(gen, { load: Math.max(held.get(gen)?.load ?? 0, ramped), cutoff: loadingCutoffFrac });
-    } else if (!held.has(gen)) {
+      entry = { ...seen, load: Math.max(seen?.load ?? 0, ramped) };
+    } else if (!seen) {
       // First seen already up the chain (mount, or a resume with material
-      // mid-transit): seed from where it sits. The live cutoff is the only
-      // one available for it — a one-off on mount, not a per-switch path.
-      held.set(gen, { load: b.fillRatio, cutoff: loadingCutoffFrac });
+      // mid-transit): seed from where it sits.
+      entry = { load: b.fillRatio };
     }
-    const entry = held.get(gen);
-    if (jammed && entry.load > 0) entry.waited = true;
-    else if (!jammed && entry.waited) {
-      entry.cutoff = loadingCutoffFrac;
-      delete entry.waited;
+    // Reaching the selected outlet since the last frame, it tips its grain
+    // out and rides the rest of the run empty.
+    if (outletFrac != null && entry.frac !== undefined && entry.frac < outletFrac && b.pathFrac >= outletFrac) {
+      entry = { ...entry, load: 0 };
     }
-    // Past its own outlet, a bucket has already tipped its grain out: it
-    // rides the rest of the run empty rather than carrying it to the head.
-    b.fillRatio = entry.cutoff != null && b.pathFrac >= entry.cutoff ? 0 : entry.load;
+    entry.frac = b.pathFrac;
+    held.set(gen, entry);
+    b.fillRatio = entry.load;
   }
   for (const gen of held.keys()) if (!live.has(gen)) held.delete(gen);
   return buckets;
@@ -333,21 +323,20 @@ export function bucketPoolSize(m) {
 //
 // It exists because every regression on the pendulum conveyor's grain (#69
 // twice, #70) was in the glue between the pure helpers above, not in the
-// helpers themselves: which cutoff to pass, from which space. The outlet
-// cutoff is the selected outlet's *drawn* anchor (outletPathFraction), never
+// helpers themselves: which outlet to pass, from which space. The outlet
+// is the selected outlet's *drawn* anchor (outletPathFraction), never
 // the snapshot's `selectedSpanFraction`, which is a fraction of real transit
 // distance; the two agree only by coincidence (see outletPathFraction). A
 // plain transportDelay's snapshot carries no `selected`, so it gets no
-// cutoff and discharges at the head.
+// outlet and discharges at the head.
 //
 // `held` is the caller's Map, kept across frames (see carryBucketLoads).
 export function bucketFrame(m, dynamic, phase, held) {
   const buckets = carryBucketLoads(computeElevatorBuckets(m, dynamic, phase), phase, held, {
     bandCount: dynamic?.densityProfile?.length ?? 0,
     hasMaterial: dynamic?.inTransitVol > 0 || dynamic?.backlogVol > 0,
-    loadingCutoffFrac: dynamic?.selected ? outletPathFraction(m, dynamic.selected) : undefined,
+    outletFrac: dynamic?.selected ? outletPathFraction(m, dynamic.selected) : undefined,
     loadingStartFracs: inletPathFractions(m),
-    jammed: dynamic?.jammed === true,
   });
   const poolSize = bucketPoolSize(m);
   return buckets.map((b) => {

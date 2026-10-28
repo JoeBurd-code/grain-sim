@@ -202,19 +202,6 @@ describe("carryBucketLoads", () => {
     for (const b of before) expect(b.fillRatio).toBe(0);
   });
 
-  // Issue #152: grain jammed on a full outlet goes on to the outlet selected
-  // next, so the buckets holding it tip there instead.
-  it("sends buckets that waited through a jam to the outlet selected after it", () => {
-    const held = new Map();
-    const opts = { bandCount: BANDS, loadingCutoffFrac: 0.6 };
-    carryBucketLoads(computeElevatorBuckets(FIXTURE, withDensity(1), 0), 0, held, opts);
-    carryBucketLoads(computeElevatorBuckets(FIXTURE, withDensity(0), 0), 0, held, { ...opts, jammed: true });
-    const after = carryBucketLoads(computeElevatorBuckets(FIXTURE, withDensity(0), 0), 0, held, { ...opts, loadingCutoffFrac: 0.9 });
-    const between = after.filter((b) => b.pathFrac > 0.65 && b.pathFrac < 0.85);
-    expect(between.length).toBeGreaterThan(0);
-    for (const b of between) expect(b.fillRatio).toBe(1);
-  });
-
   it("carries a bucket's load unchanged once clear of the boot, instead of resampling the band under it", () => {
     const held = new Map();
     carryBucketLoads(computeElevatorBuckets(FIXTURE, withDensity(1), 0), 0, held, { bandCount: BANDS });
@@ -302,54 +289,80 @@ describe("carryBucketLoads", () => {
     expect(held.size).toBe(0);
   });
 
+  // Walks the chain from phase `from` to `to`, `outletFrac` given by
+  // `outletAt(phase)`, and returns the last frame's buckets.
+  function walk(held, from, to, outletAt) {
+    let buckets = [];
+    for (let phase = from; phase < to; phase += 2) {
+      buckets = carryBucketLoads(
+        computeElevatorBuckets(FIXTURE, withDensity(1), phase), phase, held,
+        { bandCount: BANDS, outletFrac: outletAt(phase) },
+      );
+    }
+    return buckets;
+  }
+
   // Issue #69: carrying exists to ignore live density past the loading zone,
   // so a bounded density profile alone can never stop an already-loaded
   // bucket — it would ride its grain all the way to the head no matter which
-  // outlet that grain was actually bound for. `loadingCutoffFrac` is what
-  // tips it out at its own outlet instead.
-  it("empties a bucket at the cutoff it was loaded under, rather than carrying to the head", () => {
-    const held = new Map();
-    const buckets = carryBucketLoads(
-      computeElevatorBuckets(FIXTURE, withDensity(1), 0), 0, held,
-      { bandCount: BANDS, loadingCutoffFrac: 0.5 },
-    );
-    for (const b of buckets) {
-      if (b.pathFrac < loadingFrac) continue; // still loading at the boot
-      expect(b.fillRatio).toBe(b.pathFrac >= 0.5 ? 0 : 1);
-    }
+  // outlet that grain was actually bound for. `outletFrac` is what tips it
+  // out at the outlet instead.
+  it("empties a bucket at the selected outlet, rather than carrying to the head", () => {
+    const { totalLen } = elevatorChain(FIXTURE);
+    const buckets = walk(new Map(), 0, totalLen, () => 0.5);
+    const past = buckets.filter((b) => b.pathFrac > 0.52);
+    const before = buckets.filter((b) => b.pathFrac >= loadingFrac && b.pathFrac < 0.48);
+    expect(past.length).toBeGreaterThan(0);
+    expect(before.length).toBeGreaterThan(0);
+    for (const b of past) expect(b.fillRatio).toBe(0);
+    for (const b of before) expect(b.fillRatio).toBeGreaterThan(0.9);
   });
 
-  it("carries to the head when no cutoff is given (plain transportDelay, unchanged)", () => {
+  it("carries to the head when no outlet is given (plain transportDelay, unchanged)", () => {
     const held = new Map();
     const buckets = carryBucketLoads(computeElevatorBuckets(FIXTURE, withDensity(1), 0), 0, held, { bandCount: BANDS });
-    for (const b of buckets) if (b.pathFrac >= loadingFrac) expect(b.fillRatio).toBe(1);
+    for (const b of buckets) if (b.pathFrac >= loadingFrac) expect(b.fillRatio).toBe(1)
   });
 
   // Issue #69, the mid-run destination switch both earlier attempts got
-  // wrong: the cutoff belongs to the bucket (stamped as it loaded), not to
-  // the chain. Selecting a *nearer* outlet must not retroactively erase
-  // grain already riding to the farther one it was loaded for.
-  it("keeps a bucket's own cutoff when the selection changes under it", () => {
-    const held = new Map();
+  // wrong: selecting a *nearer* outlet must not erase grain already past
+  // it. Those buckets ride on to the end of the run, as the sim's grain does.
+  it("keeps grain in buckets already past a newly selected nearer outlet", () => {
     const { totalLen } = elevatorChain(FIXTURE);
-    // Walk one generation of buckets up the chain loaded under "far" (1).
-    for (let phase = 0; phase < totalLen / 2; phase += 2) {
-      carryBucketLoads(
-        computeElevatorBuckets(FIXTURE, withDensity(1), phase), phase, held,
-        { bandCount: BANDS, loadingCutoffFrac: 1 },
-      );
-    }
-    // Now the presenter picks a much nearer outlet. Everything already on
-    // the chain was loaded for the far one and must still read as loaded.
-    const phase = totalLen / 2;
-    const buckets = carryBucketLoads(
-      computeElevatorBuckets(FIXTURE, withDensity(1), phase), phase, held,
-      { bandCount: BANDS, loadingCutoffFrac: 0.1 },
-    );
-    const pastNewCutoff = buckets.filter((b) => b.pathFrac > 0.1 && b.pathFrac < 0.95);
-    expect(pastNewCutoff.length).toBeGreaterThan(0);
-    expect(pastNewCutoff.every((b) => b.fillRatio > 0)).toBe(true); // not erased by the switch
+    const held = new Map();
+    walk(held, 0, totalLen / 2, () => 1);
+    const buckets = walk(held, totalLen / 2, totalLen / 2 + 1, () => 0.1);
+    const pastNewOutlet = buckets.filter((b) => b.pathFrac > 0.15 && b.pathFrac < 0.45);
+    expect(pastNewOutlet.length).toBeGreaterThan(0);
+    expect(pastNewOutlet.every((b) => b.fillRatio > 0)).toBe(true); // not erased by the switch
   });
+
+  // A switch acts on grain already on the run: a bucket that has not yet
+  // reached the old outlet tips at the new one instead, nearer or farther.
+  it("tips a bucket at whichever outlet is selected when it gets there", () => {
+    const { totalLen } = elevatorChain(FIXTURE);
+    const switchAt = totalLen * 0.4;
+    const farther = walk(new Map(), 0, totalLen, (phase) => (phase < switchAt ? 0.5 : 0.8));
+    const between = farther.filter((b) => b.pathFrac > 0.55 && b.pathFrac < 0.75);
+    expect(between.length).toBeGreaterThan(0);
+    for (const b of between) expect(b.fillRatio).toBeGreaterThan(0.9); // went past 0.5 after the switch
+    for (const b of farther.filter((x) => x.pathFrac > 0.82)) expect(b.fillRatio).toBe(0);
+
+    const nearer = walk(new Map(), 0, totalLen, (phase) => (phase < switchAt ? 0.8 : 0.3));
+    for (const b of nearer.filter((x) => x.pathFrac > 0.32 && x.pathFrac < 0.78)) expect(b.fillRatio).toBe(0);
+  });
+
+  // A tipped bucket stays empty, so picking a farther outlet never brings
+  // grain that already left back into view.
+  it("never refills a bucket that has tipped when a farther outlet is selected", () => {
+    const { totalLen } = elevatorChain(FIXTURE);
+    const held = new Map();
+    walk(held, 0, totalLen, () => 0.3);
+    const buckets = walk(held, totalLen, totalLen + 1, () => 0.9);
+    const tipped = buckets.filter((b) => b.pathFrac > 0.32 && b.pathFrac < 0.88);
+    expect(tipped.length).toBeGreaterThan(0);
+    for (const b of tipped) expect(b.fillRatio).toBe(0);
+  })
 });
 
 // bucketFrame is what ElevatorBuckets (symbols.jsx) draws every frame, so
@@ -377,7 +390,11 @@ describe("bucketFrame", () => {
 
   it("stops grain at the selected outlet's drawn position, not the far end", () => {
     const cutoff = outletPathFraction(conveyor, "outBuffer");
-    const frame = bucketFrame(conveyor, full({ selected: "outBuffer" }), 0, new Map());
+    // Buckets tip as they reach the outlet, so walk the chain a full run.
+    const held = new Map();
+    const { totalLen } = elevatorChain(conveyor);
+    let frame = [];
+    for (let phase = 0; phase <= totalLen; phase += 3) frame = bucketFrame(conveyor, full({ selected: "outBuffer" }), phase, held);
     const loaded = frame.filter((b) => b.grain);
     expect(loaded.length).toBeGreaterThan(0);
     expect(Math.max(...loaded.map((b) => b.pathFrac))).toBeLessThan(cutoff);
