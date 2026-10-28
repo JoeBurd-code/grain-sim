@@ -21,7 +21,7 @@ export const MIN_TOTAL_M = MIN_COLUMN_M + 2 * MIN_RUN_M;
 // A run is measured from the column's face to its port, so a run of at
 // least MIN_RUN_M keeps the port off the column. The duct runs on past
 // each port by these fixed insets, the E200's own.
-const INLET_INSET = 25;
+export const INLET_INSET = 25;
 const OUTLET_INSET = 44;
 
 // Each run's share of the total when a shape is made from a total alone
@@ -80,16 +80,42 @@ export function shapeElevator(m, segments) {
   const colX = INLET_INSET + segments.floor * PX_PER_M;
   const h = segments.column * PX_PER_M;
   const outX = colX + duct + segments.head * PX_PER_M;
-  const [inPort] = m.ports.inputs;
-  const [outPort] = m.ports.outputs;
   m.geom = { ...m.geom, colX, segmentsM: { ...segments } };
   m.w = outX + OUTLET_INSET;
   m.h = h;
-  m.anchors = { ...m.anchors, [inPort]: { x: INLET_INSET, y: h - duct }, [outPort]: { x: outX, y: m.anchors[outPort].y } };
   m.sim.distanceM = sum(segments);
+  placeElevatorPorts(m);
   const now = bootOffset(m);
   m.x = boot.x - now.x;
   m.y = boot.y - now.y;
+}
+
+// Issue #152: the ports on `m`'s runs, in its unflipped shape. The inlets
+// are spaced evenly along the floor run and the outlets along the head run,
+// the last of each at its run's end, where an elevator's single port is.
+// With more than one port on either side, each port's distance along the
+// path, from the floor run's end, is its `sim.portDistanceM`, so grain
+// from a nearer inlet, or to a nearer outlet, has less path to travel.
+// Changes `m` in place.
+export function placeElevatorPorts(m) {
+  const { colX, duct, segmentsM: s } = m.geom;
+  const { inputs, outputs } = m.ports;
+  const outY = outputs.map((p) => m.anchors[p]?.y).find(Number.isFinite) ?? duct + 8;
+  const anchors = {};
+  const distances = {};
+  inputs.forEach((p, i) => {
+    const along = (s.floor * (inputs.length - 1 - i)) / inputs.length;
+    anchors[p] = { x: INLET_INSET + along * PX_PER_M, y: m.h - duct };
+    distances[p] = along;
+  });
+  outputs.forEach((p, i) => {
+    const along = (s.head * (i + 1)) / outputs.length;
+    anchors[p] = { x: colX + duct + along * PX_PER_M, y: outY };
+    distances[p] = s.floor + s.column + along;
+  });
+  m.anchors = anchors;
+  if (inputs.length > 1 || outputs.length > 1) m.sim.portDistanceM = distances;
+  else delete m.sim.portDistanceM;
 }
 
 // Why the path cannot be `total` metres long with `m`'s runs, or null.

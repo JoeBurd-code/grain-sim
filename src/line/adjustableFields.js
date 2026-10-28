@@ -7,9 +7,10 @@
 //   { setpoint: "LSH", default: 85 }
 //     the set point of a level switch. Label and limits come from the
 //     machine's set point slider for that switch (setpointSliders.js).
-//   { id, label, unit, kind: "number", min, max, default, bind }
+//   { id, label, unit, kind: "number", min, max, default, bind, integer? }
 //   { id, label, unit, kind: "option", options: [...], default, bind }
-//     a behaviour setting, such as a bin's capacity.
+//     a behaviour setting, such as a bin's capacity. `integer` takes whole
+//     numbers only, with steppers in the Build panel (a port count).
 //
 // `bind` names a row in BINDS below, the one place that knows where a field's
 // value lives in the line and how its plant unit (t/h, m³, %, s, kg) converts
@@ -20,6 +21,7 @@ import { lineRules, interlockSensorMachine, interlockValue, putInterlockValue, S
 import { switchSlider, SWITCH_BINDS } from "./setpointSliders";
 import { applyGeometryEdit, rerouteConnections } from "./layout";
 import { pathLengthError, setPathLength } from "./elevatorPath";
+import { COUNT_SIDES, hasPortCounts, placePorts, portCountError, setPortCount } from "./portCounts";
 
 // Plant unit <-> line (engine) unit.
 const SAME = { toLine: (v) => v, fromLine: (v) => v };
@@ -125,6 +127,8 @@ const lengthField = {
       const anchor = m.anchors[key];
       if (anchor.x > oldW / 2) anchor.x += delta;
     }
+    // Issue #152: ports placed from their counts are placed again instead.
+    if (hasPortCounts(m)) placePorts(m);
     line.connections = rerouteConnections(line.connections, m.id);
   },
 };
@@ -169,7 +173,22 @@ const BINDS = {
       line.connections = rerouteConnections(line.connections, m.id);
     },
   },
+  // Issue #152: a Custom conveyor's or bucket elevator's number of inlets
+  // and outlets (portCounts.js).
+  inputCount: portCountBind("inputs"),
+  outputCount: portCountBind("outputs"),
 };
+
+function portCountBind(side) {
+  return {
+    unit: "", convert: SAME,
+    get: (line, m) => m.ports?.[side]?.length,
+    put: (line, m, value) => {
+      setPortCount(line, m, side, value);
+      line.connections = rerouteConnections(line.connections, m.id);
+    },
+  };
+}
 
 // The machine's fields in one shape, whichever way each was declared.
 export function adjustableFields(machine) {
@@ -229,6 +248,7 @@ function valueError(field, value) {
     return field.options.includes(value) ? null : `${field.label} must be one of: ${field.options.join(", ")}.`;
   }
   if (typeof value !== "number" || !Number.isFinite(value)) return `${field.label} must be a number.`;
+  if (field.integer && !Number.isInteger(value)) return `${field.label} must be a whole number.`;
   if (value < field.min || value > field.max) {
     return `${field.label} must be between ${field.min} and ${field.max} ${field.unit}.`.replace(/ \.$/, ".");
   }
@@ -266,6 +286,10 @@ export function setAdjustableValue(line, machineId, fieldId, value) {
   if (field.bind === "pathLength") {
     const pathError = pathLengthError(original, value);
     if (pathError) return refuse(pathError);
+  }
+  if (COUNT_SIDES[field.bind]) {
+    const countError = portCountError(line, original, COUNT_SIDES[field.bind], value);
+    if (countError) return refuse(countError);
   }
 
   const bind = BINDS[field.bind];

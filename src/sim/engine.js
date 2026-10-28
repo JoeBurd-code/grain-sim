@@ -35,17 +35,26 @@ export const DT = 0.05; // s, fixed sim timestep (matches the proven mock)
 // their own `sim` comments). Only a kind that opts into `multiOutput` (see
 // behaviors.js — splitter is the first) has more than one port wired here,
 // which is what makes a genuine fan-out meaningful in the passes below.
+//
+// Issue #152: alongside it, `inlets` maps the same id -> (port -> the input
+// port it lands on), so a machine with more than one inlet can tell which
+// one its grain came in by.
 function buildDownstreamMap(line, simEnabledIds, machinesById) {
   const downstream = new Map();
+  const inlets = new Map();
   for (const c of line.connections) {
     if (!simEnabledIds.has(c.from.machine) || !simEnabledIds.has(c.to.machine)) continue;
     const fromKind = machinesById.get(c.from.machine).sim.kind;
     const multi = BEHAVIORS[fromKind].multiOutput === true;
     if (multi ? c.kind !== "product" && c.kind !== "waste" : c.kind !== "product") continue;
-    if (!downstream.has(c.from.machine)) downstream.set(c.from.machine, new Map());
+    if (!downstream.has(c.from.machine)) {
+      downstream.set(c.from.machine, new Map());
+      inlets.set(c.from.machine, new Map());
+    }
     downstream.get(c.from.machine).set(c.from.port, c.to.machine);
+    inlets.get(c.from.machine).set(c.from.port, c.to.port);
   }
-  return downstream;
+  return { downstream, inlets };
 }
 
 // Kahn's algorithm over the sim-enabled subgraph. Throws on a cycle, which
@@ -88,7 +97,7 @@ export function createSim(line) {
     machines.set(m.id, BEHAVIORS[m.sim.kind].init(m));
   }
   const simEnabledIds = new Set(machines.keys());
-  const downstream = buildDownstreamMap(line, simEnabledIds, machinesById);
+  const { downstream, inlets } = buildDownstreamMap(line, simEnabledIds, machinesById);
   const order = topoOrder(simEnabledIds, downstream);
   // A rule that names a deleted machine is off and does not run (issue #87),
   // and neither does a sentence still being filled in (issue #92): both are
@@ -136,7 +145,7 @@ export function createSim(line) {
     if (BEHAVIORS[m.sim.kind].multiOutput) multiOutputPorts.set(id, m.ports.outputs);
   }
   return {
-    t: 0, line, machines, downstream, multiOutputPorts, order, control, controlledStop, utilitiesTrip,
+    t: 0, line, machines, downstream, inlets, multiOutputPorts, order, control, controlledStop, utilitiesTrip,
     feedRateDerivations,
     // Issue #81: the line's plant control selectors (line/plantControls.js),
     // which setSelection and getSelection below act on.
@@ -183,9 +192,10 @@ function outputShape(sim, id) {
   const ports = sim.multiOutputPorts.get(id);
   if (!ports) {
     const portMap = sim.downstream.get(id);
-    return { single: portMap ? [...portMap.values()][0] : undefined };
+    const [port] = portMap ? portMap.keys() : [];
+    return { single: portMap ? portMap.get(port) : undefined, singleInlet: sim.inlets.get(id)?.get(port) };
   }
-  return { ports, portMap: sim.downstream.get(id) };
+  return { ports, portMap: sim.downstream.get(id), inletMap: sim.inlets.get(id) };
 }
 
 export function stepSim(sim, dt) {
@@ -231,11 +241,21 @@ export function stepSim(sim, dt) {
   // notion of "rate". Assigned unconditionally every tick (never left stale
   // from a prior tick) so a starved/blocked/downstream-full machine that
   // moved nothing this tick reads as a real 0, not undefined or leftover.
+  // Issue #152: each machine's inflow is also kept by the input port it
+  // lands on, for a behaviour that times grain by its inlet (a routed
+  // transport delay with more than one), passed to `apply` after the rest.
   const inflowOf = new Map();
-  const addInflow = (id, amt) => inflowOf.set(id, (inflowOf.get(id) ?? 0) + amt);
+  const inflowByPortOf = new Map();
+  const addInflow = (id, amt, port) => {
+    inflowOf.set(id, (inflowOf.get(id) ?? 0) + amt);
+    if (!inflowByPortOf.has(id)) inflowByPortOf.set(id, {});
+    const byPort = inflowByPortOf.get(id);
+    byPort[port] = (byPort[port] ?? 0) + amt;
+  };
   for (const id of order) {
     const state = machines.get(id);
     const inflow = inflowOf.get(id) ?? 0;
+    const inflowByPort = inflowByPortOf.get(id) ?? {};
     const shape = outputShape(sim, id);
 
     if (shape.ports) {
@@ -244,12 +264,12 @@ export function stepSim(sim, dt) {
         const toId = shape.portMap?.get(p);
         return [p, toId != null ? capAvail.get(toId) : 0];
       }));
-      const outflow = BEHAVIORS[state.kind].apply(state, dt, inflow, capAvail.get(id), downstreamCap, hasDownstream);
+      const outflow = BEHAVIORS[state.kind].apply(state, dt, inflow, capAvail.get(id), downstreamCap, hasDownstream, inflowByPort);
       let totalOut = 0;
       for (const p of shape.ports) {
         const toId = shape.portMap?.get(p);
         totalOut += outflow[p] ?? 0;
-        if (toId != null) addInflow(toId, outflow[p] ?? 0);
+        if (toId != null) addInflow(toId, outflow[p] ?? 0, shape.inletMap.get(p));
       }
       state.flowRateM3PerSec = totalOut / dt;
       // Chart despike follow-up: a running total of every m3 this machine has
@@ -270,8 +290,8 @@ export function stepSim(sim, dt) {
     } else {
       const hasDownstream = shape.single != null;
       const downstreamCap = hasDownstream ? capAvail.get(shape.single) : 0;
-      const outflow = BEHAVIORS[state.kind].apply(state, dt, inflow, capAvail.get(id), downstreamCap, hasDownstream);
-      if (shape.single != null) addInflow(shape.single, outflow);
+      const outflow = BEHAVIORS[state.kind].apply(state, dt, inflow, capAvail.get(id), downstreamCap, hasDownstream, inflowByPort);
+      if (shape.single != null) addInflow(shape.single, outflow, shape.singleInlet);
       state.flowRateM3PerSec = outflow / dt;
       state.cumulativeOutM3 = (state.cumulativeOutM3 ?? 0) + outflow;
     }

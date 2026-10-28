@@ -78,6 +78,25 @@ function optionLabel(option) {
   return String(option).toUpperCase();
 }
 
+function withUnit(value, unit) {
+  return unit ? `${formatValue(value)} ${unit}` : formatValue(value);
+}
+
+// Issue #152: a whole-number field (a port count) also steps by one.
+function Stepper({ label, disabled, onClick, children }) {
+  return (
+    <button
+      className="zonebtn"
+      aria-label={label}
+      disabled={disabled}
+      style={{ ...btnStyle, padding: "2px 8px", fontSize: 12, opacity: disabled ? 0.4 : 1, cursor: disabled ? "default" : "pointer" }}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
 // An empty box is not 0: it is refused like any other entry that is not a number.
 function parseNumber(text) {
   return text.trim() === "" ? NaN : Number(text);
@@ -129,6 +148,11 @@ function FieldRow({ field, value, changed, onEdit }) {
         </div>
       ) : (
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 5 }}>
+          {field.integer && (
+            <Stepper label={`fewer ${field.label}`} disabled={value <= field.min} onClick={() => commit(value - 1)}>
+              &minus;
+            </Stepper>
+          )}
           <input
             type="text"
             inputMode="decimal"
@@ -142,12 +166,17 @@ function FieldRow({ field, value, changed, onEdit }) {
               if (e.key === "Escape") showValue();
             }}
           />
+          {field.integer && (
+            <Stepper label={`more ${field.label}`} disabled={value >= field.max} onClick={() => commit(value + 1)}>
+              +
+            </Stepper>
+          )}
           <span style={{ fontSize: 10, color: C.muted }}>{field.unit}</span>
         </div>
       )}
       <div style={{ fontSize: 9, color: C.muted, marginTop: 3 }}>
         {field.kind === "number"
-          ? `${formatValue(field.min)} to ${formatValue(field.max)} ${field.unit} · default ${formatValue(field.default)} ${field.unit}`
+          ? `${withUnit(field.min, field.unit)} to ${withUnit(field.max, field.unit)} · default ${withUnit(field.default, field.unit)}`
           : `default ${optionLabel(field.default)}`}
       </div>
       {error && <div style={{ fontSize: 9, color: C.red, marginTop: 3 }}>{error}</div>}

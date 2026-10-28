@@ -15,6 +15,7 @@
 // Custom items (issue #94) are made here from the files, and some real items
 // are not listed in the panel; see CUSTOM_ITEMS below.
 import { MIN_TOTAL_M } from "../line/elevatorPath";
+import { PORT_COUNT_MAX } from "../line/portCounts";
 
 const files = import.meta.glob("./items/*.json", { eager: true, import: "default" });
 
@@ -63,6 +64,14 @@ function widened(entry, limits) {
   };
 }
 
+// Issue #152: a custom conveyor or bucket elevator takes as many inlets and
+// outlets as the user sets (portCounts.js). With more than one outlet it is
+// a Diverter, the pendulum conveyor's routed transport delay, so it is that
+// kind from the start: with one outlet the two run the same.
+const portCountField = (id, label, bind) => ({
+  id, label, unit: "", kind: "number", integer: true, min: 1, max: PORT_COUNT_MAX, default: 1, bind,
+});
+
 function customVersion(item, id, name) {
   const machine = structuredClone(item.machine);
   if (machine.params) machine.params = machine.params.map((p) => widened(p, CUSTOM_LIMITS[p.unit]));
@@ -71,13 +80,22 @@ function customVersion(item, id, name) {
       a.kind === "number" ? widened(a, CUSTOM_RESIZE_LIMITS[a.bind] ?? CUSTOM_LIMITS[a.unit]) : a
     ));
   }
+  if (machine.sim?.kind === "transportDelay") {
+    machine.sim.kind = "routedTransportDelay";
+    machine.adjustable = [
+      ...(machine.adjustable ?? []),
+      portCountField("inputs", "inputs", "inputCount"),
+      portCountField("outputs", "outputs", "outputCount"),
+    ];
+  }
   return { ...item, id, name, maker: "", model: "", customFrom: item.id, machine };
 }
 
 // One custom item for each kind of machine: [the real item it is made from,
 // its name]. The edges (Grain in, Grain out, the pro-box station) have
 // none. Nor does the pendulum conveyor: its three routed outlets make
-// it one plant's machine, and Conveyor covers a plain run.
+// it one plant's machine, and Conveyor, with as many outlets as the user
+// sets (issue #152), covers any other run.
 const CUSTOM_ITEMS = [
   ["treater-pre-bin", "Bin"],
   ["metal-bin", "Metal bin"],

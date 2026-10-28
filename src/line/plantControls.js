@@ -61,7 +61,8 @@ export function plantControlsFor(line) {
     declared.flatMap((s) => s.options.flatMap((o) => o.commands.filter((c) => c.port !== undefined).map((c) => c.machine)))
   );
   const plain = line.machines
-    .filter((m) => isDiverter(m) && !wrapped.has(m.id))
+    // A Custom conveyor with one outlet has nothing to choose between (issue #152).
+    .filter((m) => isDiverter(m) && m.ports.outputs.length > 1 && !wrapped.has(m.id))
     .map((m) => plainSelector(line, m));
   const emptyButtons = line.plantControls?.emptyButtons
     ?? line.machines
