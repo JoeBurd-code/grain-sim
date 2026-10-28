@@ -160,6 +160,47 @@ export function elevatorHandles(m) {
   });
 }
 
+// Issue #159: a length on the canvas, to one decimal (a drag's step) or to
+// as many as it has (a finer drag, or a path length typed in the panel),
+// free of float noise, so it reads as the panel and the saved segments do.
+export function metresLabel(v) {
+  const text = String(metres(v));
+  return `${text.includes(".") ? text : `${text}.0`} m`;
+}
+
+// Issue #159: the lengths a lone selected bucket elevator shows on the
+// canvas in Build mode, in the machine's local space: each segment's beside
+// its own run (the floor run's under its duct, clear of the inlet dots on
+// its top edge, the column's halfway up its
+// head-run side, the head run's above its duct) and the total beside the
+// column's top, away from the head run. On a flipped elevator they sit on
+// the mirrored sides, anchored so the text reads normally. While handle
+// `handleId` is dragged the two segments it trades between are
+// highlighted. None on any other machine.
+const LABEL_GAP = 5;
+// Half an 8 px label's cap height: a baseline this far below a point
+// centres the text on it.
+const HALF_CAP = 3;
+export function segmentLabels(m, { handleId } = {}) {
+  if (!isShaped(m)) return [];
+  const { colX, duct, segmentsM: s } = m.geom;
+  const headStart = colX + duct;
+  const handle = HANDLES.find((h) => h.id === handleId);
+  const traded = handle ? [handle.grows, handle.takesFrom] : [];
+  const labels = [
+    { id: "floor", text: metresLabel(s.floor), x: (INLET_INSET + colX) / 2, y: m.h + LABEL_GAP + 2 * HALF_CAP, anchor: "middle" },
+    { id: "column", text: metresLabel(s.column), x: headStart + LABEL_GAP, y: m.h / 2 + HALF_CAP, anchor: "start" },
+    { id: "head", text: metresLabel(s.head), x: headStart + (s.head * PX_PER_M) / 2, y: -LABEL_GAP, anchor: "middle" },
+    { id: "total", text: `${metresLabel(m.sim.distanceM)} total`, x: colX - LABEL_GAP, y: duct / 2 + HALF_CAP, anchor: "end" },
+  ];
+  const mirror = { start: "end", end: "start", middle: "middle" };
+  return labels.map((l) => ({
+    ...l,
+    ...(m.flipped && { x: m.w - l.x, anchor: mirror[l.anchor] }),
+    highlighted: traded.includes(l.id),
+  }));
+}
+
 // The segments after handle `handleId` was dragged `deltaPx` ({ x, y }, in
 // world space) from where the drag began.
 export function segmentsAfterDrag(m, handleId, deltaPx, { fine = false } = {}) {
