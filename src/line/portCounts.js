@@ -76,19 +76,20 @@ export function placePorts(m) {
 const nameOf = (line, id) => line.machines.find((m) => m.id === id)?.name ?? id;
 
 // Why `m` cannot have `n` ports on `side`, or null: a port it would lose
-// still has a connection.
+// still has a connection. Every such connection is named (issue #153), so
+// the user can clear them all before trying again.
 export function portCountError(line, m, side, n) {
   if (!Number.isInteger(n)) return `${m.name} needs a whole number of ${side}.`;
   const { removed } = renaming(m.ports[side], slotNames(side, n));
   const end = side === "inputs" ? "to" : "from";
-  for (const c of line.connections) {
-    if (c[end].machine !== m.id || !removed.includes(c[end].port)) continue;
-    const link = side === "inputs"
+  const links = line.connections
+    .filter((c) => c[end].machine === m.id && removed.includes(c[end].port))
+    .map((c) => (side === "inputs"
       ? `the connection from ${nameOf(line, c.from.machine)} to ${m.name}'s ${c.to.port}`
-      : `the connection from ${m.name}'s ${c.from.port} to ${nameOf(line, c.to.machine)}`;
-    return `${m.name} cannot drop to ${n} ${side}: delete ${link} first.`;
-  }
-  return null;
+      : `the connection from ${m.name}'s ${c.from.port} to ${nameOf(line, c.to.machine)}`));
+  if (links.length === 0) return null;
+  const count = n === 1 ? side.slice(0, -1) : side;
+  return `${m.name} cannot drop to ${n} ${count}: delete ${links.join(" and ")} first.`;
 }
 
 // `m` (in `line`, both changed in place) with `n` ports on `side`, its

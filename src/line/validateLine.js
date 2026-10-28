@@ -98,8 +98,12 @@ export function validateLine(line) {
     }
   }
 
+  // Every connection runs between ports its two machines declare. Issue
+  // #153: each error names the whole connection, since a machine whose
+  // port count shrank (portCounts.js) can leave one pointing at nothing.
   const byId = new Map(line.machines.map((m) => [m.id, m]));
   for (const c of line.connections) {
+    const where = `connection from "${c.from.machine}" port "${c.from.port}" to "${c.to.machine}" port "${c.to.port}"`;
     const ends = [
       { end: c.from, side: "outputs" },
       { end: c.to, side: "inputs" },
@@ -107,9 +111,9 @@ export function validateLine(line) {
     for (const { end, side } of ends) {
       const m = byId.get(end.machine);
       if (!m) {
-        errors.push(`connection references unknown machine "${end.machine}"`);
+        errors.push(`${where} references unknown machine "${end.machine}"`);
       } else if (!m.ports[side].includes(end.port)) {
-        errors.push(`machine "${end.machine}" has no ${side.slice(0, -1)} port "${end.port}"`);
+        errors.push(`${where}: machine "${end.machine}" has no ${side.slice(0, -1)} port "${end.port}"`);
       }
     }
   }

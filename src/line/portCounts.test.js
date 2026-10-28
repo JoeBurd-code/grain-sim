@@ -104,6 +104,25 @@ describe("changing a count", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("GRAIN IN 1");
     expect(result.error).toContain("in1");
+    expect(result.line).toBeUndefined();
+    expect(byId(line, id).ports.inputs).toEqual(["in1", "in2", "in3"]);
+    expect(line.connections).toHaveLength(1);
+  });
+
+  // Issue #153: the same for outlets, with every connection in the way
+  // named in one message, however far the count drops.
+  it("refuses to remove outlets that have connections, naming each one", () => {
+    let { line, id } = placed("custom-conveyor");
+    line = set(line, id, "outputs", 4);
+    for (const [i, port] of ["out1", "out2"].entries()) {
+      const sink = add(line, "grain-out", { x: 200 * i, y: 800 });
+      line = connect(sink.line, { machine: id, port }, { machine: sink.id, port: "in" });
+    }
+    const result = setAdjustableValue(line, id, "outputs", 1);
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/cannot drop to 1 output:/);
+    expect(result.error).toContain("out1 to GRAIN OUT 1");
+    expect(result.error).toContain("out2 to GRAIN OUT 2");
   });
 
   it("lets the user connect to and from every generated port", () => {
@@ -120,6 +139,24 @@ describe("changing a count", () => {
     }
     expect(line.connections).toHaveLength(5);
     expect(validateLine(line).errors).toEqual([]);
+  });
+});
+
+// Issue #153: a saved line whose ports no longer carry its connections (a
+// hand-edited file, a bad save) does not open with a connection to nothing.
+describe("a connection on a port the machine no longer has", () => {
+  it("stops the line opening, and the error names the connection", () => {
+    let { line, id } = placed("custom-bucket-elevator");
+    line = set(line, id, "outputs", 3);
+    const sink = add(line, "grain-out", { x: 0, y: 800 });
+    line = connect(sink.line, { machine: id, port: "out1" }, { machine: sink.id, port: "in" });
+    const doc = JSON.parse(exportLine(line, "ports"));
+    byId(doc.line, id).ports.outputs = ["out"];
+    const opened = importLine(JSON.stringify(doc));
+    expect(opened.ok).toBe(false);
+    expect(opened.errors).toContain(
+      `connection from "${id}" port "out1" to "${sink.id}" port "in": machine "${id}" has no output port "out1"`
+    );
   });
 });
 
