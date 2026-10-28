@@ -7,6 +7,7 @@
 // `running`/`speed` (useSimEngine.js) are threaded through so machine
 // motion freezes on pause and scales with the speed multiplier.
 import { C, SELECT_STROKE } from "./theme";
+import { resolveDynamic } from "./machineDynamic";
 import { MachineLabel } from "./symbols";
 import { MirroredContext } from "./mirrored";
 import { symbolFor } from "./symbolMap";
@@ -172,20 +173,6 @@ function LengthHandles({ machine: m, handles, onHandlePointerDown }) {
   ));
 }
 
-// Single point of resolution for a machine's dynamic (per-tick) values.
-// `simSnap` is the live sim's published snapshot (Map<machineId, {...}>,
-// shape varies per sim.kind's own `snapshot`, see behaviors.js); a machine
-// the sim hasn't reached yet, or that has no dynamic value at all, falls
-// back to the static `fill` authored in the line data so the scene never
-// looks broken mid build. Every other live field (e.g. the transport
-// delay's leadingProgress/trailingProgress, issue #21) passes through
-// as-is, undefined where the sim hasn't published one — each symbol reads
-// only the fields it understands.
-function resolveDynamic(machine, simSnap) {
-  const live = simSnap?.get(machine.id) ?? {};
-  return { ...live, fill: live.fill ?? machine.fill };
-}
-
 // `onMachinePointerDown` and `onPortPointerDown` are set only in Build mode
 // (useMachineDrag.js, useConnectionDrag.js); `overlapIds` names the machines
 // to outline in red. `selectedIds` (issue #95) is every selected machine,
@@ -200,9 +187,10 @@ function resolveDynamic(machine, simSnap) {
 // `onHandlePointerDown` (issue #157) its length handles, if it has any.
 // `onLabelPointerDown` (issue #158), Build mode only, drags the lone
 // selected machine's name label on its own; any other label is part of its
-// machine, so a press on it moves or selects the machine.
+// machine, so a press on it moves or selects the machine. `building` draws
+// each valve and drum feeder gate at its starting position (machineDynamic.js).
 export default function Scene({
-  line, vb, handlers, wasDrag, selectedIds, onSelect, simSnap, running, speed, simTime,
+  line, vb, handlers, wasDrag, selectedIds, onSelect, simSnap, running, speed, simTime, building = false,
   onMachinePointerDown, overlapIds, onPortPointerDown, selectedConnectionKey, onSelectConnection, connectionDraft,
   highlightMachineIds, selectionBox, canvasCursor = "grab", onFlipMachine, onDeleteMachine, onHandlePointerDown,
   onLabelPointerDown,
@@ -337,7 +325,7 @@ export default function Scene({
                 outside the mirror and keeps its side. */}
             <MirroredContext.Provider value={Boolean(m.flipped)}>
               <g transform={m.flipped ? `translate(${m.w},0) scale(-1,1)` : undefined}>
-                <Symbol machine={m} dynamic={resolveDynamic(m, simSnap)} motion={motion} simTime={simTime} />
+                <Symbol machine={m} dynamic={resolveDynamic(m, simSnap, building)} motion={motion} simTime={simTime} />
               </g>
             </MirroredContext.Provider>
             {m.type !== "stub" && (

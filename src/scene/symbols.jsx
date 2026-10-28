@@ -518,7 +518,6 @@ export function DrumFeederSymbol({ machine: m, dynamic, motion }) {
 
   const gate = drumGateFraction(dynamic);
   const slotX = cx - DRUM_GATE_SLOT_W / 2, slotY = h - DRUM_GATE_SLOT_H - 2;
-  const leafW = ((1 - gate) / 2) * DRUM_GATE_SLOT_W;
 
   return (
     <g>
@@ -542,10 +541,30 @@ export function DrumFeederSymbol({ machine: m, dynamic, motion }) {
           gateFraction falls, leaving a gap in the middle proportional to how
           open the real actuator is right now */}
       <rect x={slotX} y={slotY} width={DRUM_GATE_SLOT_W} height={DRUM_GATE_SLOT_H} fill={C.bg} stroke={C.muted} strokeWidth="1" />
-      {leafW > 0 && <rect x={slotX} y={slotY} width={leafW.toFixed(1)} height={DRUM_GATE_SLOT_H} fill={C.muted} />}
-      {leafW > 0 && <rect x={(slotX + DRUM_GATE_SLOT_W - leafW).toFixed(1)} y={slotY} width={leafW.toFixed(1)} height={DRUM_GATE_SLOT_H} fill={C.muted} />}
+      <ShutterLeaves x={slotX} y={slotY} w={DRUM_GATE_SLOT_W} h={DRUM_GATE_SLOT_H} openness={gate} ease={dynamic.easePosition} />
       <Instruments machine={m} x={w + 24} y={14} dynamic={dynamic} />
     </g>
+  );
+}
+
+// The two shutter leaves a drum feeder gate and an outlet valve share: they
+// close in from either side of the slot as `openness` falls, leaving a gap
+// in the middle as wide as the actuator is open. With `ease` (Build mode,
+// machineDynamic.js) a new position slides in instead of jumping, so
+// changing a starting position shows the valve closing; in a run the sim's
+// own ramp moves them.
+const SHUTTER_EASE = "transform 0.6s ease-in-out";
+function ShutterLeaves({ x, y, w, h, openness, ease }) {
+  const closed = Math.max(0, Math.min(1, 1 - openness));
+  const leaf = (origin) => ({
+    transform: `scaleX(${closed})`, transformBox: "fill-box", transformOrigin: origin,
+    transition: ease ? SHUTTER_EASE : undefined,
+  });
+  return (
+    <>
+      <rect x={x} y={y} width={w / 2} height={h} fill={C.muted} style={leaf("left")} />
+      <rect x={x + w / 2} y={y} width={w / 2} height={h} fill={C.muted} style={leaf("right")} />
+    </>
   );
 }
 
@@ -566,13 +585,11 @@ export function ValveSymbol({ machine: m, dynamic }) {
   const openness = dynamic.openness ?? 1;
   const boreX = 6, boreW = w - 12;
   const boreH = Math.min(10, h - 8), boreY = (h - boreH) / 2;
-  const leafW = ((1 - openness) / 2) * boreW;
   return (
     <g>
       <rect className="body" width={w} height={h} fill={C.panel} stroke={C.line} strokeWidth="1.5" />
       <rect x={boreX} y={boreY} width={boreW} height={boreH} fill={C.bg} stroke={C.muted} strokeWidth="1" />
-      {leafW > 0 && <rect x={boreX} y={boreY} width={leafW.toFixed(1)} height={boreH} fill={C.muted} />}
-      {leafW > 0 && <rect x={(boreX + boreW - leafW).toFixed(1)} y={boreY} width={leafW.toFixed(1)} height={boreH} fill={C.muted} />}
+      <ShutterLeaves x={boreX} y={boreY} w={boreW} h={boreH} openness={openness} ease={dynamic.easePosition} />
       <Instruments machine={m} x={w + 24} y={14} dynamic={dynamic} />
     </g>
   );
