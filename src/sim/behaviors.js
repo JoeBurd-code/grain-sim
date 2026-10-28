@@ -676,19 +676,15 @@ function isConfirmedRunningTransportDelay(state) {
   return isSettledTransportDelay(state) && chainSpeedMPerSec(state) > 0;
 }
 
-// Routed transport delay (issue #47): the packaging conveyor 52.604.E00
-// combines transportDelay's own carrying-run physics with the router
-// concept (see `router` below) — one FIFO chain, but each packet remembers
-// which outlet it was destined for at the moment it entered, so a mid-run
-// destination switch (the presenter's own affordance, off-spec per the FD —
-// the real plant only selects at sequence start) never reroutes material
-// already in transit: everything already on the chain keeps travelling to
-// the outlet it was accepted for, and only newly-accepted material follows
-// the new selection. This is *why* it can't just be a plain `transportDelay`
-// feeding a downstream `router` node — a router downstream of the queue
-// would have no memory of which destination was selected when each packet
-// actually entered, and would reroute in-flight material the instant the
-// selector changes.
+// Routed transport delay (issue #47): one carrying run with several
+// outlets along it — the pendulum conveyor, and a Custom conveyor or bucket
+// elevator with more than one outlet (issue #152). Grain leaves by whichever
+// outlet is selected when it reaches that outlet, as at a real gate or head
+// distributor, so a switch acts on grain already on the run, not only on
+// grain loaded after it. Grain already past the newly selected outlet rides
+// on to the end of the run and comes round the chain to it, the return run
+// taken as instant. It can't be a plain `transportDelay` feeding a `router`,
+// since the outlets sit at different points along the one run.
 //
 // Reuses transportDelay's own timing helpers (slewToward via
 // chainSpeedMPerSec, queueVolume) unchanged rather than duplicating them —
@@ -722,11 +718,8 @@ function initRoutedTransportDelay(m) {
     // that never calls the destination selector (every test predating issue
     // #47) keeps routing to exactly the port it always implicitly used.
     selected: m.sim.defaultPort ?? m.ports.outputs[0],
-    queue: [],       // [{ progress, vol, port, distanceM, startM? }] material past the infeed, still
-                      // travelling — `distanceM` is this packet's own destination's transit
-                      // distance (issue #69), stamped once at accept time so a later
-                      // destination switch never rewrites an in-flight packet's pacing;
-                      // `startM` is where along the run its inlet is (issue #152)
+    queue: [],       // [{ posM, vol }] material on the run, `posM` metres along it from
+                      // the infeed end; where it leaves is decided when it gets there
     backlogEntries: [], // [{ vol, port }] FIFO, finished transit, not yet discharged
     backlog: 0,      // total backlog volume across every port — kept in lockstep with
                       // backlogEntries so external readers (tests, the popup) see the
@@ -741,13 +734,10 @@ function initRoutedTransportDelay(m) {
 function portDistanceMFor(state, port) {
   return state.portDistanceM[port] ?? state.distanceM;
 }
-// Issue #69: converts a packet's own progress (0..1 of *its* destination's
-// distance, see applyRoutedTransportDelay) back onto the machine's shared
-// 0..1 whole-run scale — the one every packet can be compared and banded on
-// regardless of which outlet it's bound for, and the same scale the render
-// draws its buckets across.
+// A packet's position as a fraction of the whole run, the scale the
+// density bands and the render's buckets are drawn across.
 function wholeRunFraction(state, pkt) {
-  return state.distanceM > 0 ? ((pkt.startM ?? 0) + pkt.progress * pkt.distanceM) / state.distanceM : 0;
+  return state.distanceM > 0 ? pkt.posM / state.distanceM : 0;
 }
 function totalBacklogVolume(state) {
   return state.backlogEntries.reduce((a, e) => a + e.vol, 0);
@@ -764,9 +754,9 @@ function capacityAvailableRoutedTransportDelay(state, dt) {
 }
 // Issue #152: grain enters at its own inlet, `portDistanceM` along the run
 // from the infeed end (0 for an inlet with none, the pendulum conveyor's
-// two), so a packet starts at its inlet (`startM`) and travels only the
-// rest of the way to its outlet. The boot holds what is over the rated
-// intake by inlet, and each inlet loads the same share of what it has.
+// two), so it travels only the rest of the way to its outlet. The boot
+// holds what is over the rated intake by inlet, and each inlet loads the
+// same share of what it has.
 function applyRoutedTransportDelay(state, dt, inflow, cap, downstreamCap = {}, hasDownstream = {}, inflowByPort = {}) {
   const share = loadedShare(state, dt, inflow);
   const waiting = { ...state.bootHeld };
@@ -774,34 +764,28 @@ function applyRoutedTransportDelay(state, dt, inflow, cap, downstreamCap = {}, h
   const byPort = Object.keys(inflowByPort).length > 0 ? inflowByPort : { "": inflow };
   for (const [p, v] of Object.entries(byPort)) if (v > 0) waiting[p] = (waiting[p] ?? 0) + v;
   state.bootHeld = {};
-  const outM = portDistanceMFor(state, state.selected);
   for (const [p, v] of Object.entries(waiting)) {
     const vol = v * share;
     if (v - vol > 0) state.bootHeld[p] = v - vol;
-    if (!(vol > 0)) continue;
-    const startM = state.portDistanceM[p] ?? 0;
-    const pkt = { progress: 0, vol, port: state.selected, distanceM: Math.max(outM - startM, 0) };
-    if (startM > 0) pkt.startM = startM;
-    state.queue.push(pkt);
+    if (vol > 0) state.queue.push({ posM: state.portDistanceM[p] ?? 0, vol });
   }
 
   state.throttleFraction = slewToward(state.throttleFraction, state.throttleTarget, state.throttleRampPerSec, dt);
   const v = travelSpeedMPerSec(state);
+  returnToRun(state);
+  // Issue #69: the outlets sit at different points along the run, so grain
+  // reaches a nearer one sooner. Grain reaching the selected outlet this
+  // tick, or starting level with it, leaves there; grain already past it
+  // goes on to the end of the run and round to the infeed end.
+  const toM = portDistanceMFor(state, state.selected);
   const still = [];
   for (const pkt of state.queue) {
-    // Issue #69: paced against this packet's own distance, not the shared
-    // whole-run one — the single physical chain moves everyone at the same
-    // v, but a packet bound for a nearer outlet has less ground to cover, so
-    // it reaches progress 1 (and discharges) sooner.
-    // An inlet level with its outlet leaves nothing to travel.
-    const progressStep = pkt.distanceM > 0 ? (v * dt) / pkt.distanceM : Infinity;
-    const progress = pkt.progress + progressStep;
-    if (progress >= 1) state.backlogEntries.push({ vol: pkt.vol, port: pkt.port });
-    else still.push({ ...pkt, progress });
+    const posM = pkt.posM + v * dt;
+    if (pkt.posM <= toM && posM >= toM) state.backlogEntries.push({ vol: pkt.vol, port: state.selected });
+    else if (posM >= state.distanceM) still.push({ ...pkt, posM: 0 });
+    else still.push({ ...pkt, posM });
   }
   state.queue = still;
-
-  rerouteFromFullOutlets(state, downstreamCap, hasDownstream);
 
   // Discharge is strictly FIFO across ports, not per-port parallel: the
   // conveyor has exactly one physical discharge point, so material queued
@@ -834,30 +818,16 @@ function applyRoutedTransportDelay(state, dt, inflow, cap, downstreamCap = {}, h
   state.jammed = isJammed(state, Object.values(outflow).reduce((a, v) => a + v, 0));
   return outflow;
 }
-// Issue #152: grain waiting for an outlet whose bin is full stays jammed
-// until another outlet with room is selected. Then the bucket passes the
-// full outlet's closed gate and carries on to the selected one: on along
-// the run if that is further, or round the chain again from the infeed end
-// if it is nearer (the return run taken as instant). Grain whose outlet
-// still has room keeps going there, so an ordinary mid-run switch is
-// unchanged (see the queue's own comment on stamping a packet's port).
-function rerouteFromFullOutlets(state, downstreamCap, hasDownstream) {
-  if (!state.stopsWhenJammed) return;
-  const full = (port) => hasDownstream[port] === true && (downstreamCap[port] ?? 0) <= EPS;
-  const to = state.selected;
-  if (full(to)) return;
-  const stuck = state.backlogEntries.filter((e) => e.port !== to && full(e.port));
-  if (stuck.length === 0) return;
-  state.backlogEntries = state.backlogEntries.filter((e) => !stuck.includes(e));
+// Grain waiting at an outlet that is no longer selected goes back on the
+// run from that outlet, its gate now shut, and carries on to the selected
+// one like any other grain on the run. A Custom machine jammed on a full
+// bin (issue #152) clears this way once another outlet is selected.
+function returnToRun(state) {
+  const away = state.backlogEntries.filter((e) => e.port !== state.selected);
+  if (away.length === 0) return;
+  state.backlogEntries = state.backlogEntries.filter((e) => e.port === state.selected);
   state.backlog = totalBacklogVolume(state);
-  const toM = portDistanceMFor(state, to);
-  for (const e of stuck) {
-    const fromM = portDistanceMFor(state, e.port);
-    const startM = fromM < toM ? fromM : 0;
-    const pkt = { progress: 0, vol: e.vol, port: to, distanceM: toM - startM };
-    if (startM > 0) pkt.startM = startM;
-    state.queue.push(pkt);
-  }
+  for (const e of away) state.queue.push({ posM: portDistanceMFor(state, e.port), vol: e.vol });
 }
 // Jammed: grain is waiting at the discharge and none of it could leave
 // this tick, because what it is bound for is full.
@@ -884,27 +854,15 @@ function clearRoutedTransportDelay(state) {
 function snapshotRoutedTransportDelay(state) {
   const inTransitVol = queueVolume(state);
   const hasMaterial = state.queue.length > 0 || state.backlog > 0;
-  // Issue #69: every packet's own `progress` is normalised against its own
-  // destination's distance (applyRoutedTransportDelay above), so leading/
-  // trailing/the density bands below all need packets converted onto the
-  // shared whole-run scale first — otherwise a packet bound for a nearer
-  // outlet would read as "further along" than one bound for a farther
-  // outlet at the same actual physical position.
   const normalizedQueue = state.queue.map((p) => ({ progress: wholeRunFraction(state, p), vol: p.vol }));
   const leadingProgress = hasMaterial
     ? Math.max(state.backlog > 0 ? 1 : 0, 0, ...normalizedQueue.map((p) => p.progress))
     : 0;
   const trailingProgress = normalizedQueue.length > 0 ? Math.min(...normalizedQueue.map((p) => p.progress)) : leadingProgress;
   const v = chainSpeedMPerSec(state);
-  // Issue #69: the bands themselves are never masked past the selected
-  // outlet. Each packet's own progress is already normalised against its
-  // own destination's distance (wholeRunFraction above), so a packet bound
-  // for outBuffer cannot read past outBuffer's own fraction of the whole
-  // run in the first place — and a packet bound for a *farther* outlet than
-  // the one currently selected genuinely is still out there, mid-run, and
-  // has to keep being reported where it really is. Masking the bands on the
-  // live selection instead (an earlier version of this) erased exactly that
-  // material the instant a presenter picked a nearer outlet.
+  // Issue #69: the bands are never masked past the selected outlet. Grain
+  // past it when a nearer one is picked is still on the run, riding to the
+  // end, and is shown where it is.
   const densityProfile = densityProfileFromQueue(state, DENSITY_BANDS, normalizedQueue);
   return {
     inTransitVol, backlogVol: state.backlog,
@@ -919,17 +877,9 @@ function snapshotRoutedTransportDelay(state) {
     jammed: state.stopsWhenJammed && state.jammed === true,
     selected: state.selected,
     densityProfile,
-    // Issue #69: where material accepted *right now* leaves this machine,
-    // as a fraction of the whole drawn run. The bands above can't express
-    // this on their own: the render carries a bucket's load unchanged from
-    // the boot onward (elevatorMotion.js's carryBucketLoads, deliberately
-    // ignoring live density past the loading zone, so a part-filled band at
-    // the material front doesn't read as a half-empty bucket), so a bucket
-    // loaded before the selected outlet would ride straight past it to the
-    // head unless it is told where to tip its grain out. Sampled per bucket
-    // *at loading time* and carried with that bucket's load, never applied
-    // to the whole chain at once — see carryBucketLoads' own comment for
-    // why the difference is what makes a mid-run switch behave.
+    // Issue #69: where the selected outlet sits, as a fraction of the whole
+    // run's real distance. The render tips buckets at the outlet's drawn
+    // position instead (elevatorMotion.js outletPathFraction).
     selectedSpanFraction: state.distanceM > 0 ? portDistanceMFor(state, state.selected) / state.distanceM : 1,
   };
 }
@@ -947,10 +897,8 @@ function isSettledRoutedTransportDelay(state) {
 function isConfirmedRunningRoutedTransportDelay(state) {
   return isSettledRoutedTransportDelay(state) && chainSpeedMPerSec(state) > 0;
 }
-// Destination selection (issue #47): which named output port newly-accepted
-// material is tagged with, from this tick's infeed onward — see the queue's
-// own per-packet `port` field above for why this alone is what makes a
-// mid-run switch conserve without special-casing. Distinct from `command`
+// Destination selection (issue #47): which named output port grain leaves
+// by from now on, grain already on the run included. Distinct from `command`
 // above (the interlock's own speed-fraction throttle): one selects *where*
 // material goes, the other *whether* it moves at all, and both need to
 // coexist on this one machine without one overwriting the other's target.

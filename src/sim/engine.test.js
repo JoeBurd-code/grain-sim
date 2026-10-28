@@ -2214,7 +2214,7 @@ describe("destination selector (issue #47)", () => {
     expect(() => setDestination(sim, "somewhereElse")).toThrow(/unknown destination/);
   });
 
-  it("switching destination mid-run sends nothing new to the new destination until material already in transit has cleared, and material already in transit still arrives at the old one", () => {
+  it("switching destination mid-run sends grain already on the conveyor to the new destination, not the old one", () => {
     const sim = createSim(lineWithoutFeedSchedule);
     // Issue #56: destination now defaults to Concetti, not metal bin 1 —
     // this test is specifically about material riding the conveyor toward
@@ -2222,37 +2222,25 @@ describe("destination selector (issue #47)", () => {
     setDestination(sim, "metalBin1");
     setAccumulatorLevel(sim, OUTLOAD_BIN_ID, 0); // both zeroed: isolates newly-arrived material, see other #46 tests
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
-    // Issue #55: the line now starts empty. This test is about material
-    // already riding the conveyor at the moment of a mid-run destination
-    // switch, not about the whole treating zone filling from scratch, so
-    // restore the treating zone's own pre-#55 starting levels — the same
-    // head start the 30s "already riding the conveyor" window below always
-    // assumed.
+    // Issue #55: the line now starts empty. Restore the treating zone's own
+    // pre-#55 starting levels, so grain is riding the conveyor within 15 s.
     setAccumulatorLevel(sim, BUFFER_BIN_ID, 0.55);
     setAccumulatorLevel(sim, PRE_BIN_ID, 0.4);
     setAccumulatorLevel(sim, AFTER_BIN_ID, 0.3);
     setSourceRate(sim, SOURCE_ID, tPerHourToM3PerSec(15));
     setFeederRate(sim, FEEDER_ID, tPerHourToM3PerSec(15));
-    // Issue #69: outBuffer's own transit is now ~25.4s, not the old shared
-    // ~185s — so "material riding toward metal bin 1" has to switch well
-    // inside that window (15s), not the old 30s (which would already be
-    // past outBuffer's own lag and defeat the point of this test).
-    for (let i = 0; i < Math.round(15 / DT); i++) stepSim(sim, DT); // material now riding the conveyor toward metal bin 1
+    // Issue #69: outBuffer is ~25.4 s along the conveyor, so at 15 s grain
+    // is on the conveyor and none has reached it yet.
+    for (let i = 0; i < Math.round(15 / DT); i++) stepSim(sim, DT);
+    expect(getMachineState(sim, CONVEYOR_ID).queue.length).toBeGreaterThan(0);
 
-    setDestination(sim, "concetti"); // switch while product is still in transit
+    setDestination(sim, "concetti"); // switch while grain is on the conveyor
 
-    // Nothing has had time to reach either destination yet (well short of
-    // outBuffer's own ~25.4s lag), so both should still read zero right
-    // after the switch — the real assertion is *which* one eventually
-    // receives the material already on the chain.
+    // Grain leaves by the outlet selected when it gets there, as at a real
+    // gate, so none of what was riding toward metal bin 1 goes there.
+    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT);
+    expect(getMachineState(sim, OUTLOAD_BIN_ID).stored).toBeCloseTo(0);
     expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeCloseTo(0);
-
-    for (let i = 0; i < Math.round(60 / DT); i++) stepSim(sim, DT); // past the lag for the pre-switch material
-    // The material fed in the first 15s, tagged "outBuffer" at the moment
-    // it was accepted, arrives at metal bin 1 regardless of the later
-    // switch — this is routedTransportDelay's own per-packet tagging
-    // (behaviors.js), exercised here through the full engine.
-    expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeGreaterThan(0);
     expect(() => assertConserved(sim)).not.toThrow();
   });
 

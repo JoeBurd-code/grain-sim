@@ -799,36 +799,52 @@ describe("routedTransportDelay (issue #47)", () => {
     expect(initState().selected).toBe("a");
   });
 
-  it("tags each accepted packet with the port selected at the moment it entered, not whatever is selected later", () => {
-    // 1 m/s chain, 1 m distance -> 1s transit; ceiling caps discharge at
-    // 1 m3 per 1s tick so the two backlogged units drain one at a time,
-    // strictly FIFO.
-    const state = initState({ distanceM: 1, speedMPerMin: 60, ceilingM3PerSec: 1 });
-    const hasDownstream = { a: true, b: true };
-    const shut = { a: 0, b: 0 };
-    B.apply(state, 1, 1, 1, shut, hasDownstream); // 1 m3 tagged "a", transits and jams at the shut discharge
-    B.selectPort(state, "b");
-    B.apply(state, 1, 1, 1, shut, hasDownstream); // 1 m3 tagged "b", same
-    expect(state.backlog).toBeCloseTo(2);
-
+  // Grain leaves by whichever outlet is selected when it reaches that
+  // outlet, so a switch acts on grain already on the run.
+  it("sends grain already on the run to an outlet selected after it was loaded", () => {
+    const state = initState({ distanceM: 1, speedMPerMin: 60, ceilingM3PerSec: 100 });
     const open = { a: Infinity, b: Infinity };
-    const out1 = B.apply(state, 1, 0, 1, open, hasDownstream);
-    expect(out1.a).toBeCloseTo(1); // FIFO: the earlier, "a"-tagged packet drains first
-    expect(out1.b ?? 0).toBeCloseTo(0);
-
-    const out2 = B.apply(state, 1, 0, 1, open, hasDownstream);
-    expect(out2.b).toBeCloseTo(1); // then the later, "b"-tagged packet — still routed to b
-    expect(out2.a ?? 0).toBeCloseTo(0);
+    const both = { a: true, b: true };
+    B.apply(state, 0.01, 0.3, 0.3, open, both); // loaded with "a" selected
+    let a = 0, b = 0;
+    const run = (ticks) => {
+      for (let i = 0; i < ticks; i++) {
+        const out = B.apply(state, 0.01, 0, 0, open, both);
+        a += out.a ?? 0;
+        b += out.b ?? 0;
+      }
+    };
+    run(50); // halfway along a 1 s run
+    B.selectPort(state, "b");
+    run(100);
+    expect(a).toBeCloseTo(0);
+    expect(b).toBeCloseTo(0.3);
   });
 
-  it("switching mid-run conserves: everything fed before and after the switch is eventually accounted for by port", () => {
+  it("sends grain waiting at an outlet that is no longer selected on to the selected one", () => {
     const state = initState({ distanceM: 1, speedMPerMin: 60, ceilingM3PerSec: 100 });
-    for (let i = 0; i < 30; i++) { // 0.3 m3 tagged "a" (0.01 m3/tick, well under any cap)
+    const both = { a: true, b: true };
+    B.apply(state, 1, 1, 1, { a: 0, b: 0 }, both); // 1 m3 reaches "a" and waits at its shut discharge
+    expect(state.backlog).toBeCloseTo(1);
+    B.selectPort(state, "b");
+    let a = 0, b = 0;
+    for (let i = 0; i < 300; i++) {
+      const out = B.apply(state, 0.01, 0, 0, { a: Infinity, b: Infinity }, both);
+      a += out.a ?? 0;
+      b += out.b ?? 0;
+    }
+    expect(a).toBeCloseTo(0);
+    expect(b).toBeCloseTo(1);
+  });
+
+  it("switching mid-run loses nothing: everything fed before and after the switch leaves by the outlet selected when it arrives", () => {
+    const state = initState({ distanceM: 1, speedMPerMin: 60, ceilingM3PerSec: 100 });
+    for (let i = 0; i < 30; i++) { // 0.3 m3 fed with "a" selected, none of it yet out
       const cap = B.capacityAvailable(state, 0.01);
       B.apply(state, 0.01, 0.01, cap);
     }
     B.selectPort(state, "b");
-    for (let i = 0; i < 30; i++) { // 0.3 m3 tagged "b"
+    for (let i = 0; i < 30; i++) { // 0.3 m3 more
       const cap = B.capacityAvailable(state, 0.01);
       B.apply(state, 0.01, 0.01, cap);
     }
@@ -839,8 +855,8 @@ describe("routedTransportDelay (issue #47)", () => {
       deliveredA += out.a ?? 0;
       deliveredB += out.b ?? 0;
     }
-    expect(deliveredA).toBeCloseTo(0.3);
-    expect(deliveredB).toBeCloseTo(0.3);
+    expect(deliveredA).toBeCloseTo(0);
+    expect(deliveredB).toBeCloseTo(0.6);
   });
 
   it("a jam on the selected port's own downstream blocks new infeed, same as plain transportDelay", () => {
@@ -930,55 +946,63 @@ describe("routedTransportDelay (issue #47)", () => {
   });
 
   // Issue #69: each outlet's own along-belt distance from the infeed —
-  // material bound for the nearer outlet arrives sooner than material bound
-  // for the farther one, even though both ride the same physical chain at
-  // the same live speed.
-  it("paces each packet against its own destination's distance, not the machine's shared one", () => {
+  // grain reaches the nearer outlet sooner than the farther one, though
+  // both are on the same physical chain at the same live speed.
+  it("reaches a nearer outlet sooner than a farther one", () => {
+    const deliveredAfter = (port, seconds) => {
+      const state = initState({
+        distanceM: 10, speedMPerMin: 60, ceilingM3PerSec: 100, ports: ["near", "far"],
+        portDistanceM: { near: 2, far: 10 },
+      });
+      B.selectPort(state, port);
+      B.apply(state, 0.01, 1, 1);
+      for (let i = 0; i < Math.round(seconds / 0.01); i++) B.apply(state, 0.01, 0, 0);
+      return state.delivered;
+    };
+    // 1 m/s chain: "near" (2 m) is reached in 2 s, "far" (10 m) in 10 s.
+    expect(deliveredAfter("near", 1.5)).toBeCloseTo(0);
+    expect(deliveredAfter("near", 2.5)).toBeCloseTo(1);
+    expect(deliveredAfter("far", 9.5)).toBeCloseTo(0);
+    expect(deliveredAfter("far", 10.5)).toBeCloseTo(1);
+  });
+
+  // Grain past a nearer outlet when it is selected rides on to the end of
+  // the run, comes round to the infeed end (the return run is instant), and
+  // leaves at the nearer outlet on its way back along.
+  it("carries grain already past a newly selected outlet round the chain to it", () => {
     const state = initState({
       distanceM: 10, speedMPerMin: 60, ceilingM3PerSec: 100, ports: ["near", "far"],
       portDistanceM: { near: 2, far: 10 },
     });
-    // 1 m/s chain: "near" (2m) transits in 2s, "far" (10m) in 10s. No
-    // sim-enabled downstream is passed to `apply` (hasDownstream defaults to
-    // `{}`), so completed material lands in `delivered` (the same
-    // no-downstream convention plain transportDelay uses) the instant it
-    // finishes transit — a clean signal to assert on without also
-    // exercising the discharge budget/stall machinery.
-    B.selectPort(state, "near");
-    B.apply(state, 0.01, 1, 1); // tags one packet "near"
     B.selectPort(state, "far");
-    B.apply(state, 0.01, 1, 1); // tags one packet "far", same moment
-
-    for (let i = 0; i < 100; i++) B.apply(state, 0.01, 0, 0); // ~1s: short of "near"'s own 2s
+    B.apply(state, 0.01, 1, 1);
+    for (let i = 0; i < 600; i++) B.apply(state, 0.01, 0, 0); // 6 m along, past "near"
+    B.selectPort(state, "near");
+    // 4 m to the end of the run, then 2 m to "near": 6 s.
+    for (let i = 0; i < 550; i++) B.apply(state, 0.01, 0, 0);
     expect(state.delivered).toBeCloseTo(0);
-
-    for (let i = 0; i < 400; i++) B.apply(state, 0.01, 0, 0); // ~5s total: past "near"'s 2s, short of "far"'s 10s
-    expect(state.delivered).toBeCloseTo(1); // "near"'s whole packet arrived, "far"'s did not
+    for (let i = 0; i < 100; i++) B.apply(state, 0.01, 0, 0);
+    expect(state.delivered).toBeCloseTo(1);
   });
 
   // Issue #69: a port with no entry in the line data's own `portDistanceM`
-  // falls back to the shared `distanceM` — every routedTransportDelay
-  // machine except the pendulum conveyor, so this keeps their timing
-  // exactly as it was before per-outlet distance existed.
-  it("falls back to the shared distanceM for a port with no per-port entry", () => {
+  // sits at the end of the run, the shared `distanceM`.
+  it("puts a port with no per-port distance at the end of the run", () => {
     const state = initState({ distanceM: 5, speedMPerMin: 60, ceilingM3PerSec: 10, portDistanceM: { a: 2 } });
     B.selectPort(state, "b"); // no entry for "b"
     B.apply(state, 0.01, 1, 1);
-    expect(state.queue[0].distanceM).toBe(5);
+    for (let i = 0; i < 450; i++) B.apply(state, 0.01, 0, 0);
+    expect(state.delivered).toBeCloseTo(0);
+    for (let i = 0; i < 100; i++) B.apply(state, 0.01, 0, 0);
+    expect(state.delivered).toBeCloseTo(1);
   });
 
-  // Issue #69: a packet bound for "near" can never read past "near"'s own
-  // fraction of the whole run — its own progress is normalised against its
-  // own destination's distance (portDistanceMFor/wholeRunFraction), so this
-  // holds with no separate masking step. An earlier version added one
-  // anyway (mask every band past whichever outlet is *currently* selected)
-  // and it broke a destination switch mid-run: still-legitimate material
-  // bound for the previous, no-longer-selected outlet vanished from the
-  // published profile instantly instead of continuing to show where it
-  // really is until it actually arrives. Reported live and reproduced on
-  // video after #69 shipped — see this same file's "still-legitimate
-  // material" test below, and behaviors.js's own comment on
-  // snapshotRoutedTransportDelay.
+  // Issue #69: with "near" selected throughout, grain leaves there and
+  // never reads past it, with no separate masking step. An earlier version
+  // added one (mask every band past whichever outlet is *currently*
+  // selected) and it hid grain still on the run the instant a nearer
+  // outlet was picked. Reported live and reproduced on video after #69
+  // shipped; see the "still shows material" test below.
   it("bounds density to the selected outlet's own span with no separate masking step", () => {
     const state = initState({
       distanceM: 10, speedMPerMin: 600, ceilingM3PerSec: 10, ports: ["near", "far"],
@@ -994,28 +1018,24 @@ describe("routedTransportDelay (issue #47)", () => {
     expect(secondHalf.every((v) => v === 0)).toBe(true); // "near" itself never gets this far
   });
 
-  // Issue #69 (post-ship fix): material fed *before* a destination switch
-  // keeps travelling to the outlet it was accepted for (routedTransportDelay's
-  // own per-packet tagging, unchanged) — the published density profile has
-  // to keep showing it there too, not hide it the instant a *nearer* outlet
-  // is newly selected, and not have it suddenly "pop in" mid-belt if a
-  // *farther* one is newly selected instead. Both were the actual bug: an
-  // explicit mask keyed on the live `selected` port, rather than each
-  // packet's own, couldn't tell "genuinely not there yet" from "there, but
-  // bound for a different outlet."
+  // Issue #69 (post-ship fix): grain already past a newly selected nearer
+  // outlet rides on to the end of the run before coming round to it, so
+  // the published density profile keeps showing it where it is rather than
+  // hiding it the instant the switch is made, as an earlier mask keyed on
+  // the live `selected` port did.
   it("still shows material bound for a previous, no-longer-selected outlet after a switch, at its own real position", () => {
     const state = initState({
       distanceM: 10, speedMPerMin: 600, ceilingM3PerSec: 10, ports: ["near", "far"],
       portDistanceM: { near: 2, far: 10 },
     });
     B.selectPort(state, "far");
-    B.apply(state, 0.01, 1, 1); // one packet, tagged "far"
+    B.apply(state, 0.01, 1, 1); // one packet, "far" selected
     for (let i = 0; i < 60; i++) B.apply(state, 0.01, 0, 0); // travels to wholeRunFraction 0.6, well past "near"'s own 0.2
     B.selectPort(state, "near"); // switch to the nearer outlet
     const snap = B.snapshot(state);
     const bandCount = snap.densityProfile.length;
     const pastNear = snap.densityProfile.slice(Math.ceil(0.2 * bandCount)); // "near" is only the first 20% of the run
-    expect(pastNear.some((v) => v > 0)).toBe(true); // the "far"-bound material is still shown, not erased by the switch
+    expect(pastNear.some((v) => v > 0)).toBe(true); // still shown, not erased by the switch
   });
 
   // Issue #69: the bands alone can't tell the render where material being
