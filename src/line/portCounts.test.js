@@ -12,6 +12,7 @@ import { validateLine } from "./validateLine";
 import { catalogueItem } from "../catalogue/catalogue";
 import { createSim, stepSim, getMachineState, setSelection, DT } from "../sim/engine";
 import { plantControlsFor } from "./plantControls";
+import { assertConserved } from "../sim/conservation";
 
 const byId = (line, id) => line.machines.find((m) => m.id === id);
 
@@ -278,6 +279,17 @@ describe("running a machine with several ports", () => {
     expect(getMachineState(sim, sinks[0]).total).toBe(0);
     expect(getMachineState(sim, sinks[1]).total).toBeGreaterThan(0);
     expect(getMachineState(sim, sinks[2]).total).toBe(0);
+  });
+
+  // Two feeders that together bring more than the elevator can take: what
+  // it cannot take stays upstream, rather than vanishing between them.
+  it("loses no grain when two inlets together bring more than it can take", () => {
+    const { line, id } = elevatorLine("in2");
+    const second = add(line, "grain-in", { x: 100, y: 0 });
+    const both = connect(second.line, { machine: second.id, port: "out" }, { machine: id, port: "in1" });
+    const sim = createSim(both);
+    run(sim, 30);
+    expect(() => assertConserved(sim)).not.toThrow();
   });
 
   it("gives a machine with one outlet no selector", () => {

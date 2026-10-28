@@ -474,8 +474,14 @@ function capacityAvailableTransportDelay(state, dt) {
   // interlock's cap here and in chainSpeedMPerSec alike; see dial.js.
   return state.ceilingM3PerSec * dialEffective(state, SPEED_DIAL) * dt;
 }
+// Everything that arrives is taken, `cap` notwithstanding. One feeder never
+// sends more than `cap`; several feeders (a machine with more than one
+// inlet, issue #152) are each offered all of it, so together they can send
+// more. The chain takes the excess, and its backlog then shuts the infeed
+// (capacityAvailable) until it has cleared, so grain backs up upstream
+// instead of vanishing on arrival.
 function applyTransportDelay(state, dt, inflow, cap, downstreamCap = 0, hasDownstream = false) {
-  const accepted = Math.min(inflow, cap);
+  const accepted = inflow;
   if (accepted > 0) state.queue.push({ progress: 0, vol: accepted });
 
   state.throttleFraction = slewToward(state.throttleFraction, state.throttleTarget, state.throttleRampPerSec, dt);
@@ -716,8 +722,9 @@ function inletEntries(state, inflow, accepted, inflowByPort) {
   if (ports.length === 0 || !(inflow > 0)) return [{ startM: 0, vol: accepted }];
   return ports.map((p) => ({ startM: state.portDistanceM[p] ?? 0, vol: (accepted * inflowByPort[p]) / inflow }));
 }
+// Takes everything that arrives, as applyTransportDelay does.
 function applyRoutedTransportDelay(state, dt, inflow, cap, downstreamCap = {}, hasDownstream = {}, inflowByPort = {}) {
-  const accepted = Math.min(inflow, cap);
+  const accepted = inflow;
   if (accepted > 0) {
     const outM = portDistanceMFor(state, state.selected);
     for (const { startM, vol } of inletEntries(state, inflow, accepted, inflowByPort)) {

@@ -251,7 +251,12 @@ const LOADING_ZONE_BANDS = 1;
 // switch only ever changes what the buckets loading from now on do. Left
 // undefined (plain transportDelay's own snapshot, which has a single
 // discharge at the head) means no cutoff at all.
-export function carryBucketLoads(buckets, phase, held, { bandCount, hasMaterial = true, spacing = BUCKET_SPACING, loadingCutoffFrac } = {}) {
+//
+// `loadingStartFracs` (issue #152) are where along the drawn chain grain is
+// fed: the boot, and each inlet partway along the run. A bucket passing
+// under a later inlet tops up to the live density there, which already
+// counts what it brought from earlier inlets, and never loses what it had.
+export function carryBucketLoads(buckets, phase, held, { bandCount, hasMaterial = true, spacing = BUCKET_SPACING, loadingCutoffFrac, loadingStartFracs = [0] } = {}) {
   if (!(bandCount > 0)) return buckets;
   // Nothing left in transit at all (a cleared plant, or a chain that has
   // fully drained): drop every carried load rather than letting buckets
@@ -262,11 +267,15 @@ export function carryBucketLoads(buckets, phase, held, { bandCount, hasMaterial 
   for (const b of buckets) {
     const gen = bucketGeneration(b.pos, phase, spacing);
     live.add(gen);
-    if (b.pathFrac < loadingFrac) {
+    const zone = loadingStartFracs.find((f) => b.pathFrac >= f && b.pathFrac < f + loadingFrac);
+    if (zone === 0) {
       // Still under the inlet: keep topping this bucket up to the boot's own
       // live density, and (re-)stamp where this grain is bound for, so a
       // switch made while it is loading applies to it.
       held.set(gen, { load: b.fillRatio * (b.pathFrac / loadingFrac), cutoff: loadingCutoffFrac });
+    } else if (zone !== undefined) {
+      const ramped = b.fillRatio * ((b.pathFrac - zone) / loadingFrac);
+      held.set(gen, { load: Math.max(held.get(gen)?.load ?? 0, ramped), cutoff: loadingCutoffFrac });
     } else if (!held.has(gen)) {
       // First seen already up the chain (mount, or a resume with material
       // mid-transit): seed from where it sits. The live cutoff is the only
@@ -289,6 +298,14 @@ export const BUCKET_W = 14;
 export const BUCKET_H = 12;
 const BUCKET_GRAIN_INSET = 2;
 const BUCKET_GRAIN_FLOOR_GAP = 1.5;
+
+// Where grain is fed along the drawn chain: the boot, and (issue #152) each
+// inlet that sits partway along the run, by its `portDistanceM`. Projected
+// from the inlet's drawn anchor, as outletPathFraction does an outlet's.
+function inletPathFractions(m) {
+  const along = (m.ports?.inputs ?? []).filter((p) => m.sim?.portDistanceM?.[p] > 0);
+  return [0, ...along.map((p) => outletPathFraction(m, p)).filter((f) => f !== undefined)];
+}
 
 // How many DOM slots a live chain needs: its steady-state bucket count plus
 // a couple spare, so a bucket entering or leaving at the chain's wrap point
@@ -319,6 +336,7 @@ export function bucketFrame(m, dynamic, phase, held) {
     bandCount: dynamic?.densityProfile?.length ?? 0,
     hasMaterial: dynamic?.inTransitVol > 0 || dynamic?.backlogVol > 0,
     loadingCutoffFrac: dynamic?.selected ? outletPathFraction(m, dynamic.selected) : undefined,
+    loadingStartFracs: inletPathFractions(m),
   });
   const poolSize = bucketPoolSize(m);
   return buckets.map((b) => {
