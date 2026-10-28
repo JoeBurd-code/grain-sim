@@ -9,7 +9,7 @@ import {
 } from "../line/sentenceEditor";
 import {
   CONDITIONS, conditionOptions, machineActionOptions, watchableMachines, actionableMachines, switchOptions,
-  sentenceSummary, sentenceProblems, runStepHint, machineName, interlocksByMachine,
+  sentenceSummary, sentenceProblems, runStepHint, machineName, interlocksByMachine, holdKey,
 } from "../line/sentenceOptions";
 import { pendingSuggestions, acceptSuggestion, dismissSuggestion } from "../line/suggestedInterlocks";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
@@ -167,9 +167,9 @@ function stepActions(line, step, held) {
   const all = machineActionOptions(line, step.machine);
   const options = step.action == null || all.includes(step.action) ? all : [step.action, ...all];
   const disabled = {};
-  if (!held.has(step.machine)) {
-    disabled.start = "Only after this interlock has stopped it. Machines run on their own.";
-    disabled.open = "Only after this interlock has closed it. Valves are open on their own.";
+  if (!held.has(`${step.machine} stop`)) disabled.start = "Only after this interlock has stopped it. Machines run on their own.";
+  if (!held.has(`${step.machine} close`)) {
+    disabled.open = "Only after this interlock has closed or set it. Valves sit at their starting position on their own.";
   }
   return { options, disabled };
 }
@@ -184,7 +184,7 @@ function StepList({ line, steps, part, heldBefore, actions, onHover }) {
       {steps.length === 0 && <div style={{ ...caption, padding: "4px 0" }}>No steps yet.</div>}
       {steps.map((step, i) => {
         const offered = step.machine !== undefined ? stepActions(line, step, held) : null;
-        if (step.action === "stop" || step.action === "close") held.add(step.machine);
+        if (holdKey(step)) held.add(holdKey(step));
         return (
           <div
             key={i}
@@ -217,6 +217,16 @@ function StepList({ line, steps, part, heldBefore, actions, onHover }) {
                   {step.machine != null && (
                     <Pills options={offered.options} disabled={offered.disabled} value={step.action}
                       onPick={(a) => actions.setStepField(part, i, "action", a)} />
+                  )}
+                  {step.action === "set" && (
+                    <>
+                      <span style={caption}>TO</span>
+                      <Stepper label="position" value={step.fraction == null ? null : Math.round(step.fraction * 100)}
+                        min={0} max={100} unit="%" onCommit={(v) => actions.setStepField(part, i, "fraction", v / 100)} />
+                      <span style={caption}>OVER</span>
+                      <Stepper label="ramp time" value={step.rampTimeSec ?? 0} min={0} max={600} unit="s"
+                        onCommit={(v) => actions.setStepField(part, i, "rampTimeSec", v)} />
+                    </>
                   )}
                 </>
               ) : step.action === "wait" ? (
@@ -323,7 +333,7 @@ function Problems({ line, rule, onRewrite, onRemoveStep }) {
 function Editor({ line, rule, actions, onHover }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const clears = rule.whenClears;
-  const heldByThen = rule.then.filter((s) => s.action === "stop" || s.action === "close").map((s) => s.machine);
+  const heldByThen = rule.then.map(holdKey).filter(Boolean);
   return (
     <div style={{ padding: "2px 12px 12px" }}>
       <Section title="WHEN">

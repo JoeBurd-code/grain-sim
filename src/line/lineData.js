@@ -73,6 +73,9 @@ const chainSpeedField = (value) => ({ id: "chainSpeed", label: "chain speed", un
 const lengthField = (min, max, value) => ({ id: "length", label: "length", unit: "m", kind: "number", min, max, default: value, bind: "length" });
 // Issue #156: a bucket elevator's full path, floor run to head run.
 const pathLengthField = (min, max, value) => ({ id: "pathLength", label: "path length", unit: "m", kind: "number", min, max, default: value, bind: "pathLength" });
+// An outlet valve's or a drum feeder gate's starting position, in whole %.
+// Fully open, as the real line runs today.
+const startPositionField = () => ({ id: "startPosition", label: "starting position", unit: "%", kind: "number", min: 0, max: 100, default: 100, bind: "startPosition", integer: true, slider: true });
 
 export const line = {
   zones: [
@@ -293,6 +296,7 @@ export const line = {
       // — never `gateFraction` itself, which this dial always shows exactly
       // as last dragged (see engine.js's setGateFraction).
       params: [{ id: "gatePosition", label: "gate position", min: 0, max: 100, value: 100, unit: "%", bind: "gatePosition", readBind: "gatePositionActual" }],
+      adjustable: [startPositionField()],
       // `hasGate` (issue #57): the real drum feeder's own gate-position
       // actuator, now this feeder's only presenter-facing control (see the
       // params comment above).
@@ -571,7 +575,9 @@ export const line = {
       // position switches (REAL_LINE_SPECS.md §7): those are position
       // confirmations, not level switches, and nothing in the control layer
       // reads them — the drawn gate already shows the same fact.
-      adjustable: [ratedCapacityField("maximum flow", 5, 40, 19.2)],
+      // The position slider, over the valve's starting position.
+      params: [{ id: "valvePosition", label: "valve position", min: 0, max: 100, value: 100, unit: "%", bind: "valvePosition", readBind: "valvePositionActual" }],
+      adjustable: [ratedCapacityField("maximum flow", 5, 40, 19.2), startPositionField()],
       sim: {
         kind: "gateValve",
         ceilingM3PerSec: tPerHourToM3PerSec(19.2),
@@ -800,6 +806,7 @@ export const line = {
       // engine.test.js) — zeroing it here would silently starve every one of
       // them once their own run is long enough to reach packaging.
       params: [{ id: "gatePosition", label: "gate position", min: 0, max: 100, value: 100, unit: "%", bind: "gatePosition", readBind: "gatePositionActual" }],
+      adjustable: [startPositionField()],
       // `hasGate` (issue #57): see treatDrumFeeder's own comment above.
       sim: {
         kind: "meteredFeeder",
@@ -849,6 +856,7 @@ export const line = {
       // (not inletDrumFeeder1) is the one enabled by the line's own default
       // source selection.
       params: [{ id: "gatePosition", label: "gate position", min: 0, max: 100, value: 100, unit: "%", bind: "gatePosition", readBind: "gatePositionActual" }],
+      adjustable: [startPositionField()],
       // `hasGate` (issue #57): see treatDrumFeeder's own comment above.
       sim: {
         kind: "meteredFeeder",

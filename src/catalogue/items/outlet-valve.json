@@ -31,6 +31,18 @@
       "side": "left",
       "align": "center"
     },
+    "params": [
+      {
+        "id": "valvePosition",
+        "label": "valve position",
+        "min": 0,
+        "max": 100,
+        "value": 100,
+        "unit": "%",
+        "bind": "valvePosition",
+        "readBind": "valvePositionActual"
+      }
+    ],
     "adjustable": [
       {
         "id": "ratedCapacity",
@@ -41,6 +53,18 @@
         "max": 40,
         "default": 19.2,
         "bind": "ratedCapacity"
+      },
+      {
+        "id": "startPosition",
+        "label": "starting position",
+        "unit": "%",
+        "kind": "number",
+        "min": 0,
+        "max": 100,
+        "default": 100,
+        "bind": "startPosition",
+        "integer": true,
+        "slider": true
       }
     ],
     "sim": {

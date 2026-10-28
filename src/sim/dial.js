@@ -1,7 +1,8 @@
 // The presenter's dial on a throttled actuator, and the one answer to "is it
-// overriding the interlock?" (issue #63). Two actuators carry one: a chain's
-// VFD speed (transportDelay, routedTransportDelay) and a gated drum feeder's
-// gate position (meteredFeeder). Each pairs the presenter's own dial with an
+// overriding the interlock?" (issue #63). Three actuators carry one: a
+// chain's VFD speed (transportDelay, routedTransportDelay), a gated drum
+// feeder's gate position (meteredFeeder) and an outlet valve's position
+// (gateValve). Each pairs the presenter's own dial with an
 // interlock-commanded throttle layered on top of it, stored as four flat
 // fields on the machine's state. The field names differ per actuator, so a
 // descriptor below names them, and every function here takes one.
@@ -18,19 +19,34 @@
 // balanced point. A dial the presenter has touched and parked more than
 // DIAL_SNAP away from that cap, above *or* below it, is an override, and the
 // actuator runs at the dial. Otherwise it runs at the cap. A full stop
-// (throttle target 0) is never overridable, however the dial sits.
+// (throttle target 0) is never overridable, however the dial sits, but only
+// when an authority holds it there: a valve or gate whose Build mode starting
+// position is 0 % is not stopped, just normally shut, so the dial opens it
+// (`slots`, the actuator's command slots, commandSlots.js).
 // `touched` is needed because a gradedFeedSchedule band's own targets are
 // always below the dial's untouched default of 1: without it every such
 // actuator would read as overridden the moment its schedule engaged.
 
 export const SPEED_DIAL = {
   dial: "speedFraction", touched: "speedDialTouched",
-  throttle: "throttleFraction", target: "throttleTarget",
+  throttle: "throttleFraction", target: "throttleTarget", slots: "throttleCommands",
 };
 export const GATE_DIAL = {
   dial: "gateFraction", touched: "gateDialTouched",
-  throttle: "gateThrottleFraction", target: "gateThrottleTarget",
+  throttle: "gateThrottleFraction", target: "gateThrottleTarget", slots: "gateCommands",
 };
+export const VALVE_DIAL = {
+  dial: "valveFraction", touched: "valveDialTouched",
+  throttle: "openness", target: "opennessTarget", slots: "opennessCommands",
+};
+
+// Whether an authority holds the actuator fully stopped or shut. An actuator
+// with no slots at all predates them, and its 0 target is a stop.
+function heldStopped(state, f) {
+  if (state[f.target] > 0) return false;
+  const slots = state[f.slots];
+  return !slots || Object.values(slots).some((v) => v <= 0);
+}
 
 // How far from the cap a touched dial may sit and still count as "on it".
 // A native range input centres its thumb under the cursor, so a drag that
@@ -39,7 +55,7 @@ export const DIAL_SNAP = 0.02;
 
 export function dialOverriding(state, f) {
   return state[f.touched] === true
-    && state[f.target] > 0
+    && !heldStopped(state, f)
     && Math.abs(state[f.dial] - state[f.throttle]) > DIAL_SNAP;
 }
 
@@ -51,7 +67,7 @@ export function dialOverriding(state, f) {
 // LSHH trip fired, then ramped to 0).
 export function dialEffective(state, f) {
   if (dialOverriding(state, f)) return state[f.dial];
-  if (state[f.touched] === true && state[f.target] <= 0) return Math.min(state[f.dial], state[f.throttle]);
+  if (state[f.touched] === true && heldStopped(state, f)) return Math.min(state[f.dial], state[f.throttle]);
   return state[f.throttle];
 }
 
@@ -84,7 +100,7 @@ export function dialReading(state, f) {
     dial: state[f.dial],
     touched: state[f.touched],
     cap: state[f.throttle],
-    overridable: state[f.target] > 0,
+    overridable: !heldStopped(state, f),
     overriding: dialOverriding(state, f),
     effective: dialEffective(state, f),
   };

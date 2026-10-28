@@ -2,7 +2,7 @@
 // live-look controls (no engine behind them yet). Drawing facts and the
 // per-machine confirmation questions now live in the engineer worksheet
 // (docs/TREATER_LINE2_WORKSHEET.md), not in the app.
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
 import { LEVEL_KINDS } from "../sim/behaviors";
 import { m3ToTonnes } from "../sim/units";
@@ -24,6 +24,11 @@ import { m3ToTonnes } from "../sim/units";
 // clamps the input's own `max` to the cap, so the dial cannot be dragged away
 // from it at all. A drag that lands back on the cap is "return to normal":
 // the sim's own setDial releases the dial rather than leaving it touched.
+//
+// The readout is also a box to type a value into, committed on Enter or on
+// leaving it (Escape puts it back), clamped to what the slider itself could
+// reach. While the dial overrides, a "BACK TO" button sends the cap back to
+// the sim, which releases the dial the same way a drag onto the tick does.
 //
 // `value` is a controlled prop, not local state: this popup unmounts
 // entirely on close, so the operator's last-dragged position lives in
@@ -47,6 +52,38 @@ export const THUMB_PX = 14;
 // it, same as a native slider. `.param-slider`'s own thumb rule centers on
 // this via `margin-top: (TRACK_PX - THUMB_PX) / 2`.
 export const TRACK_PX = 6;
+
+// The slider's value as a typed number, in the slider's own units.
+function ValueBox({ value, min, max, unit, label, color, onCommit }) {
+  const [draft, setDraft] = useState(null);
+  const commit = () => {
+    if (draft === null) return;
+    const typed = draft.trim() === "" ? NaN : Number(draft);
+    setDraft(null);
+    if (Number.isFinite(typed)) onCommit(Math.min(max, Math.max(min, typed)));
+  };
+  return (
+    <span style={{ display: "inline-flex", alignItems: "baseline", gap: 3 }}>
+      <input
+        type="text"
+        inputMode="decimal"
+        aria-label={label}
+        value={draft ?? String(value)}
+        style={{
+          width: 38, textAlign: "right", background: C.bg, color, border: `1px solid ${C.line}`,
+          borderRadius: 3, fontFamily: FONT_MONO, fontSize: 10, padding: "1px 3px",
+        }}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") setDraft(null);
+        }}
+      />
+      <span style={{ color }}>{unit}</span>
+    </span>
+  );
+}
 
 function Slider({ param, value, live, onChange }) {
   const cap = live?.cap ?? null;
@@ -86,7 +123,8 @@ function Slider({ param, value, live, onChange }) {
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.muted, marginBottom: 3 }}>
         <span>{param.label}</span>
         <span>
-          <span style={{ color: armed ? C.red : C.text }}>{displayValue} {param.unit}</span>
+          <ValueBox value={displayValue} min={param.min} max={inputMax} unit={param.unit} label={param.label}
+            color={armed ? C.red : C.text} onCommit={(v) => onChange?.(v)} />
           {armed && <span style={{ color: C.red, marginLeft: 8, fontWeight: 600 }}>OVERRIDE</span>}
         </span>
       </div>
@@ -124,6 +162,18 @@ function Slider({ param, value, live, onChange }) {
           />
         )}
       </div>
+      {armed && cap != null && (
+        <button
+          className="zonebtn"
+          onClick={() => onChange?.(cap)}
+          style={{
+            marginTop: 5, background: "transparent", color: C.text, border: `1px solid ${C.line}`, borderRadius: 3,
+            fontFamily: FONT_MONO, fontSize: 9, letterSpacing: "0.06em", padding: "2px 6px", cursor: "pointer",
+          }}
+        >
+          BACK TO {Math.round(cap)} {param.unit}
+        </button>
+      )}
     </div>
   );
 }

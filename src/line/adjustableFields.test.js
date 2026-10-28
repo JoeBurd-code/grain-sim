@@ -56,6 +56,10 @@ const APPROVED = [
   ["pendulumConveyor", "chainSpeed", "m/min", 2, 30, 10.08],
   ["pendulumConveyor", "length", "m", 15, 60, 31.087],
   ["afterBinOutletValve", "ratedCapacity", "t/h", 5, 40, 19.2],
+  ["afterBinOutletValve", "startPosition", "%", 0, 100, 100],
+  ["treatDrumFeeder", "startPosition", "%", 0, 100, 100],
+  ["inletDrumFeeder1", "startPosition", "%", 0, 100, 100],
+  ["inletDrumFeeder2", "startPosition", "%", 0, 100, 100],
   ["scalpingScreen", "ratedCapacity", "t/h", 10, 100, 64.4],
 ];
 
