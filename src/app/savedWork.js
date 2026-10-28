@@ -10,14 +10,23 @@
 // Every storage access is wrapped: storage that is blocked, full, missing or
 // holding something unreadable only means "no saved work".
 import { diffFromBase, applyChanges, exportLine, importLine } from "../line/lineDocument";
-import { changesFromHeightModel } from "../line/elevatorPath";
+import { changesFromHeightModel, changesFromLengthModel } from "../line/zShape";
 
 export const SAVED_WORK_KEY = "grain-sim:saved-work";
 // Version 2 (issue #156): a bucket elevator's height is its path length.
-// Version 1 work still loads: its golden line changes are read under the old
-// height model, and a file migrates the way OPEN migrates it.
-const SAVED_WORK_VERSION = 2;
+// Version 3 (issue #160): so is a pendulum conveyor's length. Older work
+// still loads: its golden line changes are read under the old models, and a
+// file migrates the way OPEN migrates it.
+const SAVED_WORK_VERSION = 3;
+const LENGTH_MODEL_VERSION = 2;
 const HEIGHT_MODEL_VERSION = 1;
+
+// Golden line changes saved under `version`, for the line as it is now.
+function currentChanges(base, version, changes) {
+  if (version === SAVED_WORK_VERSION) return changes;
+  const lengthModel = version === HEIGHT_MODEL_VERSION ? changesFromHeightModel(base, changes) : changes;
+  return changesFromLengthModel(base, lengthModel);
+}
 
 function browserStorage() {
   return window.localStorage;
@@ -29,10 +38,10 @@ export function loadSavedWork(golden, getStorage = browserStorage) {
     const text = getStorage().getItem(SAVED_WORK_KEY);
     if (text === null) return null;
     const saved = JSON.parse(text);
-    if (saved?.version !== SAVED_WORK_VERSION && saved?.version !== HEIGHT_MODEL_VERSION) return null;
+    if (![SAVED_WORK_VERSION, LENGTH_MODEL_VERSION, HEIGHT_MODEL_VERSION].includes(saved?.version)) return null;
     if (saved.kind === "changes") {
-      const changes = saved.version === HEIGHT_MODEL_VERSION && Array.isArray(saved.changes)
-        ? changesFromHeightModel(golden.line, saved.changes)
+      const changes = Array.isArray(saved.changes)
+        ? currentChanges(golden.line, saved.version, saved.changes)
         : saved.changes;
       return { ...golden, line: applyChanges(golden.line, changes) };
     }

@@ -16,7 +16,7 @@ import { useMachineMotion } from "./useMachineMotion";
 import { connectionPoints } from "../line/routing";
 import { anchorPoint, machineFootprint } from "../line/layout";
 import { connectionKey } from "../line/connecting";
-import { elevatorHandles, segmentLabels } from "../line/elevatorPath";
+import { zHandles, segmentLabels } from "../line/zShape";
 
 // Port dots (issue #88): shown only in Build mode (`onPortPointerDown` set).
 // An output port is filled solid (wheat, or the waste colour for a port
@@ -143,8 +143,8 @@ function SelectionButtons({ machine: m, onFlip, onDelete }) {
   ));
 }
 
-// Issue #157: the selected machine's length handles (line/elevatorPath.js
-// elevatorHandles), pills on the machine's own outline with a pair of
+// Issue #157: the selected machine's length handles (line/zShape.js
+// zHandles), pills on the machine's own outline with a pair of
 // chevrons, < >, pointing the two ways each drags: across for a run, turned
 // upright for the column. A press starts a handle drag (useHandleDrag.js),
 // never a machine drag; its click never reselects.
@@ -173,7 +173,7 @@ function LengthHandles({ machine: m, handles, onHandlePointerDown }) {
   ));
 }
 
-// Issue #159: the selected elevator's segment lengths (line/elevatorPath.js
+// Issue #159: the selected Z shape's segment lengths (line/zShape.js
 // segmentLabels), outside the mirror so they read normally on a flipped
 // one. The two a dragged handle trades between are drawn in wheat. They
 // never take a press: a handle, a port or the machine under them gets it.
@@ -366,7 +366,7 @@ export default function Scene({
             {selected && onHandlePointerDown && selectedIds.length === 1 && (
               <>
                 <SegmentLabels labels={segmentLabels(m, { handleId: reshaping?.machineId === m.id ? reshaping.handleId : undefined })} />
-                <LengthHandles machine={m} handles={elevatorHandles(m)} onHandlePointerDown={onHandlePointerDown} />
+                <LengthHandles machine={m} handles={zHandles(m)} onHandlePointerDown={onHandlePointerDown} />
               </>
             )}
           </g>

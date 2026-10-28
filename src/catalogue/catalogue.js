@@ -14,7 +14,7 @@
 //
 // Custom items (issue #94) are made here from the files, and some real items
 // are not listed in the panel; see CUSTOM_ITEMS below.
-import { MIN_TOTAL_M } from "../line/elevatorPath";
+import { MIN_TOTAL_M, drawZ } from "../line/zShape";
 import { PORT_COUNT_MAX } from "../line/portCounts";
 
 const files = import.meta.glob("./items/*.json", { eager: true, import: "default" });
@@ -49,7 +49,7 @@ const CUSTOM_LIMITS = {
 // A conveyor's length and an elevator's path length are both in metres but
 // draw the machine at that size, so each has a limit of its own. A path
 // length can be no shorter than its column's and runs' minimums allow
-// (elevatorPath.js).
+// (zShape.js).
 const CUSTOM_RESIZE_LIMITS = {
   length: { min: 1, max: 150 },
   pathLength: { min: MIN_TOTAL_M, max: 60 },
@@ -118,7 +118,17 @@ const CUSTOM_ITEMS = [
   ["palletiser", "Palletiser"],
 ];
 
-const fileItems = Object.values(files);
+// Issue #160: a Z-shaped item is drawn from its segments and its ports'
+// shares of their runs, so a new one's JSON needs nothing else of its
+// shape; any size or anchors an item's JSON does hold are drawn over.
+export function drawnItem(item) {
+  if (item.machine.geom?.segmentsM === undefined) return item;
+  const machine = structuredClone(item.machine);
+  drawZ(machine, machine.geom.segmentsM);
+  return { ...item, machine };
+}
+
+const fileItems = Object.values(files).map(drawnItem);
 const fileById = new Map(fileItems.map((item) => [item.id, item]));
 const customItems = CUSTOM_ITEMS.map(([from, name]) => (
   customVersion(fileById.get(from), `custom-${name.toLowerCase().replaceAll(" ", "-")}`, name)

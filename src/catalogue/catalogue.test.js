@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { ALL_ITEMS, CATALOGUE, CATALOGUE_GROUPS, catalogueItem, makerLabel, searchCatalogue } from "./catalogue";
 import { goldenLine } from "../line/goldenLine";
 import { adjustableFields } from "../line/adjustableFields";
-import { MIN_TOTAL_M } from "../line/elevatorPath";
+import { MIN_TOTAL_M } from "../line/zShape";
 
 describe("the catalogue", () => {
   it("has one item for each of its ids, in a known group, with a name and a maker and model", () => {

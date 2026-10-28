@@ -210,7 +210,7 @@ describe("loadSavedWork", () => {
       const storage = memoryStorage();
       const line = edit(goldenLine, "treatingElevator", "pathLength", 12);
       storeWork(GOLDEN, { ...GOLDEN, line }, () => storage);
-      expect(JSON.parse(storage.getItem(SAVED_WORK_KEY)).version).toBe(2);
+      expect(JSON.parse(storage.getItem(SAVED_WORK_KEY)).version).toBe(3);
       expect(loadSavedWork(GOLDEN, () => storage).line).toEqual(line);
     });
 
@@ -229,7 +229,7 @@ describe("loadSavedWork", () => {
   it.each([
     ["text that is not JSON", "{not json"],
     ["an unknown kind", JSON.stringify({ version: 1, kind: "other" })],
-    ["a newer version", JSON.stringify({ version: 3, kind: "changes", changes: [] })],
+    ["a newer version", JSON.stringify({ version: 4, kind: "changes", changes: [] })],
     ["a damaged file", JSON.stringify({ version: 1, kind: "file", file: "{}" })],
     ["JSON null", "null"],
   ])("treats %s as no saved work", (_, text) => {

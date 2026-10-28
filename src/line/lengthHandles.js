@@ -1,6 +1,6 @@
 // Drag handles that change a machine's lengths on the canvas (issue #157).
 // A machine's lengths are named segments in metres, such as a bucket
-// elevator's floor run, column and head run (elevatorPath.js). A handle
+// elevator's floor run, column and head run (zShape.js). A handle
 // lengthens one segment, `grows`, as the pointer moves along its `axis`
 // ("x" or "y") the way `sign` says (+1 or -1), and shortens it the other
 // way. With `takesFrom` it trades: the other segment gives the length and

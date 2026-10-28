@@ -180,9 +180,14 @@ describe("name, tag and resize as changes", () => {
     expect(setMachineText(goldenLine, "discardBin", "tag", "").ok).toBe(true);
   });
 
-  it("lists and reproduces a resized conveyor's length as a change, like any other adjustable field", () => {
-    const resized = edit(goldenLine, ["pendulumConveyor", "length", 40]);
-    expect(diffFromBase(goldenLine, resized)).toEqual([{ machine: "pendulumConveyor", field: "length", value: 40 }]);
+  it("lists and reproduces a resized conveyor's path length as a change, like any other adjustable field", () => {
+    const resized = edit(goldenLine, ["pendulumConveyor", "pathLength", 40]);
+    // Its boot stays put, so its top-left corner rises with the column.
+    const m = resized.machines.find((x) => x.id === "pendulumConveyor");
+    expect(diffFromBase(goldenLine, resized)).toEqual([
+      { machine: "pendulumConveyor", field: "pathLength", value: 40 },
+      { machine: "pendulumConveyor", position: { x: m.x, y: m.y } },
+    ]);
     expect(applyChanges(goldenLine, diffFromBase(goldenLine, resized))).toEqual(resized);
   });
 });

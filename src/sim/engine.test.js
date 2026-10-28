@@ -2068,17 +2068,16 @@ describe("the packaging conveyor carries product to the outload buffer bin (issu
     setSource(sim, "proBox");
     setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(20));
 
-    // Issue #69: outBuffer, the nearest of the three outlets (anchor x:240
-    // of outConcetti's own x:1745), now carries its own much shorter
-    // per-outlet transit distance (~4.28 m vs the whole-run 31.087 m) —
-    // ≈25.4 s at the confirmed 10.08 m/min chain speed, not the ~185 s every
-    // route shared before this ticket. Live-traced against createSim(line)
-    // unmodified.
-    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // short of the ~25.4s lag
+    // Issue #160: the Pro Box's feeder drops onto in1, 3.542 m along the
+    // floor run, and outBuffer sits 18.282 m along the path (the floor run,
+    // the column and 13.75 % of the head run), so its grain travels about
+    // 14.74 m: ≈87.7 s at the confirmed 10.08 m/min chain speed. (Issue #69
+    // had apportioned outBuffer over the head run alone, ≈25.4 s.)
+    for (let i = 0; i < Math.round(80 / DT); i++) stepSim(sim, DT); // short of the ~87.7s lag
     expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeCloseTo(0);
     expect(getMachineState(sim, GRAIN_BREAK_ID).flowRateM3PerSec).toBe(0);
 
-    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // now past it
+    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // now past it
     expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeGreaterThan(0);
   });
 
@@ -2089,21 +2088,19 @@ describe("the packaging conveyor carries product to the outload buffer bin (issu
     setAccumulatorLevel(sim, METAL_BIN_1_ID, 0);
     setSource(sim, "proBox");
     setSourceRate(sim, PRO_BOX_ID, tPerHourToM3PerSec(12));
-    // Issue #69: outBuffer's own transit is now ~25.4s (not the old shared
-    // ~185s), so "some material mid-transit" needs a much shorter head
-    // start — 10s is ~39% of the way through at full speed.
-    for (let i = 0; i < Math.round(10 / DT); i++) stepSim(sim, DT); // some material already mid-transit
+    // Issue #160: in1 to outBuffer is ~87.7s at full speed (see the test
+    // above), so a 30s head start is about a third of the way through.
+    for (let i = 0; i < Math.round(30 / DT); i++) stepSim(sim, DT); // some material already mid-transit
     setElevatorSpeed(sim, CONVEYOR_ID, 0.5); // halved live, mid-run
 
     // Halving the chain speed doubles the *remaining* leg of the transit: at
-    // full speed that material would have arrived ~15.4s after the halving
-    // point (25.4 - 10); halved, the remainder alone takes ~2x as long,
-    // landing arrival at ~30.9s after halving (live-traced against
-    // createSim(line) unmodified).
-    for (let i = 0; i < Math.round(20 / DT); i++) stepSim(sim, DT); // 20s post-halving, short of ~30.9s
+    // full speed that material would have arrived ~57.7s after the halving
+    // point (87.7 - 30); halved, the remainder alone takes ~2x as long,
+    // landing arrival at ~115.5s after halving.
+    for (let i = 0; i < Math.round(100 / DT); i++) stepSim(sim, DT); // 100s post-halving, short of ~115.5s
     expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeCloseTo(0); // re-paced, not just unaffected new material
 
-    for (let i = 0; i < Math.round(25 / DT); i++) stepSim(sim, DT); // 45s post-halving, past it
+    for (let i = 0; i < Math.round(30 / DT); i++) stepSim(sim, DT); // 130s post-halving, past it
     expect(getMachineState(sim, METAL_BIN_1_ID).stored).toBeGreaterThan(0);
   });
 

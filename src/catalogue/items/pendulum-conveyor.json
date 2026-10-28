@@ -7,11 +7,23 @@
   "model": "E200",
   "machine": {
     "type": "conveyor",
-    "w": 2030,
-    "h": 780,
+    "w": 762.9,
+    "h": 274.71,
     "geom": {
-      "colX": 280,
-      "duct": 36
+      "colX": 237.52,
+      "duct": 36,
+      "segmentsM": {
+        "floor": 7.084,
+        "column": 9.157,
+        "head": 14.846
+      },
+      "portShares": {
+        "in1": 0.5,
+        "in2": 1,
+        "outBuffer": 0.1375,
+        "outBinSeg": 0.6418,
+        "outConcetti": 1
+      }
     },
     "ports": {
       "inputs": [
@@ -26,23 +38,23 @@
     },
     "anchors": {
       "in1": {
-        "x": 170,
-        "y": 744
+        "x": 131.26,
+        "y": 238.71
       },
       "in2": {
-        "x": 40,
-        "y": 744
+        "x": 25,
+        "y": 238.71
       },
       "outBuffer": {
-        "x": 520,
+        "x": 334.75975,
         "y": 26
       },
       "outBinSeg": {
-        "x": 1400,
+        "x": 559.364884,
         "y": 26
       },
       "outConcetti": {
-        "x": 2025,
+        "x": 718.9,
         "y": 26
       }
     },
@@ -87,14 +99,14 @@
         "bind": "chainSpeed"
       },
       {
-        "id": "length",
-        "label": "length",
+        "id": "pathLength",
+        "label": "path length",
         "unit": "m",
         "kind": "number",
         "min": 15,
         "max": 60,
         "default": 31.087,
-        "bind": "length"
+        "bind": "pathLength"
       }
     ],
     "sim": {
@@ -102,8 +114,10 @@
       "defaultPort": "outConcetti",
       "distanceM": 31.087,
       "portDistanceM": {
-        "outBuffer": 4.275575931232091,
-        "outBinSeg": 19.952687679083095,
+        "in1": 3.542,
+        "in2": 0,
+        "outBuffer": 18.282325,
+        "outBinSeg": 25.7691628,
         "outConcetti": 31.087
       },
       "speedMPerMin": 10.08,
