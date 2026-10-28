@@ -312,6 +312,38 @@ describe("running a machine with several ports", () => {
     expect(() => assertConserved(sim)).not.toThrow();
   });
 
+  // A full bin jams the elevator, and the jam holds until another outlet
+  // is selected; the grain waiting on the chain then fills that bin.
+  it("stays jammed on a full bin until another outlet is selected, then fills that one", () => {
+    let { line, id } = placed("custom-bucket-elevator");
+    line = set(line, id, "outputs", 2);
+    const grainIn = add(line, "grain-in", { x: 0, y: 0 });
+    line = connect(grainIn.line, { machine: grainIn.id, port: "out" }, { machine: id, port: "in" });
+    const bins = [];
+    for (const [i, port] of ["out1", "out2"].entries()) {
+      const bin = add(line, "custom-bin", { x: 1200 + 200 * i, y: 0 });
+      line = connect(bin.line, { machine: id, port }, { machine: bin.id, port: "in" });
+      bins.push(bin.id);
+    }
+    const sim = createSim(line);
+    setSelection(sim, id, "out1");
+    const { capacity } = getMachineState(sim, bins[0]);
+    run(sim, 500);
+    expect(getMachineState(sim, bins[0]).stored).toBeGreaterThan(capacity * 0.99);
+    expect(sim.machines.get(id).jammed).toBe(true);
+    const fedBefore = getMachineState(sim, grainIn.id).fed;
+    run(sim, 60);
+    expect(getMachineState(sim, grainIn.id).fed).toBeCloseTo(fedBefore, 9);
+    expect(getMachineState(sim, bins[1]).stored).toBe(0);
+
+    setSelection(sim, id, "out2");
+    run(sim, 300);
+    expect(sim.machines.get(id).jammed).toBe(false);
+    expect(getMachineState(sim, bins[1]).stored).toBeGreaterThan(1);
+    expect(getMachineState(sim, grainIn.id).fed).toBeGreaterThan(fedBefore + 1);
+    expect(() => assertConserved(sim)).not.toThrow();
+  });
+
   it("gives a machine with one outlet no selector", () => {
     const { line } = placed("custom-conveyor");
     expect(plantControlsFor(line).selectors).toEqual([]);

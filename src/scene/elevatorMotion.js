@@ -256,7 +256,12 @@ const LOADING_ZONE_BANDS = 1;
 // fed: the boot, and each inlet partway along the run. A bucket passing
 // under a later inlet tops up to the live density there, which already
 // counts what it brought from earlier inlets, and never loses what it had.
-export function carryBucketLoads(buckets, phase, held, { bandCount, hasMaterial = true, spacing = BUCKET_SPACING, loadingCutoffFrac, loadingStartFracs = [0] } = {}) {
+//
+// `jammed` (issue #152): the machine's grain is waiting on a full outlet.
+// The sim sends that grain on to whichever outlet is selected next, so every
+// bucket loaded while it waited is marked, and once the jam has cleared it
+// takes the live cutoff instead of the one it was stamped with.
+export function carryBucketLoads(buckets, phase, held, { bandCount, hasMaterial = true, spacing = BUCKET_SPACING, loadingCutoffFrac, loadingStartFracs = [0], jammed = false } = {}) {
   if (!(bandCount > 0)) return buckets;
   // Nothing left in transit at all (a cleared plant, or a chain that has
   // fully drained): drop every carried load rather than letting buckets
@@ -283,6 +288,11 @@ export function carryBucketLoads(buckets, phase, held, { bandCount, hasMaterial 
       held.set(gen, { load: b.fillRatio, cutoff: loadingCutoffFrac });
     }
     const entry = held.get(gen);
+    if (jammed && entry.load > 0) entry.waited = true;
+    else if (!jammed && entry.waited) {
+      entry.cutoff = loadingCutoffFrac;
+      delete entry.waited;
+    }
     // Past its own outlet, a bucket has already tipped its grain out: it
     // rides the rest of the run empty rather than carrying it to the head.
     b.fillRatio = entry.cutoff != null && b.pathFrac >= entry.cutoff ? 0 : entry.load;
@@ -337,6 +347,7 @@ export function bucketFrame(m, dynamic, phase, held) {
     hasMaterial: dynamic?.inTransitVol > 0 || dynamic?.backlogVol > 0,
     loadingCutoffFrac: dynamic?.selected ? outletPathFraction(m, dynamic.selected) : undefined,
     loadingStartFracs: inletPathFractions(m),
+    jammed: dynamic?.jammed === true,
   });
   const poolSize = bucketPoolSize(m);
   return buckets.map((b) => {

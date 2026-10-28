@@ -202,6 +202,19 @@ describe("carryBucketLoads", () => {
     for (const b of before) expect(b.fillRatio).toBe(0);
   });
 
+  // Issue #152: grain jammed on a full outlet goes on to the outlet selected
+  // next, so the buckets holding it tip there instead.
+  it("sends buckets that waited through a jam to the outlet selected after it", () => {
+    const held = new Map();
+    const opts = { bandCount: BANDS, loadingCutoffFrac: 0.6 };
+    carryBucketLoads(computeElevatorBuckets(FIXTURE, withDensity(1), 0), 0, held, opts);
+    carryBucketLoads(computeElevatorBuckets(FIXTURE, withDensity(0), 0), 0, held, { ...opts, jammed: true });
+    const after = carryBucketLoads(computeElevatorBuckets(FIXTURE, withDensity(0), 0), 0, held, { ...opts, loadingCutoffFrac: 0.9 });
+    const between = after.filter((b) => b.pathFrac > 0.65 && b.pathFrac < 0.85);
+    expect(between.length).toBeGreaterThan(0);
+    for (const b of between) expect(b.fillRatio).toBe(1);
+  });
+
   it("carries a bucket's load unchanged once clear of the boot, instead of resampling the band under it", () => {
     const held = new Map();
     carryBucketLoads(computeElevatorBuckets(FIXTURE, withDensity(1), 0), 0, held, { bandCount: BANDS });

@@ -450,6 +450,7 @@ function initTransportDelay(m) {
     queue: [],       // [{ progress, vol }] material past the infeed, still travelling
     backlog: 0,      // volume that finished transit but discharge hasn't taken it yet
     bootHeld: 0,     // fed past the rated intake, waiting to go on the chain (loadedShare)
+    stopsWhenJammed: stopsWhenJammed(m),
     delivered: 0,
   };
 }
@@ -459,6 +460,26 @@ function initTransportDelay(m) {
 function chainSpeedMPerSec(state) {
   return (state.speedMPerMin * dialEffective(state, SPEED_DIAL)) / 60;
 }
+// Issue #152: how a Custom conveyor or bucket elevator (one whose inlets and
+// outlets the user counts, portCounts.js) meets a full outlet. A jammed
+// chain (isJammed: last tick nothing could leave) stands still with its
+// grain in the buckets, as a plugged discharge stops a real one; selecting
+// an outlet with room sends the waiting grain on to it
+// (rerouteFromFullOutlets); and the infeed shuts only while the outlet
+// refuses grain, not while the chain delivers it at its full rated
+// discharge, as it does when a jam clears. The golden line's machines keep
+// carrying grain to the head and piling it there, and shut the infeed while
+// any is waiting: its interlock baseline was set with them.
+function stopsWhenJammed(m) {
+  return (m.adjustable ?? []).some((a) => a.bind === "outputCount");
+}
+function isBackedUp(state) {
+  if (state.stopsWhenJammed) return state.backlog > EPS && state.heldBackByDownstream !== false;
+  return state.backlog > EPS;
+}
+function travelSpeedMPerSec(state) {
+  return state.stopsWhenJammed && state.jammed ? 0 : chainSpeedMPerSec(state);
+}
 function queueVolume(state) {
   return state.queue.reduce((a, p) => a + p.vol, 0);
 }
@@ -467,7 +488,7 @@ function capacityAvailableTransportDelay(state, dt) {
   // the chain physically filling up — exact bucket count/volume/chain
   // length are still unconfirmed (see docs/OPEN_QUESTIONS.md), so this
   // doesn't attempt to track precise in-chain capacity.
-  if (state.backlog > EPS) return 0;
+  if (isBackedUp(state)) return 0;
   // Intake scales with the chain's effective speed (issue #22): a slowed
   // chain carries fewer buckets past the infeed per second, and a stopped
   // one accepts nothing new — the "reduces the infeed" half of the two-stage
@@ -508,7 +529,7 @@ function applyTransportDelay(state, dt, inflow, cap, downstreamCap = 0, hasDowns
   if (accepted > 0) state.queue.push({ progress: 0, vol: accepted });
 
   state.throttleFraction = slewToward(state.throttleFraction, state.throttleTarget, state.throttleRampPerSec, dt);
-  const v = chainSpeedMPerSec(state);
+  const v = travelSpeedMPerSec(state);
   const progressStep = state.distanceM > 0 ? (v * dt) / state.distanceM : 0;
   const still = [];
   for (const pkt of state.queue) {
@@ -523,6 +544,8 @@ function applyTransportDelay(state, dt, inflow, cap, downstreamCap = 0, hasDowns
   const out = Math.min(state.backlog, dischargeCap);
   state.backlog -= out;
   state.delivered += out;
+  state.jammed = isJammed(state, out);
+  state.heldBackByDownstream = hasDownstream && downstreamCap < dischargeCeiling - EPS;
   return out;
 }
 function conserveTransportDelay(state, hasDownstream) {
@@ -620,6 +643,7 @@ function snapshotTransportDelay(state) {
     // Actual live chain speed (issue #31), already folding in both the
     // manual VFD dial and any active interlock throttle via chainSpeedMPerSec.
     chainSpeedMPerMin: v * 60,
+    jammed: state.stopsWhenJammed && state.jammed === true, // issue #152: the scene stops the chain with its grain waiting
     densityProfile,
   };
 }
@@ -708,6 +732,7 @@ function initRoutedTransportDelay(m) {
                       // backlogEntries so external readers (tests, the popup) see the
                       // exact same scalar plain transportDelay machines publish
     bootHeld: {},    // by inlet port: fed past the rated intake, waiting to go on (loadedShare)
+    stopsWhenJammed: stopsWhenJammed(m),
     delivered: 0,
   };
 }
@@ -733,7 +758,7 @@ function capacityAvailableRoutedTransportDelay(state, dt) {
   // transportDelay uses — the single physical chain can't accept new
   // material at the infeed while anything is still jammed at the discharge
   // end, regardless of which outlet the jam is destined for.
-  if (state.backlog > EPS) return 0;
+  if (isBackedUp(state)) return 0;
   // Same effective speed as plain transportDelay's own intake above.
   return intakeLimit(state, dt);
 }
@@ -761,7 +786,7 @@ function applyRoutedTransportDelay(state, dt, inflow, cap, downstreamCap = {}, h
   }
 
   state.throttleFraction = slewToward(state.throttleFraction, state.throttleTarget, state.throttleRampPerSec, dt);
-  const v = chainSpeedMPerSec(state);
+  const v = travelSpeedMPerSec(state);
   const still = [];
   for (const pkt of state.queue) {
     // Issue #69: paced against this packet's own distance, not the shared
@@ -776,6 +801,8 @@ function applyRoutedTransportDelay(state, dt, inflow, cap, downstreamCap = {}, h
   }
   state.queue = still;
 
+  rerouteFromFullOutlets(state, downstreamCap, hasDownstream);
+
   // Discharge is strictly FIFO across ports, not per-port parallel: the
   // conveyor has exactly one physical discharge point, so material queued
   // ahead of a still-blocked entry can't "skip ahead" onto a different,
@@ -785,6 +812,7 @@ function applyRoutedTransportDelay(state, dt, inflow, cap, downstreamCap = {}, h
   const outflow = {};
   const remaining = [];
   let stalled = false;
+  state.heldBackByDownstream = false;
   for (const entry of state.backlogEntries) {
     if (stalled || dischargeBudget <= EPS) {
       remaining.push(entry);
@@ -792,6 +820,7 @@ function applyRoutedTransportDelay(state, dt, inflow, cap, downstreamCap = {}, h
     }
     const portCap = hasDownstream[entry.port] ? downstreamCap[entry.port] ?? 0 : Infinity;
     const out = Math.min(entry.vol, dischargeBudget, portCap);
+    if (portCap < Math.min(entry.vol, dischargeBudget) - EPS) state.heldBackByDownstream = true;
     outflow[entry.port] = (outflow[entry.port] ?? 0) + out;
     dischargeBudget -= out;
     if (!hasDownstream[entry.port]) state.delivered += out;
@@ -802,7 +831,38 @@ function applyRoutedTransportDelay(state, dt, inflow, cap, downstreamCap = {}, h
   }
   state.backlogEntries = remaining;
   state.backlog = totalBacklogVolume(state);
+  state.jammed = isJammed(state, Object.values(outflow).reduce((a, v) => a + v, 0));
   return outflow;
+}
+// Issue #152: grain waiting for an outlet whose bin is full stays jammed
+// until another outlet with room is selected. Then the bucket passes the
+// full outlet's closed gate and carries on to the selected one: on along
+// the run if that is further, or round the chain again from the infeed end
+// if it is nearer (the return run taken as instant). Grain whose outlet
+// still has room keeps going there, so an ordinary mid-run switch is
+// unchanged (see the queue's own comment on stamping a packet's port).
+function rerouteFromFullOutlets(state, downstreamCap, hasDownstream) {
+  if (!state.stopsWhenJammed) return;
+  const full = (port) => hasDownstream[port] === true && (downstreamCap[port] ?? 0) <= EPS;
+  const to = state.selected;
+  if (full(to)) return;
+  const stuck = state.backlogEntries.filter((e) => e.port !== to && full(e.port));
+  if (stuck.length === 0) return;
+  state.backlogEntries = state.backlogEntries.filter((e) => !stuck.includes(e));
+  state.backlog = totalBacklogVolume(state);
+  const toM = portDistanceMFor(state, to);
+  for (const e of stuck) {
+    const fromM = portDistanceMFor(state, e.port);
+    const startM = fromM < toM ? fromM : 0;
+    const pkt = { progress: 0, vol: e.vol, port: to, distanceM: toM - startM };
+    if (startM > 0) pkt.startM = startM;
+    state.queue.push(pkt);
+  }
+}
+// Jammed: grain is waiting at the discharge and none of it could leave
+// this tick, because what it is bound for is full.
+function isJammed(state, discharged) {
+  return state.backlog > EPS && discharged <= EPS;
 }
 function conserveRoutedTransportDelay(state) {
   const inTransit = queueVolume(state) + heldVolume(state) + state.backlog;
@@ -856,6 +916,7 @@ function snapshotRoutedTransportDelay(state) {
     throttleTarget: state.throttleTarget,
     speedDial: dialReading(state, SPEED_DIAL),
     chainSpeedMPerMin: v * 60,
+    jammed: state.stopsWhenJammed && state.jammed === true,
     selected: state.selected,
     densityProfile,
     // Issue #69: where material accepted *right now* leaves this machine,
