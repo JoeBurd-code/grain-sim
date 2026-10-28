@@ -8,6 +8,7 @@ import {
   exportLine, importLineFile, setAdjustableValue, addMachine, emptyLine,
   connectPorts, disconnectConnection, connectionKey, setMachineText,
   moveMachines, deleteMachines, copyMachines, pasteMachines, flipMachine,
+  moveLabel, resetLabel, isDefaultLabel,
 } from "../line/lineDocument";
 import { catalogueItem } from "../catalogue/catalogue";
 import { placeMachines, pastePointBeside } from "../line/groups";
@@ -392,6 +393,19 @@ export default function PlantApp() {
   }, [line, applyShapeEdit]);
   const handleDrag = useHandleDrag(onReleaseHandle);
 
+  // Issue #158: a machine's name label dragged in Build mode moves only the
+  // label, as one undo step, wherever it is dropped; while it is dragged the
+  // scene shows it where it would land (shownLine below). "Reset label" in
+  // the Build panel puts it back to the golden line's or the catalogue's.
+  const onReleaseLabel = useCallback(({ machineId, delta }) => {
+    if (Math.round(delta.x) === 0 && Math.round(delta.y) === 0) return;
+    applyShapeEdit((l) => moveLabel(l, machineId, delta));
+  }, [applyShapeEdit]);
+  const labelDrag = useHandleDrag(onReleaseLabel);
+  const onResetLabel = useCallback((machineId) => {
+    applyShapeEdit((l) => resetLabel(l, machineId, goldenLine));
+  }, [applyShapeEdit]);
+
   // Issue #92: every interlock sentence edit (add, change a blank, add/
   // remove/reorder a step, delete the interlock) goes through sentenceEditor
   // functions that return { ok, line }. `fn` is called against the current
@@ -658,14 +672,19 @@ export default function PlantApp() {
   );
   // While a drag is in progress the scene draws the machines where they
   // would land, or (issue #157) the elevator in the shape its handle gives
-  // it; the current line changes only on release.
+  // it, or (issue #158) a dragged label where it would land; the current
+  // line changes only on release.
   const shownLine = useMemo(() => {
     if (drag.preview) return placeMachines(line, drag.preview.ids, drag.preview.delta);
+    if (labelDrag.preview) {
+      const moved = moveLabel(line, labelDrag.preview.machineId, labelDrag.preview.delta);
+      return moved.ok ? moved.line : line;
+    }
     const reshaping = handleDrag.preview;
     const m = reshaping && line.machines.find((x) => x.id === reshaping.machineId);
     if (!m) return line;
     return previewReshape(line, m.id, segmentsAfterDrag(m, reshaping.handleId, reshaping.delta, { fine: reshaping.fine }));
-  }, [line, drag.preview, handleDrag.preview]);
+  }, [line, drag.preview, handleDrag.preview, labelDrag.preview]);
 
   // Issue #95: Shift+click in Build mode adds a machine to the selection,
   // or takes it out if it is already in.
@@ -1029,6 +1048,7 @@ export default function PlantApp() {
                 onFlipMachine={building ? onFlipMachine : undefined}
                 onDeleteMachine={building ? onDeleteMachine : undefined}
                 onHandlePointerDown={building ? handleDrag.onHandlePointerDown : undefined}
+                onLabelPointerDown={building ? labelDrag.onHandlePointerDown : undefined}
               />
             )}
             {selected && !building && (
@@ -1082,6 +1102,8 @@ export default function PlantApp() {
               onStartOver={onStartOver}
               onEditField={onEditField}
               onEditText={onEditText}
+              labelAtDefault={selected ? isDefaultLabel(selected, goldenLine) : true}
+              onResetLabel={onResetLabel}
               onDeleteGroup={onDeleteGroup}
               onDeleteConnection={() => onDisconnect(selectedConnectionKey)}
               onGoToProblem={onGoToProblem}
