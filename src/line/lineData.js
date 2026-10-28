@@ -47,10 +47,8 @@ import { tPerHourToM3PerSec, BULK_DENSITY_T_PER_M3 } from "../sim/units";
 
 // Pendulum conveyor (52.604.E00) carrying-side path: lower horizontal
 // (7.084 m) + vertical rise (9.157 m) + upper horizontal (14.846 m), sheet
-// 52-13's own spec block (PDF-text exact, REAL_LINE_SPECS.md §8). Named here
-// since issue #69's own per-outlet `portDistanceM` (below) apportions this
-// same total three more times, not just once as the whole-run `distanceM`.
-const PENDULUM_CONVEYOR_RUN_M = 7.084 + 9.157 + 14.846;
+// 52-13's own spec block (PDF-text exact, REAL_LINE_SPECS.md §8).
+const PENDULUM_CONVEYOR_RUN_M = 31.087;
 
 // Build mode fields (issue #77, table approved on the issue). A slider
 // default names its slider; a behaviour setting names the line value it
@@ -67,11 +65,9 @@ const signalDelayField = (value) => ({ id: "signalDelay", label: "signal delay",
 const capacityField = (min, max, value) => ({ id: "capacity", label: "capacity", unit: "m³", kind: "number", min, max, default: value, bind: "capacity" });
 const ratedCapacityField = (label, min, max, value) => ({ id: "ratedCapacity", label, unit: "t/h", kind: "number", min, max, default: value, bind: "ratedCapacity" });
 const chainSpeedField = (value) => ({ id: "chainSpeed", label: "chain speed", unit: "m/min", kind: "number", min: 2, max: 30, default: value, bind: "chainSpeed" });
-// Issue #90: a conveyor's length or an elevator's height. The field's value
-// *is* `sim.distanceM` (adjustableFields.js's resizeField) so the drawn size
-// and the transit distance never disagree.
-const lengthField = (min, max, value) => ({ id: "length", label: "length", unit: "m", kind: "number", min, max, default: value, bind: "length" });
-// Issue #156: a bucket elevator's full path, floor run to head run.
+// Issues #156 and #160: a Z shape's full path, floor run to head run. The
+// field's value *is* `sim.distanceM`, so the drawn size and the transit
+// distance never disagree.
 const pathLengthField = (min, max, value) => ({ id: "pathLength", label: "path length", unit: "m", kind: "number", min, max, default: value, bind: "pathLength" });
 // An outlet valve's or a drum feeder gate's starting position, in whole %.
 // Fully open, as the real line runs today.
@@ -316,7 +312,7 @@ export const line = {
       status: "new",
       zone: "treating",
       // Issue #156: drawn from its path's three segments at the true scale
-      // (elevatorPath.js), which add up to the 8.731 m below. The climb from
+      // (zShape.js), which add up to the 8.731 m below. The climb from
       // under the drum feeder to above the pre-bin needs nearly all of it,
       // so both runs are at their 0.5 m minimum and the column takes the
       // rest; the chutes either side (connections below) carry grain the
@@ -731,7 +727,7 @@ export const line = {
       // lines up directly above inletDrumFeeder1's `in` anchor, now that the
       // two feeders' positions have been swapped (see inletDrumFeeder1's own
       // comment) — a straight drop, no via point needed.
-      x: 1270, y: 600, w: 120, h: 80,
+      x: 1236.5, y: 202, w: 120, h: 80,
       ports: { inputs: [], outputs: ["out"] },
       anchors: { out: { x: 60, y: 80 } },
       label: { side: "above", align: "center" },
@@ -771,7 +767,7 @@ export const line = {
       // line into inletDrumFeeder2, which sits closer to the screen. Moved
       // down (issue #62 follow-up) by the same amount as inletDrumFeeder2,
       // to keep the two feeders paired at the same height.
-      x: 1290, y: 818, w: 80, h: 36,
+      x: 1256.5, y: 312, w: 80, h: 36,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 36 } },
       label: { side: "below", align: "center", nudge: { y: 30 } },
@@ -829,13 +825,11 @@ export const line = {
       zone: "packaging",
       // Positioned left of inletDrumFeeder1 (swapped 2026-08-14), closer to
       // the scalping screen its own product actually comes from — see
-      // inletDrumFeeder1's comment above for why. Moved down (issue #62
-      // follow-up) so its own inlet sits level with the scalping discharge
-      // hopper's discharge, with a left-side `in` anchor instead of the
-      // usual top-centre one, so the hopper's own product line runs
-      // straight across into this feeder's left side rather than dropping
-      // in from above.
-      x: 1160, y: 818, w: 80, h: 36,
+      // inletDrumFeeder1's comment above for why. Its `in` anchor is on its
+      // left side (issue #62 follow-up), so the scalping discharge hopper's
+      // product line comes in across from the treating zone rather than
+      // dropping in from above.
+      x: 1150.24, y: 312, w: 80, h: 36,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 0, y: 18 }, out: { x: 40, y: 36 } },
       label: { side: "above", align: "center" },
@@ -872,37 +866,35 @@ export const line = {
       name: "PENDULUM CONVEYOR",
       // Merged 2026-08-12 (issue #44): the former "lift conveyor" and "top
       // transport conveyor" are one machine, 52.604.E00, a Simatek E200
-      // pendulum conveyor. Real geometry is a Z path (floor run, vertical
-      // climb, ceiling run) — issue #70 gives the body that actual Z shape
-      // (reusing the geom-driven path ElevatorSymbol/elevatorChain already
-      // draw for treatingElevator below: `geom.colX` is the climb's local x,
-      // `geom.duct` its housing thickness), rather than the ceiling-run-only
-      // rect this drew before. The bounding box now stretches down to floor
-      // level (where the two drum feeders discharge) and left to meet them,
-      // instead of that being implied only by the infeed connections' via
-      // points (removed below, now that the body itself carries the
-      // geometry). x/y/w/h chosen so the ceiling run's own world position —
-      // and therefore outBuffer/outBinSeg/outConcetti's world coordinates —
-      // is unchanged from before this issue; only the local frame's origin
-      // moved.
+      // pendulum conveyor, a Z path (floor run, vertical climb, ceiling run).
+      // Issue #160: drawn like the treating elevator from its path's three
+      // segments at the true scale (zShape.js), the sheet 52-13 spec block's
+      // 7.084 + 9.157 + 14.846 m, about 763 x 275 px. Each port keeps its
+      // share of its run (`geom.portShares`, measured from the column): in1
+      // halfway along the floor run under drum feeder 1, in2 at its end under
+      // drum feeder 2, and the outlets where the old drawn ceiling run had
+      // them, 240 and 1120 of its 1745 px with outConcetti at its end. The
+      // packaging area was laid out again around it: each outlet drops
+      // straight onto its branch's first machine, and the Concetti branch's
+      // bagging machines sit to the right of the bin seg branch's.
       tag: "52.604.E00",
       status: "new",
       zone: "packaging",
-      x: 1160, y: 140, w: 2030, h: 780,
-      geom: { colX: 280, duct: 36 },
+      x: 1165.24, y: 140, w: 762.9, h: 274.71,
+      geom: {
+        colX: 237.52, duct: 36,
+        segmentsM: { floor: 7.084, column: 9.157, head: 14.846 },
+        portShares: { in1: 0.5, in2: 1, outBuffer: 0.1375, outBinSeg: 0.6418, outConcetti: 1 },
+      },
       ports: { inputs: ["in1", "in2"], outputs: ["outBuffer", "outBinSeg", "outConcetti"] },
       anchors: {
-        // Floor-run pickups, at the top surface of the floor duct (h - duct)
-        // — the same surface treatingElevator's own single `in` anchor sits
-        // on (y = h - duct there too). in1 (feeder 1, nearer the climb) and
-        // in2 (feeder 2, farther out) sit at local x matching their own
-        // feeder's discharge x exactly, so the infeed connections below are
-        // now plain straight drops with no via points needed.
-        in1: { x: 170, y: 744 },
-        in2: { x: 40, y: 744 },
-        outBuffer: { x: 520, y: 26 },
-        outBinSeg: { x: 1400, y: 26 },
-        outConcetti: { x: 2025, y: 26 },
+        // Floor-run pickups on the floor duct's top surface (h - duct), the
+        // outlets inside the ceiling run's duct.
+        in1: { x: 131.26, y: 238.71 },
+        in2: { x: 25, y: 238.71 },
+        outBuffer: { x: 334.75975, y: 26 },
+        outBinSeg: { x: 559.364884, y: 26 },
+        outConcetti: { x: 718.9, y: 26 },
       },
       instruments: ["LSH"],
       label: { side: "above", align: "center" },
@@ -950,36 +942,25 @@ export const line = {
       adjustable: [
         ratedCapacityField("rated capacity", 5, 40, 20.84),
         chainSpeedField(10.08),
-        lengthField(15, 60, PENDULUM_CONVEYOR_RUN_M),
+        pathLengthField(15, 60, PENDULUM_CONVEYOR_RUN_M),
       ],
       sim: {
         kind: "routedTransportDelay",
         defaultPort: "outConcetti",
         distanceM: PENDULUM_CONVEYOR_RUN_M,
-        // Issue #69: per-outlet transit distance. No document gives each
-        // outlet's own along-belt distance from the infeed (docs/OPEN_QUESTIONS.md
-        // already flagged the gap, issue #52) — this apportions the confirmed
-        // full-run `distanceM` by each outlet's own anchor x-position *as it
-        // stood along the drawn ceiling run when this was derived* (240 /
-        // 1120 / 1745, against outConcetti's own 1745, since outConcetti sat
-        // at the physical tail of the drawn ceiling run, essentially the
-        // discharge end) and is already the machine's real most-used
-        // destination (its own `defaultPort`, issue #56). Issue #70 gave the
-        // machine's body its full Z shape and shifted every anchor's own
-        // local x by +280 to make room for the floor run, but these three
-        // literals are left exactly as originally derived — they encode a
-        // fixed physical apportionment, not a live reference to the anchors
-        // object, and the ceiling run's own three outlets keep the same
-        // relative spacing after the shift. That keeps outConcetti's own
-        // distance exactly the already-derived 31.087 m (no regression to
-        // its own already-confirmed ≈185 s figure) while outBuffer and
-        // outBinSeg, which sit nearer the infeed along the same drawn run,
-        // get proportionally shorter ones. Marked `derived`, not
-        // `confirmed` — the *split* itself is assumed, only the total is
-        // PDF-text exact. See docs/OPEN_QUESTIONS.md.
+        // Issue #160: each port's distance along the path from the floor
+        // run's far end (zShape.js placeZPorts): an inlet's is how far out
+        // along the floor run it sits, and an outlet's the floor run and
+        // column plus its share of the head run. Before this issue the
+        // outlets' were apportioned over the head run alone (about 4.3 and
+        // 20.0 m for outBuffer and outBinSeg) and both inlets fed at 0 m.
+        // Marked `derived`, not `confirmed`: the shares are assumed, only
+        // the segments are PDF-text exact. See docs/OPEN_QUESTIONS.md.
         portDistanceM: {
-          outBuffer: PENDULUM_CONVEYOR_RUN_M * (240 / 1745),
-          outBinSeg: PENDULUM_CONVEYOR_RUN_M * (1120 / 1745),
+          in1: 3.542,
+          in2: 0,
+          outBuffer: 18.282325,
+          outBinSeg: 25.7691628,
           outConcetti: PENDULUM_CONVEYOR_RUN_M,
         },
         speedMPerMin: 10.08,
@@ -1000,7 +981,7 @@ export const line = {
       tag: "52.610.H00",
       status: "new",
       zone: "packaging",
-      x: 1650, y: 240, w: 130, h: 145,
+      x: 1470, y: 240, w: 130, h: 145,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 30, y: 0 }, out: { x: 65, y: 145 } },
       fill: 0,
@@ -1041,7 +1022,7 @@ export const line = {
       tag: "TBC-20",
       status: "new",
       zone: "packaging",
-      x: 1656, y: 190, w: 48, h: 36,
+      x: 1476, y: 190, w: 48, h: 36,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 24, y: 0 }, out: { x: 24, y: 36 } },
       label: { side: "left", align: "center" },
@@ -1066,7 +1047,7 @@ export const line = {
       tag: "52.612.V00",
       status: "new",
       zone: "packaging",
-      x: 1699, y: 400, w: 32, h: 32,
+      x: 1519, y: 400, w: 32, h: 32,
       ports: { inputs: ["in"], outputs: ["out1", "out2"] },
       // The two outlets are the diamond's own left and right vertices, so
       // the legs to the two metal bins leave at the same height and mirror
@@ -1098,7 +1079,7 @@ export const line = {
       // Repositioned 2026-08-12 (issue #44), moved under the relocated
       // diverter above now that no elevator carries material out to the
       // old position — see outloadDiverter's comment.
-      x: 1585, y: 460, w: 160, h: 172,
+      x: 1295, y: 460, w: 160, h: 172,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 80, y: 0 }, out: { x: 80, y: 162 } },
       fill: 0,
@@ -1139,7 +1120,7 @@ export const line = {
       tag: "STUB.DISCH1",
       status: "stub",
       zone: "packaging",
-      x: 1661, y: 700, w: 8, h: 8,
+      x: 1371, y: 700, w: 8, h: 8,
       ports: { inputs: ["in"], outputs: [] },
       anchors: { in: { x: 4, y: 4 } },
     },
@@ -1157,7 +1138,7 @@ export const line = {
       // its right edge (symbols.jsx `Instruments`), so its LT and LSH dots
       // were drawn on top of this bin's body. The gap is now 16 — a hair
       // over LABEL_GAP — clear of the stack.
-      x: 1795, y: 460, w: 160, h: 172,
+      x: 1505, y: 460, w: 160, h: 172,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 80, y: 0 }, out: { x: 80, y: 162 } },
       fill: 0,
@@ -1184,7 +1165,7 @@ export const line = {
       zone: "packaging",
       // Tracks metalBin2's own +30 move so this discharge still drops
       // straight down out of the bin rather than on a slant.
-      x: 1871, y: 700, w: 8, h: 8,
+      x: 1581, y: 700, w: 8, h: 8,
       ports: { inputs: ["in"], outputs: [] },
       anchors: { in: { x: 4, y: 4 } },
     },
@@ -1196,7 +1177,7 @@ export const line = {
       tag: "52.609.X00",
       status: "new",
       zone: "packaging",
-      x: 2530, y: 210, w: 60, h: 36,
+      x: 1694.604884, y: 210, w: 60, h: 36,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 30, y: 0 }, out: { x: 30, y: 36 } },
       smallLabel: true,
@@ -1228,7 +1209,7 @@ export const line = {
       tag: "52.701.H00",
       status: "relocated",
       zone: "packaging",
-      x: 2515, y: 440, w: 90, h: 90,
+      x: 1679.604884, y: 440, w: 90, h: 90,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 90 } },
       fill: 0,
@@ -1279,7 +1260,7 @@ export const line = {
       tag: "52.702.C00",
       status: "relocated",
       zone: "packaging",
-      x: 2520, y: 560, w: 120, h: 30,
+      x: 1684.604884, y: 560, w: 120, h: 30,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 110, y: 30 } },
       label: { side: "left", align: "center" },
@@ -1307,7 +1288,7 @@ export const line = {
       tag: "52.703.L00",
       status: "relocated",
       zone: "packaging",
-      x: 2585, y: 620, w: 90, h: 70,
+      x: 1749.604884, y: 620, w: 90, h: 70,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 70 } },
       label: { side: "left", align: "center" },
@@ -1350,7 +1331,7 @@ export const line = {
       tag: "52.704.K00",
       status: "relocated",
       zone: "packaging",
-      x: 2540, y: 720, w: 180, h: 26,
+      x: 1704.604884, y: 720, w: 180, h: 26,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 90, y: 0 }, out: { x: 170, y: 13 } },
       label: { side: "below", align: "center" },
@@ -1368,7 +1349,7 @@ export const line = {
       tag: "STUB.BIGBAG",
       status: "stub",
       zone: "packaging",
-      x: 2760, y: 729, w: 8, h: 8,
+      x: 1924.604884, y: 729, w: 8, h: 8,
       ports: { inputs: ["in"], outputs: [] },
       anchors: { in: { x: 4, y: 4 } },
       // Issue #48: the branch's own terminus, reusing terminalSink (issue
@@ -1398,7 +1379,7 @@ export const line = {
       tag: "52.605.X00",
       status: "new",
       zone: "packaging",
-      x: 3160, y: 200, w: 60, h: 36,
+      x: 1854.14, y: 200, w: 60, h: 36,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 30, y: 0 }, out: { x: 30, y: 36 } },
       smallLabel: true,
@@ -1424,7 +1405,7 @@ export const line = {
       tag: "52.705.H00",
       status: "new",
       zone: "bagging",
-      x: 3145, y: 350, w: 90, h: 90,
+      x: 1965, y: 350, w: 90, h: 90,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 45, y: 0 }, out: { x: 45, y: 90 } },
       fill: 0,
@@ -1478,7 +1459,7 @@ export const line = {
       tag: "TBC-16",
       status: "new",
       zone: "bagging",
-      x: 3150, y: 470, w: 80, h: 46,
+      x: 1970, y: 470, w: 80, h: 46,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 40, y: 0 }, out: { x: 40, y: 46 } },
       label: { side: "left", align: "center" },
@@ -1519,7 +1500,7 @@ export const line = {
       tag: "TBC-17",
       status: "new",
       zone: "bagging",
-      x: 3140, y: 550, w: 100, h: 70,
+      x: 1960, y: 550, w: 100, h: 70,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 50, y: 0 }, out: { x: 50, y: 70 } },
       label: { side: "left", align: "center" },
@@ -1537,7 +1518,7 @@ export const line = {
       tag: "TBC-18",
       status: "relocated",
       zone: "bagging",
-      x: 3120, y: 660, w: 140, h: 80,
+      x: 1940, y: 660, w: 140, h: 80,
       ports: { inputs: ["in"], outputs: ["out"] },
       anchors: { in: { x: 70, y: 0 }, out: { x: 70, y: 80 } },
       label: { side: "left", align: "center" },
@@ -1554,7 +1535,7 @@ export const line = {
       tag: "STUB.PALLETS",
       status: "stub",
       zone: "bagging",
-      x: 3186, y: 790, w: 8, h: 8,
+      x: 2006, y: 790, w: 8, h: 8,
       ports: { inputs: ["in"], outputs: [] },
       anchors: { in: { x: 4, y: 4 } },
       // Issue #49: the branch's own terminus, reusing terminalSink (issue
@@ -1618,39 +1599,39 @@ export const line = {
     // product ("out") anchor, so this is a plain straight drop, no via
     // needed.
     { from: { machine: "scalpingScreen", port: "out" }, to: { machine: "scalpingDischargeHopper", port: "in" }, kind: "product" },
-    // inletDrumFeeder2 is levelled with the hopper's own discharge and given
-    // a left-side `in` anchor (see its own comment) specifically so this run
-    // is a plain straight line into its left side, not a drop from above.
-    { from: { machine: "scalpingDischargeHopper", port: "out" }, to: { machine: "inletDrumFeeder2", port: "in" }, kind: "product", via: [] },
+    // Into inletDrumFeeder2's left-side `in` anchor (see its own comment).
+    // Since issue #160 put the feeders above the pendulum conveyor's shorter
+    // floor run, it drops out of the hopper, runs under the treating zone
+    // and climbs to the feeder.
+    { from: { machine: "scalpingDischargeHopper", port: "out" }, to: { machine: "inletDrumFeeder2", port: "in" }, kind: "product", via: [{ x: 720, y: 890 }, { x: 1120, y: 890 }, { x: 1120, y: 330 }] },
     // packaging infeed.
     { from: { machine: "proBoxStation", port: "out" }, to: { machine: "inletDrumFeeder1", port: "in" }, kind: "product" },
-    // Issue #70: the pendulum conveyor's own body now draws the floor
-    // run + climb these used to sketch via via points (see the machine's
-    // own comment above) — each feeder's `out` anchor sits at the same
-    // local x as its own floor-run pickup anchor (in1/in2), so both are now
-    // plain straight drops with no via points needed at all.
+    // Each feeder's `out` anchor sits right above its own floor-run pickup
+    // (in1/in2), so both are plain straight drops.
     { from: { machine: "inletDrumFeeder1", port: "out" }, to: { machine: "pendulumConveyor", port: "in1" }, kind: "product" },
     { from: { machine: "inletDrumFeeder2", port: "out" }, to: { machine: "pendulumConveyor", port: "in2" }, kind: "product" },
     // branch B: outload metal bins. No lift here (issue #44): the phantom
     // packaging bucket elevator is gone, so the buffer bin discharges
     // straight into the diverter by gravity.
-    { from: { machine: "pendulumConveyor", port: "outBuffer" }, to: { machine: "grainBreak", port: "in" }, kind: "product" },
+    { from: { machine: "pendulumConveyor", port: "outBuffer" }, to: { machine: "grainBreak", port: "in" }, kind: "product", via: [] },
     { from: { machine: "grainBreak", port: "out" }, to: { machine: "outloadBufferBin", port: "in" }, kind: "product" },
     { from: { machine: "outloadBufferBin", port: "out" }, to: { machine: "outloadDiverter", port: "in" }, kind: "product" },
-    { from: { machine: "outloadDiverter", port: "out1" }, to: { machine: "metalBin1", port: "in" }, kind: "product", via: [{ x: 1665, y: 416 }] },
-    { from: { machine: "outloadDiverter", port: "out2" }, to: { machine: "metalBin2", port: "in" }, kind: "product", via: [{ x: 1875, y: 416 }] },
+    { from: { machine: "outloadDiverter", port: "out1" }, to: { machine: "metalBin1", port: "in" }, kind: "product", via: [{ x: 1375, y: 416 }] },
+    { from: { machine: "outloadDiverter", port: "out2" }, to: { machine: "metalBin2", port: "in" }, kind: "product", via: [{ x: 1585, y: 416 }] },
     { from: { machine: "metalBin1", port: "out" }, to: { machine: "dischargeStub1", port: "in" }, kind: "product", tbc: true },
     { from: { machine: "metalBin2", port: "out" }, to: { machine: "dischargeStub2", port: "in" }, kind: "product", tbc: true },
     // branch C: big bag
-    { from: { machine: "pendulumConveyor", port: "outBinSeg" }, to: { machine: "binSegSampler", port: "in" }, kind: "product" },
+    { from: { machine: "pendulumConveyor", port: "outBinSeg" }, to: { machine: "binSegSampler", port: "in" }, kind: "product", via: [] },
     { from: { machine: "binSegSampler", port: "out" }, to: { machine: "flexiconPreBin", port: "in" }, kind: "product" },
     { from: { machine: "flexiconPreBin", port: "out" }, to: { machine: "vibratingConveyor", port: "in" }, kind: "product" },
-    { from: { machine: "vibratingConveyor", port: "out" }, to: { machine: "flexiconFillingHead", port: "in" }, kind: "product", via: [{ x: 2630, y: 605 }] },
+    { from: { machine: "vibratingConveyor", port: "out" }, to: { machine: "flexiconFillingHead", port: "in" }, kind: "product", via: [{ x: 1794.604884, y: 605 }] },
     { from: { machine: "flexiconFillingHead", port: "out" }, to: { machine: "rollerScale", port: "in" }, kind: "product" },
     { from: { machine: "rollerScale", port: "out" }, to: { machine: "bigBagStub", port: "in" }, kind: "product", via: [] },
     // branch A: Concetti
-    { from: { machine: "pendulumConveyor", port: "outConcetti" }, to: { machine: "concettiSampler", port: "in" }, kind: "product", via: [{ x: 3190, y: 180 }] },
-    { from: { machine: "concettiSampler", port: "out" }, to: { machine: "concettiPreBin", port: "in" }, kind: "product" },
+    { from: { machine: "pendulumConveyor", port: "outConcetti" }, to: { machine: "concettiSampler", port: "in" }, kind: "product", via: [] },
+    // Issue #160: the bagging machines sit right of the bin seg branch's,
+    // so the sample line steps across to them.
+    { from: { machine: "concettiSampler", port: "out" }, to: { machine: "concettiPreBin", port: "in" }, kind: "product", via: [{ x: 1884.14, y: 293 }, { x: 2010, y: 293 }] },
     // bagging
     { from: { machine: "concettiPreBin", port: "out" }, to: { machine: "concettiScale", port: "in" }, kind: "product" },
     { from: { machine: "concettiScale", port: "out" }, to: { machine: "concettiFiller", port: "in" }, kind: "product" },

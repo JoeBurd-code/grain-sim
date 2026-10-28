@@ -23,7 +23,7 @@ import {
 } from "./interlocks";
 import { switchSlider, SWITCH_BINDS } from "./setpointSliders";
 import { applyGeometryEdit, rerouteConnections } from "./layout";
-import { pathLengthError, setPathLength } from "./elevatorPath";
+import { pathLengthError, setPathLength } from "./zShape";
 import { COUNT_SIDES, hasPortCounts, placePorts, portCountError, setPortCount } from "./portCounts";
 
 // Plant unit <-> line (engine) unit.
@@ -102,11 +102,9 @@ const SETPOINT_BINDS = new Set(["interlockLowSetpoint", "interlockHighSetpoint",
 // discharge end moves. So only a port past the old width's own midpoint
 // (the far end) moves, and it moves by the same pixel delta the width grew
 // by, not by the ratio, so a fixed offset from an end stays exact after the
-// resize instead of drifting. `geom.colX` (the pendulum conveyor's climb
-// column) follows the same rule: it only shifts when it already sits on
-// the far side. Connections touching the machine drop their hand-placed
-// bend points, the same as a move (layout.js placeMachine), so routing.js
-// re-routes them to the moved ports. If the new size overlaps another
+// resize instead of drifting. Connections touching the machine drop their
+// hand-placed bend points, the same as a move (layout.js placeMachine), so
+// routing.js re-routes them to the moved ports. If the new size overlaps another
 // machine, the caller (setAdjustableValue) moves the machine to the nearest
 // free spot (layout.js applyGeometryEdit, issue #154).
 const RESIZE_BINDS = new Set(["length", "pathLength"]);
@@ -125,7 +123,6 @@ const lengthField = {
     // Issue #155: a flipped machine is drawn mirrored, so its far end is
     // on the left; the machine grows leftwards to keep its near end put.
     if (m.flipped) m.x -= delta;
-    if (m.geom && m.geom.colX > oldW / 2) m.geom.colX += delta;
     for (const key of Object.keys(m.anchors)) {
       const anchor = m.anchors[key];
       if (anchor.x > oldW / 2) anchor.x += delta;
@@ -174,8 +171,8 @@ const BINDS = {
     put: (line, m, value) => { m.sim.startFraction = value; },
   },
   length: lengthField,
-  // Issue #156: a bucket elevator's full path, floor run to head run. A new
-  // total changes only the column (elevatorPath.js).
+  // Issues #156 and #160: a Z shape's full path, floor run to head run. A
+  // new total changes only the column (zShape.js).
   pathLength: {
     unit: "m", convert: SAME,
     get: (line, m) => (m.geom?.segmentsM ? m.sim?.distanceM : undefined),

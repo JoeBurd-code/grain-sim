@@ -1,7 +1,7 @@
 // Issue #159: a selected bucket elevator's segment lengths, shown on the
 // canvas in Build mode.
 import { describe, it, expect } from "vitest";
-import { segmentLabels, metresLabel, reshapeElevator, previewReshape, segmentsAfterDrag } from "./elevatorPath";
+import { segmentLabels, metresLabel, reshapeZ, previewReshape, segmentsAfterDrag } from "./zShape";
 import { setAdjustableValue } from "./adjustableFields";
 import { flipMachine } from "./layout";
 import { goldenLine } from "./goldenLine";
@@ -12,7 +12,7 @@ const alone = () => structuredClone({
   zones: goldenLine.zones, machines: [byId(goldenLine, ID)], connections: [], interlocks: [], machineRules: [],
 });
 function roomy() {
-  const result = reshapeElevator(alone(), ID, { floor: 2, column: 5.731, head: 1 });
+  const result = reshapeZ(alone(), ID, { floor: 2, column: 5.731, head: 1 });
   expect(result.ok, result.error).toBe(true);
   return result.line;
 }
@@ -50,7 +50,7 @@ describe("segmentLabels", () => {
 
   it("shows a path length typed in the panel, and the column it gives", () => {
     // A path length typed in the panel changes the column alone.
-    const shaped = reshapeElevator(alone(), ID, { floor: 0.5, column: 7.731, head: 0.5 }).line;
+    const shaped = reshapeZ(alone(), ID, { floor: 0.5, column: 7.731, head: 0.5 }).line;
     const result = setAdjustableValue(shaped, ID, "pathLength", 8.73);
     expect(result.ok, result.error).toBe(true);
     const labels = segmentLabels(byId(result.line, ID));

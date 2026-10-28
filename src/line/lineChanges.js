@@ -10,7 +10,7 @@
 // each one they deleted, and { dismissSuggestion: id } for each suggested
 // interlock they crossed out, and (issue #155) { machine, flipped } for each
 // machine the user flipped, and (issue #157) { machine, segments } for each
-// bucket elevator the user reshaped with its handles, and (issue #158)
+// Z shape the user reshaped with its handles, and (issue #158)
 // { machine, label } for each machine whose name label the user dragged or
 // reset, stored whole (null for none). Browser
 // autosave stores this list for the golden line, never the whole line, so
@@ -18,7 +18,7 @@
 // repo on the next load.
 import { adjustableFields, readAdjustableValue, setAdjustableValue, closeTo } from "./adjustableFields";
 import { moveMachine, overlappingMachine, setFlipped } from "./layout";
-import { isBucketElevator, migrateMachine, reshapeElevator } from "./elevatorPath";
+import { isZShape, migrateMachine, setZSegments } from "./zShape";
 import { deleteMachine, setMachineText } from "./editing";
 import { sameLabel, setLabel } from "./labels";
 import { connectPorts, disconnectConnection } from "./connecting";
@@ -175,13 +175,13 @@ function isChange(c) {
 }
 
 // An added machine goes on only where it overlaps nothing, and only if its
-// id is free. An elevator stored before issue #156 is migrated to a path
-// length and goes on whatever its new shape overlaps, settling into a free
-// spot where there is one (elevatorPath.js migrateMachine).
+// id is free. A Z shape stored before it had a path (issues #156, #160) is
+// migrated to a path length and goes on whatever its new shape overlaps,
+// settling into a free spot where there is one (zShape.js migrateMachine).
 function addStoredMachine(line, machine) {
   if (line.machines.some((m) => m.id === machine.id)) return { ok: false };
   const placed = { ...line, machines: [...line.machines, machine] };
-  if (isBucketElevator(machine) && machine.geom.segmentsM === undefined) {
+  if (isZShape(machine) && machine.geom.segmentsM === undefined) {
     return { ok: true, line: migrateMachine(placed, machine.id) };
   }
   if (overlappingMachine(placed, machine.id, machine)) return { ok: false };
@@ -228,7 +228,7 @@ function applyChange(line, c) {
   if (c.disconnect !== undefined) return disconnectConnection(line, c.disconnect.from);
   if (c.text !== undefined) return setMachineText(line, c.machine, c.text, c.value);
   if (c.flipped !== undefined) return setFlipped(line, c.machine, c.flipped);
-  if (c.segments !== undefined) return reshapeElevator(line, c.machine, c.segments);
+  if (c.segments !== undefined) return setZSegments(line, c.machine, c.segments);
   if (c.label !== undefined) return setLabel(line, c.machine, c.label);
   if (c.position) return moveMachine(line, c.machine, c.position);
   return setAdjustableValue(line, c.machine, c.field, c.value);

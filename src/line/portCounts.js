@@ -9,12 +9,12 @@
 // renames the ports from that end. A removed port that still has a
 // connection is refused (portCountError), never silently dropped.
 //
-// Where the ports sit follows the machine's shape: a bucket elevator's
-// along its floor and head runs (elevatorPath.js placeElevatorPorts), a
-// straight conveyor's along its two halves (placeConveyorPorts below). Each
+// Where the ports sit follows the machine's shape: a Z shape's along its
+// floor and head runs (zShape.js placeZPorts), a straight conveyor's along
+// its two halves (placeConveyorPorts below). Each
 // is placed in the machine's unflipped shape, so a flip mirrors them like
 // any other anchor.
-import { isBucketElevator, placeElevatorPorts } from "./elevatorPath";
+import { isZShape, placeZPorts } from "./zShape";
 
 export const PORT_COUNT_MAX = 6;
 
@@ -69,7 +69,7 @@ function placeConveyorPorts(m) {
 
 // Places `m`'s ports for its shape. Changes `m` in place.
 export function placePorts(m) {
-  if (isBucketElevator(m) && m.geom.segmentsM) placeElevatorPorts(m);
+  if (isZShape(m) && m.geom.segmentsM) placeZPorts(m);
   else if (m.type === "conveyor" && !m.geom) placeConveyorPorts(m);
 }
 

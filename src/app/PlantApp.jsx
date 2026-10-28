@@ -30,7 +30,7 @@ import { emptyHistory, pushHistory, undoHistory, redoHistory } from "./editHisto
 import { useViewport } from "../scene/useViewport";
 import { useMachineDrag, toWorld } from "../scene/useMachineDrag";
 import { useHandleDrag } from "../scene/useHandleDrag";
-import { segmentsAfterDrag, previewReshape, reshapeElevator } from "../line/elevatorPath";
+import { segmentsAfterDrag, previewReshape, reshapeZ } from "../line/zShape";
 import { useConnectionDrag } from "../scene/useConnectionDrag";
 import { useBoxSelect } from "../scene/useBoxSelect";
 import { useSimEngine } from "../sim/useSimEngine";
@@ -389,7 +389,7 @@ export default function PlantApp() {
     if (!m) return;
     const segments = segmentsAfterDrag(m, handleId, delta, { fine });
     if (["floor", "column", "head"].every((k) => segments[k] === m.geom.segmentsM[k])) return;
-    applyShapeEdit((l) => reshapeElevator(l, machineId, segments));
+    applyShapeEdit((l) => reshapeZ(l, machineId, segments));
   }, [line, applyShapeEdit]);
   const handleDrag = useHandleDrag(onReleaseHandle);
 

@@ -3,7 +3,7 @@
 import { describe, it, expect } from "vitest";
 import { moveLabel, resetLabel, defaultLabel, isDefaultLabel } from "./labels";
 import { flipMachine } from "./layout";
-import { reshapeElevator } from "./elevatorPath";
+import { reshapeZ } from "./zShape";
 import { addMachine, diffFromBase, applyChanges, exportLine, importLine } from "./lineDocument";
 import { goldenLine } from "./goldenLine";
 import { catalogueItem } from "../catalogue/catalogue";
@@ -86,7 +86,7 @@ describe("a dragged label keeps its offset from its declared side", () => {
 
   it("when a bucket elevator is reshaped", () => {
     const { line } = moveLabel(goldenLine, "treatingElevator", { x: -20, y: 15 });
-    const reshaped = reshapeElevator(line, "treatingElevator", { floor: 2, column: 5.731, head: 1 });
+    const reshaped = reshapeZ(line, "treatingElevator", { floor: 2, column: 5.731, head: 1 });
     expect(reshaped.ok).toBe(true);
     const m = byId(reshaped.line, "treatingElevator");
     expect(m.w).not.toBe(byId(line, "treatingElevator").w);

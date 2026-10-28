@@ -104,16 +104,19 @@ describe("mirroring a flipped machine", () => {
     expect(overlappingMachine(next, "a", moved)).toBeNull();
   });
 
-  it("keeps a flipped conveyor's infeed end in place when it is lengthened", () => {
+  it("keeps a flipped pendulum conveyor's floor run in place when its path is lengthened", () => {
     const flipped = flip(alone("pendulumConveyor"), "pendulumConveyor");
     const world = (line, port) => {
       const m = byId(line, "pendulumConveyor");
-      return m.x + anchorPoint(m, port).x;
+      const a = anchorPoint(m, port);
+      return { x: m.x + a.x, y: m.y + a.y };
     };
-    const result = setAdjustableValue(flipped, "pendulumConveyor", "length", 40);
+    const result = setAdjustableValue(flipped, "pendulumConveyor", "pathLength", 40);
     expect(result.ok, result.error).toBe(true);
-    expect(world(result.line, "in1")).toBeCloseTo(world(flipped, "in1"), 9);
-    expect(world(result.line, "outConcetti")).toBeLessThan(world(flipped, "outConcetti"));
+    expect(world(result.line, "in1").x).toBeCloseTo(world(flipped, "in1").x, 9);
+    expect(world(result.line, "in1").y).toBeCloseTo(world(flipped, "in1").y, 9);
+    expect(world(result.line, "outConcetti").x).toBeCloseTo(world(flipped, "outConcetti").x, 9);
+    expect(world(result.line, "outConcetti").y).toBeLessThan(world(flipped, "outConcetti").y);
   });
 });
 

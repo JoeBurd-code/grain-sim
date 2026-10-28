@@ -54,7 +54,7 @@ const APPROVED = [
   ["treatingElevator", "pathLength", "m", 5, 20, 8.731],
   ["pendulumConveyor", "ratedCapacity", "t/h", 5, 40, 20.84],
   ["pendulumConveyor", "chainSpeed", "m/min", 2, 30, 10.08],
-  ["pendulumConveyor", "length", "m", 15, 60, 31.087],
+  ["pendulumConveyor", "pathLength", "m", 15, 60, 31.087],
   ["afterBinOutletValve", "ratedCapacity", "t/h", 5, 40, 19.2],
   ["afterBinOutletValve", "startPosition", "%", 0, 100, 100],
   ["treatDrumFeeder", "startPosition", "%", 0, 100, 100],

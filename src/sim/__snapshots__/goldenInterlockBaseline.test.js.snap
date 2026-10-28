@@ -254,11 +254,11 @@ exports[`the golden line's interlock baseline (issue #82) > metal bin 1 trips th
   "90.05 sample | treaterBufferBin=0.0046 treaterPreBin=0.0963 treaterAfterBin=0 metalBin1=0 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
   "120.05 sample | treaterBufferBin=0.0061 treaterPreBin=0.0593 treaterAfterBin=0 metalBin1=0 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
   "150.05 sample | treaterBufferBin=0.0076 treaterPreBin=0.1587 treaterAfterBin=0 metalBin1=0 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
-  "180.00 sample | treaterBufferBin=0.0091 treaterPreBin=0.1216 treaterAfterBin=0.0011 metalBin1=0.0033 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
-  "210.00 sample | treaterBufferBin=0.0106 treaterPreBin=0.0847 treaterAfterBin=0.2007 metalBin1=0.0367 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
-  "240.00 sample | treaterBufferBin=0.0121 treaterPreBin=0.1841 treaterAfterBin=0 metalBin1=0.0538 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
-  "270.00 sample | treaterBufferBin=0.0136 treaterPreBin=0.1472 treaterAfterBin=0.0685 metalBin1=0.0733 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
-  "300.00 sample | treaterBufferBin=0.0151 treaterPreBin=0.1102 treaterAfterBin=0.2681 metalBin1=0.1043 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
+  "180.00 sample | treaterBufferBin=0.0091 treaterPreBin=0.1216 treaterAfterBin=0.0011 metalBin1=0 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
+  "210.00 sample | treaterBufferBin=0.0106 treaterPreBin=0.0847 treaterAfterBin=0.2007 metalBin1=0 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
+  "240.00 sample | treaterBufferBin=0.0121 treaterPreBin=0.1841 treaterAfterBin=0 metalBin1=0 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
+  "270.00 sample | treaterBufferBin=0.0136 treaterPreBin=0.1472 treaterAfterBin=0.0685 metalBin1=0.0048 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
+  "300.00 sample | treaterBufferBin=0.0151 treaterPreBin=0.1102 treaterAfterBin=0.2681 metalBin1=0.0367 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
   "300.00 >> metal bin 1 to 100%",
   "305.05 pendulumConveyor: throttleTarget=0 | treaterBufferBin=0.0153 treaterPreBin=0.127 treaterAfterBin=0.2123 metalBin1=1 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
   "305.55 trip latched=true",
@@ -266,12 +266,12 @@ exports[`the golden line's interlock baseline (issue #82) > metal bin 1 trips th
   "306.05 inletDrumFeeder2: runPermit=false enabled=true gateThrottleTarget=0.6432 | treaterBufferBin=0.0154 treaterPreBin=0.1303 treaterAfterBin=0.2012 metalBin1=1 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
   "330.00 sample | treaterBufferBin=0.0166 treaterPreBin=0.2096 treaterAfterBin=0 metalBin1=1 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
   "330.00 >> metal bin 1 to 0%, then reset",
-  "330.05 pendulumConveyor: throttleTarget=0.9401 | treaterBufferBin=0.0166 treaterPreBin=0.2098 treaterAfterBin=0 metalBin1=0.0057 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
+  "330.05 pendulumConveyor: throttleTarget=0.9401 | treaterBufferBin=0.0166 treaterPreBin=0.2098 treaterAfterBin=0 metalBin1=0 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
   "330.05 trip latched=false",
-  "330.50 inletDrumFeeder1: runPermit=true enabled=false gateThrottleTarget=0.6432 | treaterBufferBin=0.0166 treaterPreBin=0.2113 treaterAfterBin=0 metalBin1=0.0057 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
-  "330.50 inletDrumFeeder2: runPermit=true enabled=true gateThrottleTarget=0.6432 | treaterBufferBin=0.0166 treaterPreBin=0.2113 treaterAfterBin=0 metalBin1=0.0057 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
-  "360.00 sample | treaterBufferBin=0.0181 treaterPreBin=0.1727 treaterAfterBin=0.136 metalBin1=0.0213 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
-  "390.00 sample | treaterBufferBin=0.0196 treaterPreBin=0.2721 treaterAfterBin=0 metalBin1=0.056 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
+  "330.50 inletDrumFeeder1: runPermit=true enabled=false gateThrottleTarget=0.6432 | treaterBufferBin=0.0166 treaterPreBin=0.2113 treaterAfterBin=0 metalBin1=0 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
+  "330.50 inletDrumFeeder2: runPermit=true enabled=true gateThrottleTarget=0.6432 | treaterBufferBin=0.0166 treaterPreBin=0.2113 treaterAfterBin=0 metalBin1=0 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
+  "360.00 sample | treaterBufferBin=0.0181 treaterPreBin=0.1727 treaterAfterBin=0.136 metalBin1=0.0245 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
+  "390.00 sample | treaterBufferBin=0.0196 treaterPreBin=0.2721 treaterAfterBin=0 metalBin1=0.0403 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
 ]
 `;
 
@@ -448,7 +448,7 @@ exports[`the golden line's interlock baseline (issue #82) > the Flexicon pre-bin
   "150.05 sample | treaterBufferBin=0.0076 treaterPreBin=0.1587 treaterAfterBin=0 metalBin1=0 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
   "150.50 inletDrumFeeder1: runPermit=true enabled=true gateThrottleTarget=0.6432 | treaterBufferBin=0.0076 treaterPreBin=0.0239 treaterAfterBin=0.3273 metalBin1=0 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
   "150.50 inletDrumFeeder2: runPermit=true enabled=false gateThrottleTarget=0.6432 | treaterBufferBin=0.0076 treaterPreBin=0.0239 treaterAfterBin=0.3273 metalBin1=0 metalBin2=0 flexiconPreBin=0 concettiPreBin=0",
-  "180.00 sample | treaterBufferBin=0.0091 treaterPreBin=0.1216 treaterAfterBin=0.0302 metalBin1=0 metalBin2=0 flexiconPreBin=0.0089 concettiPreBin=0",
+  "180.00 sample | treaterBufferBin=0.0091 treaterPreBin=0.1216 treaterAfterBin=0.0302 metalBin1=0 metalBin2=0 flexiconPreBin=0.0044 concettiPreBin=0",
 ]
 `;
 

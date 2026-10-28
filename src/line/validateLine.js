@@ -5,7 +5,7 @@ import { REGISTERED_KINDS, BEHAVIORS, unregisteredKindMessage } from "../sim/beh
 import { isSimExempt } from "./simExempt";
 import { isLiveControlBind, isLiveReadBind } from "../sim/liveControls";
 import { adjustableFieldErrors } from "./adjustableFields";
-import { isBucketElevator, segmentsError } from "./elevatorPath";
+import { isZShape, minSegments, portSharesError, segmentsError } from "./zShape";
 import { plantControlErrors } from "./plantControls";
 import { isSentence, lineRules, interlockSensorMachine, ruleSwitches, SWITCH_FIELDS, isRuleOff, isFeedRateLinkOff } from "./interlocks";
 
@@ -74,11 +74,12 @@ export function validateLine(line) {
     }
   }
 
-  // Issue #156: a bucket elevator's path segments add up to its path length
-  // and keep their minimums.
+  // Issues #156 and #160: a Z shape's path segments add up to its path
+  // length and keep their minimums, and its ports' shares of their runs
+  // are real shares.
   for (const m of line.machines) {
-    if (!isBucketElevator(m)) continue;
-    const error = segmentsError(m.geom.segmentsM, m.sim?.distanceM);
+    if (!isZShape(m)) continue;
+    const error = segmentsError(m.geom.segmentsM, m.sim?.distanceM, minSegments(m)) ?? portSharesError(m);
     if (error) errors.push(`machine "${m.id}" ${error}`);
   }
 

@@ -2,8 +2,8 @@
 // path length (issue #156).
 import { describe, it, expect } from "vitest";
 import {
-  elevatorHandles, segmentsAfterDrag, previewReshape, reshapeElevator, PX_PER_M, MIN_COLUMN_M, MIN_RUN_M,
-} from "./elevatorPath";
+  zHandles, segmentsAfterDrag, previewReshape, reshapeZ, PX_PER_M, MIN_COLUMN_M, MIN_RUN_M,
+} from "./zShape";
 import { flipMachine, overlappingMachine, anchorWorld } from "./layout";
 import { diffFromBase, applyChanges } from "./lineChanges";
 import { setAdjustableValue } from "./adjustableFields";
@@ -18,18 +18,18 @@ const alone = (line = goldenLine) => structuredClone({
 });
 // The golden elevator with room in both runs: floor 2, column 5.731, head 1.
 function roomy(line = alone()) {
-  const result = reshapeElevator(line, ID, { floor: 2, column: 5.731, head: 1 });
+  const result = reshapeZ(line, ID, { floor: 2, column: 5.731, head: 1 });
   expect(result.ok, result.error).toBe(true);
   return result.line;
 }
-const handle = (m, id) => elevatorHandles(m).find((h) => h.id === id);
+const handle = (m, id) => zHandles(m).find((h) => h.id === id);
 const world = (m, h) => ({ x: m.x + h.x, y: m.y + h.y });
 
 describe("the handles", () => {
   it("are the floor run's end, the head run's end and the column's top", () => {
     const m = byId(roomy(), ID);
     const { colX, duct } = m.geom;
-    expect(elevatorHandles(m).map((h) => h.id).sort()).toEqual(["column", "floor", "head"]);
+    expect(zHandles(m).map((h) => h.id).sort()).toEqual(["column", "floor", "head"]);
     expect(handle(m, "floor")).toMatchObject({ x: 0, y: m.h - duct / 2, axis: "x" });
     expect(handle(m, "head")).toMatchObject({ x: m.w, y: duct / 2, axis: "x" });
     expect(handle(m, "column")).toMatchObject({ x: colX + duct / 2, y: 0, axis: "y" });
@@ -46,7 +46,7 @@ describe("the handles", () => {
 
   it("are none on a machine that is not a bucket elevator", () => {
     const bin = goldenLine.machines.find((m) => m.type === "bin");
-    expect(elevatorHandles(bin)).toEqual([]);
+    expect(zHandles(bin)).toEqual([]);
   });
 });
 
@@ -113,7 +113,7 @@ describe("the reshaped elevator", () => {
   it("is drawn from its new segments, its path length unchanged", () => {
     const line = roomy();
     const s = segmentsAfterDrag(byId(line, ID), "floor", { x: -30, y: 0 });
-    const result = reshapeElevator(line, ID, s);
+    const result = reshapeZ(line, ID, s);
     expect(result.ok, result.error).toBe(true);
     const after = byId(result.line, ID);
     expect(after.geom.segmentsM).toEqual(s);
@@ -130,7 +130,7 @@ describe("the reshaped elevator", () => {
     const s = segmentsAfterDrag(m, "column", { x: 0, y: -15 });
     const preview = previewReshape(line, ID, s);
     expect(overlappingMachine(preview, ID, byId(preview, ID))).toBe("block");
-    const result = reshapeElevator(line, ID, s);
+    const result = reshapeZ(line, ID, s);
     expect(result.ok, result.error).toBe(true);
     expect(overlappingMachine(result.line, ID, byId(result.line, ID))).toBeNull();
     expect(byId(result.line, ID).geom.segmentsM).toEqual(s);
@@ -141,27 +141,27 @@ describe("the reshaped elevator", () => {
     const touching = line.connections.find((c) => c.from.machine === ID || c.to.machine === ID);
     touching.via = [{ x: 0, y: 0 }];
     const s = segmentsAfterDrag(byId(line, ID), "floor", { x: -30, y: 0 });
-    const result = reshapeElevator(line, ID, s);
+    const result = reshapeZ(line, ID, s);
     expect(result.ok, result.error).toBe(true);
     const after = result.line.connections.find((c) => c.from.machine === touching.from.machine && c.to.machine === touching.to.machine);
     expect(after.via).toBeUndefined();
   });
 
   it("refuses segments that don't add up to the path length", () => {
-    const result = reshapeElevator(roomy(), ID, { floor: 2, column: 6, head: 1 });
+    const result = reshapeZ(roomy(), ID, { floor: 2, column: 6, head: 1 });
     expect(result.ok).toBe(false);
   });
 
   it("refuses a machine that is not a bucket elevator", () => {
     const bin = goldenLine.machines.find((m) => m.type === "bin");
-    expect(reshapeElevator(goldenLine, bin.id, { floor: 1, column: 6, head: 1 }).ok).toBe(false);
+    expect(reshapeZ(goldenLine, bin.id, { floor: 1, column: 6, head: 1 }).ok).toBe(false);
   });
 });
 
 describe("saved golden line changes", () => {
   it("keep a reshaped elevator's segments", () => {
     const s = segmentsAfterDrag(byId(goldenLine, ID), "column", { x: 0, y: 30 });
-    const line = reshapeElevator(goldenLine, ID, s).line;
+    const line = reshapeZ(goldenLine, ID, s).line;
     const changes = diffFromBase(goldenLine, line);
     expect(changes).toContainEqual({ machine: ID, segments: s });
     const back = applyChanges(goldenLine, JSON.parse(JSON.stringify(changes)));
@@ -174,7 +174,7 @@ describe("saved golden line changes", () => {
   it("keep a reshape made after a new path length", () => {
     const longer = setAdjustableValue(goldenLine, ID, "pathLength", 12).line;
     const s = segmentsAfterDrag(byId(longer, ID), "floor", { x: -30, y: 0 });
-    const line = reshapeElevator(longer, ID, s).line;
+    const line = reshapeZ(longer, ID, s).line;
     const back = applyChanges(goldenLine, diffFromBase(goldenLine, line));
     expect(byId(back, ID).geom.segmentsM).toEqual(s);
     expect(byId(back, ID).sim.distanceM).toBeCloseTo(12, 9);

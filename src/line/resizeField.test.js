@@ -1,14 +1,23 @@
-// Issue #90: a conveyor's length, and (issue #156) a bucket elevator's path
-// length. One field drives both the drawn size and the sim's transit
-// distance, so a test that reads only one of them and not the other would
-// miss a regression that decouples them. The elevator's own segment rules
-// are in elevatorPath.test.js.
+// Issue #90: a straight conveyor's length, and (issue #156) a bucket
+// elevator's path length. One field drives both the drawn size and the
+// sim's transit distance, so a test that reads only one of them and not the
+// other would miss a regression that decouples them. The Z shapes' own
+// segment rules are in elevatorPath.test.js and pendulumConveyor.test.js.
 import { describe, it, expect } from "vitest";
 import { setAdjustableValue, readAdjustableValue } from "./adjustableFields";
+import { addMachine, emptyLine } from "./editing";
 import { goldenLine } from "./goldenLine";
 import { createSim, getMachineState } from "../sim/engine";
 
 const byId = (line, id) => line.machines.find((m) => m.id === id);
+
+// A line holding one 10 m belt conveyor, and its id. Since issue #160 no
+// golden line machine is a straight conveyor.
+function beltLine() {
+  const result = addMachine(emptyLine(), "belt-conveyor", { x: 0, y: 0 });
+  expect(result.ok, result.error).toBe(true);
+  return { line: result.line, BELT: result.id };
+}
 
 function set(line, machineId, fieldId, value) {
   const result = setAdjustableValue(line, machineId, fieldId, value);
@@ -18,14 +27,17 @@ function set(line, machineId, fieldId, value) {
 
 describe("conveyor length", () => {
   it("scales the conveyor's width, its sim.distanceM and every portDistanceM by the same ratio", () => {
-    const before = byId(goldenLine, "pendulumConveyor");
+    const { line, BELT } = beltLine();
+    // A routed straight conveyor's outlet distances, as a line file may hold.
+    byId(line, BELT).sim.portDistanceM = { out: 10 };
+    const before = byId(line, BELT);
     const w0 = before.w;
     const d0 = before.sim.distanceM;
     const portD0 = { ...before.sim.portDistanceM };
     const ratio = 40 / d0;
 
-    const next = set(goldenLine, "pendulumConveyor", "length", 40);
-    const after = byId(next, "pendulumConveyor");
+    const next = set(line, BELT, "length", 40);
+    const after = byId(next, BELT);
 
     expect(after.sim.distanceM).toBeCloseTo(40, 9);
     expect(after.w / w0).toBeCloseTo(ratio, 9);
@@ -34,24 +46,22 @@ describe("conveyor length", () => {
     }
   });
 
-  // A port moves "with the machine's end": the climb column and the infeed
-  // anchors sit on the conveyor's near (infeed) side and stay put; only the
-  // far (discharge) side's own anchors move, by the same pixel amount the
-  // belt grew by.
+  // A port moves "with the machine's end": the infeed anchor sits on the
+  // conveyor's near side and stays put; only the far (discharge) side's
+  // anchor moves, by the same pixel amount the belt grew by.
   it("moves only the conveyor's far (discharge) anchors when it grows longer, and keeps the near (infeed) side fixed", () => {
-    const before = byId(goldenLine, "pendulumConveyor");
-    const colX0 = before.geom.colX;
-    const in1X0 = before.anchors.in1.x;
-    const outConcettiX0 = before.anchors.outConcetti.x;
+    const { line, BELT } = beltLine();
+    const before = byId(line, BELT);
+    const inX0 = before.anchors.in.x;
+    const outX0 = before.anchors.out.x;
     const w0 = before.w;
 
-    const next = set(goldenLine, "pendulumConveyor", "length", 40);
-    const after = byId(next, "pendulumConveyor");
+    const next = set(line, BELT, "length", 40);
+    const after = byId(next, BELT);
     const delta = after.w - w0;
 
-    expect(after.geom.colX).toBe(colX0);
-    expect(after.anchors.in1.x).toBe(in1X0);
-    expect(after.anchors.outConcetti.x).toBeCloseTo(outConcettiX0 + delta, 9);
+    expect(after.anchors.in.x).toBe(inX0);
+    expect(after.anchors.out.x).toBeCloseTo(outX0 + delta, 9);
   });
 });
 

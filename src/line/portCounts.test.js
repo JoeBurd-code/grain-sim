@@ -5,7 +5,7 @@ import { addMachine, emptyLine } from "./editing";
 import { connectPorts } from "./connecting";
 import { setAdjustableValue, adjustableFields } from "./adjustableFields";
 import { flipMachine, anchorPoint } from "./layout";
-import { reshapeElevator, INLET_INSET, PX_PER_M } from "./elevatorPath";
+import { reshapeZ, INLET_INSET, PX_PER_M } from "./zShape";
 import { diffFromBase, applyChanges } from "./lineChanges";
 import { exportLine, importLine } from "./lineDocument";
 import { validateLine } from "./validateLine";
@@ -194,7 +194,7 @@ describe("a Custom bucket elevator's ports", () => {
   function roomy(inputs, outputs) {
     const { line, id } = placed("custom-bucket-elevator");
     let next = set(line, id, "pathLength", 11);
-    const shaped = reshapeElevator(next, id, { floor: 2, column: 6, head: 3 });
+    const shaped = reshapeZ(next, id, { floor: 2, column: 6, head: 3 });
     expect(shaped.ok, shaped.error).toBe(true);
     next = set(set(shaped.line, id, "inputs", inputs), id, "outputs", outputs);
     return { line: next, id, m: byId(next, id) };
@@ -229,7 +229,7 @@ describe("a Custom bucket elevator's ports", () => {
 
   it("follow the runs when the elevator is reshaped or its path length changes", () => {
     const { line, id } = roomy(2, 2);
-    const reshaped = reshapeElevator(line, id, { floor: 4, column: 5, head: 2 });
+    const reshaped = reshapeZ(line, id, { floor: 4, column: 5, head: 2 });
     expect(reshaped.ok, reshaped.error).toBe(true);
     let m = byId(reshaped.line, id);
     expect(m.sim.portDistanceM).toEqual({ in1: 2, in2: 0, out1: 10, out2: 11 });
@@ -268,7 +268,7 @@ describe("running a machine with several ports", () => {
   function elevatorLine(inletPort) {
     let { line, id } = placed("custom-bucket-elevator");
     line = set(line, id, "pathLength", 11);
-    const shaped = reshapeElevator(line, id, { floor: 2, column: 6, head: 3 });
+    const shaped = reshapeZ(line, id, { floor: 2, column: 6, head: 3 });
     expect(shaped.ok, shaped.error).toBe(true);
     line = set(set(shaped.line, id, "inputs", 2), id, "outputs", 3);
     const grainIn = add(line, "grain-in", { x: 0, y: 0 });

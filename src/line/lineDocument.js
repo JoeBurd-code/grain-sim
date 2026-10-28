@@ -9,7 +9,7 @@
 // Every line reaches the app through importLine, the golden line included
 // (see goldenLine.js), so there is one loading path, not two.
 import { validateLine } from "./validateLine";
-import { migrateHeightModel } from "./elevatorPath";
+import { migrateOldZShapes } from "./zShape";
 
 // Build mode edits (issue #77). The rules live in adjustableFields.js; a
 // line document is edited only through these.
@@ -74,9 +74,10 @@ export function importLine(text) {
   }
   let line, validation;
   try {
-    // Issue #156: a bucket elevator saved under the old height model
-    // migrates to a path length, in the same format version.
-    line = migrateHeightModel(saved);
+    // Issues #156 and #160: a bucket elevator saved under the old height
+    // model, or a pendulum conveyor under the old length model, migrates to
+    // a path length, in the same format version.
+    line = migrateOldZShapes(saved);
     validation = validateLine(line);
   } catch (e) {
     return refuse(`This line file is damaged: ${e.message}`);

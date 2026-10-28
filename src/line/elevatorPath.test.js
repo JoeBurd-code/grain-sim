@@ -3,7 +3,7 @@
 // sim's transit distance and draw the machine at the true scale.
 import { describe, it, expect } from "vitest";
 import { setAdjustableValue, readAdjustableValue, adjustableFields } from "./adjustableFields";
-import { PX_PER_M, MIN_TOTAL_M } from "./elevatorPath";
+import { PX_PER_M, MIN_TOTAL_M } from "./zShape";
 import { flipMachine, overlappingMachine, anchorWorld } from "./layout";
 import { exportLine, importLine } from "./lineDocument";
 import { validateLine } from "./validateLine";
