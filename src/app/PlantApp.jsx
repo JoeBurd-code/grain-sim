@@ -1036,6 +1036,7 @@ export default function PlantApp() {
                 running={engine.running}
                 speed={engine.speed}
                 simTime={engine.snap.t}
+                building={building}
                 onMachinePointerDown={building ? drag.onMachinePointerDown : undefined}
                 overlapIds={drag.flashIds}
                 onPortPointerDown={building ? connectionDrag.onPortPointerDown : undefined}
