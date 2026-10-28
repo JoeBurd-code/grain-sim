@@ -47,8 +47,12 @@ export function useHandleDrag(onRelease) {
       dragRef.current = null;
       const last = previewRef.current;
       showPreview(null);
+      // A press that never moved is a click, left to reach what was
+      // pressed: a click on a name label (issue #158) selects its machine.
+      // A length handle stops its own click, so it never reselects.
+      if (!last) return;
       swallowClick();
-      if (last) onReleaseRef.current(last);
+      onReleaseRef.current(last);
     };
     window.addEventListener("pointermove", onPointerMove);
     window.addEventListener("pointerup", onPointerUp);

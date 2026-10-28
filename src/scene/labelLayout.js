@@ -85,10 +85,11 @@ function acrossEdge(align, w) {
 // SVG text geometry, in the machine's own local coordinates (the `g` the
 // scene has already translated to the machine origin).
 //
-// `nudge` is the deliberate escape hatch for the handful of places where the
-// line's own routing leaves no clean side — it is an offset from a real
-// placement, not a replacement for one, so the uniform gap still holds
-// everywhere it isn't used.
+// `nudge` is an offset from a real placement, not a replacement for one, so
+// the uniform gap still holds everywhere it isn't used. The golden line
+// authors it only where its routing leaves no clean side; in Build mode a
+// user sets it by dragging the label (issue #158, line/labels.js), and it
+// then holds against the declared side through a resize or a flip.
 export function labelPlacement(m) {
   const size = m.smallLabel ? "small" : "display";
   const cap = CAP_HEIGHT[size];

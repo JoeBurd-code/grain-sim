@@ -28,6 +28,8 @@ export { addMachine, deleteMachine, emptyLine, setMachineText } from "./editing"
 export { connectPorts, disconnectConnection, connectionKey } from "./connecting";
 // Moving, deleting, copying and pasting a group of machines (issue #95).
 export { moveMachines, deleteMachines, copyMachines, pasteMachines } from "./groups";
+// Dragging and resetting a machine's name label (issue #158).
+export { moveLabel, resetLabel, isDefaultLabel } from "./labels";
 
 export const LINE_FORMAT = "grain-sim-line";
 // Version 2 (issue #85): every interlock is a sentence, and the rules that

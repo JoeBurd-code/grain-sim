@@ -10,7 +10,9 @@
 // each one they deleted, and { dismissSuggestion: id } for each suggested
 // interlock they crossed out, and (issue #155) { machine, flipped } for each
 // machine the user flipped, and (issue #157) { machine, segments } for each
-// bucket elevator the user reshaped with its handles. Browser
+// bucket elevator the user reshaped with its handles, and (issue #158)
+// { machine, label } for each machine whose name label the user dragged or
+// reset, stored whole (null for none). Browser
 // autosave stores this list for the golden line, never the whole line, so
 // every value the user did not change comes from the golden line in the
 // repo on the next load.
@@ -18,6 +20,7 @@ import { adjustableFields, readAdjustableValue, setAdjustableValue, closeTo } fr
 import { moveMachine, overlappingMachine, setFlipped } from "./layout";
 import { isBucketElevator, migrateMachine, reshapeElevator } from "./elevatorPath";
 import { deleteMachine, setMachineText } from "./editing";
+import { sameLabel, setLabel } from "./labels";
 import { connectPorts, disconnectConnection } from "./connecting";
 import { REGISTERED_KINDS } from "../sim/behaviors";
 
@@ -73,6 +76,7 @@ export function diffFromBase(base, line) {
     // Issue #90: name and tag are plain text, not adjustable fields.
     if (m.name !== was.name) changes.push({ machine: m.id, text: "name", value: m.name });
     if (m.tag !== was.tag) changes.push({ machine: m.id, text: "tag", value: m.tag });
+    if (!sameLabel(m.label, was.label)) changes.push({ machine: m.id, label: m.label ?? null });
   }
   const ids = new Set(line.machines.map((m) => m.id));
   for (const m of base.machines) {
@@ -166,6 +170,7 @@ function isChange(c) {
   if (c.text !== undefined) return typeof c.machine === "string" && (c.text === "name" || c.text === "tag") && typeof c.value === "string";
   if (c.flipped !== undefined) return typeof c.machine === "string" && typeof c.flipped === "boolean";
   if (c.segments !== undefined) return typeof c.machine === "string" && isObject(c.segments);
+  if (c.label !== undefined) return typeof c.machine === "string" && (c.label === null || isObject(c.label));
   return typeof c.machine === "string" && (typeof c.field === "string" || isObject(c.position));
 }
 
@@ -224,6 +229,7 @@ function applyChange(line, c) {
   if (c.text !== undefined) return setMachineText(line, c.machine, c.text, c.value);
   if (c.flipped !== undefined) return setFlipped(line, c.machine, c.flipped);
   if (c.segments !== undefined) return reshapeElevator(line, c.machine, c.segments);
+  if (c.label !== undefined) return setLabel(line, c.machine, c.label);
   if (c.position) return moveMachine(line, c.machine, c.position);
   return setAdjustableValue(line, c.machine, c.field, c.value);
 }

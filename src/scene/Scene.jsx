@@ -198,10 +198,13 @@ function resolveDynamic(machine, simSnap) {
 // `onFlipMachine` (issue #155) and `onDeleteMachine` (issue #87), Build
 // mode only, show their buttons over a lone selected machine, and
 // `onHandlePointerDown` (issue #157) its length handles, if it has any.
+// `onLabelPointerDown` (issue #158), Build mode only, drags a machine's
+// name label on its own.
 export default function Scene({
   line, vb, handlers, wasDrag, selectedIds, onSelect, simSnap, running, speed, simTime,
   onMachinePointerDown, overlapIds, onPortPointerDown, selectedConnectionKey, onSelectConnection, connectionDraft,
   highlightMachineIds, selectionBox, canvasCursor = "grab", onFlipMachine, onDeleteMachine, onHandlePointerDown,
+  onLabelPointerDown,
 }) {
   const flowPathRef = useFlowAnimation(line, simSnap);
   const motion = useMachineMotion(running, speed);
@@ -336,7 +339,9 @@ export default function Scene({
                 <Symbol machine={m} dynamic={resolveDynamic(m, simSnap)} motion={motion} simTime={simTime} />
               </g>
             </MirroredContext.Provider>
-            {m.type !== "stub" && <MachineLabel machine={m} />}
+            {m.type !== "stub" && (
+              <MachineLabel machine={m} onPointerDown={onLabelPointerDown && ((e) => onLabelPointerDown(e, m.id, "label"))} />
+            )}
             {overlapIds?.includes(m.id) && <OverlapOutline machine={m} />}
             {highlightMachineIds?.has(m.id) && <HighlightOutline machine={m} />}
             {onPortPointerDown && <PortDots machine={m} onPortPointerDown={onPortPointerDown} />}

@@ -33,8 +33,10 @@ function SymbolText({ x, textAnchor = "start", ...props }) {
 const LABEL_HALO = 3.5;
 
 // A machine's name, placed by labelLayout from the side/alignment the machine
-// data declares (never a hand-guessed pixel offset — see labelLayout.js).
-export function MachineLabel({ machine: m }) {
+// data declares, plus any nudge it was dragged by (see labelLayout.js).
+// `onPointerDown` (issue #158), set only in Build mode, makes the label its
+// own drag target, apart from the machine body.
+export function MachineLabel({ machine: m, onPointerDown }) {
   const { x, y, anchor, lines, lineHeight, size } = labelPlacement(m);
   const small = size === "small";
   return (
@@ -51,6 +53,8 @@ export function MachineLabel({ machine: m }) {
       strokeWidth={LABEL_HALO}
       strokeLinejoin="round"
       paintOrder="stroke"
+      style={onPointerDown ? { cursor: "move" } : undefined}
+      onPointerDown={onPointerDown}
     >
       {lines.map((text, i) => (
         <tspan key={text} x={x} dy={i === 0 ? 0 : lineHeight}>

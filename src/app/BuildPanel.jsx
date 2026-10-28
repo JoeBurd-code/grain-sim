@@ -222,7 +222,27 @@ function TextFieldRow({ label, value, onCommit }) {
 
 // Flipping and deleting the machine are buttons over it on the canvas
 // (Scene.jsx); the Delete key deletes too.
-function MachineSettings({ line, machine, onEditField, onEditText }) {
+// Issue #158: puts a dragged name label back where the line or the
+// catalogue first put it. Greyed out while it is already there.
+function ResetLabel({ machine, atDefault, onResetLabel }) {
+  return (
+    <div style={{ marginTop: 22 }}>
+      <button
+        className="zonebtn"
+        style={{ ...btnStyle, opacity: atDefault ? 0.4 : 1, cursor: atDefault ? "default" : "pointer" }}
+        disabled={atDefault}
+        onClick={() => onResetLabel(machine.id)}
+      >
+        RESET LABEL
+      </button>
+      <div style={{ fontSize: 9, color: C.muted, marginTop: 6 }}>
+        Drag the name label on the canvas to move it.
+      </div>
+    </div>
+  );
+}
+
+function MachineSettings({ line, machine, labelAtDefault, onEditField, onEditText, onResetLabel }) {
   const fields = adjustableFields(machine);
   const item = catalogueItem(machine.item);
   return (
@@ -246,6 +266,7 @@ function MachineSettings({ line, machine, onEditField, onEditText }) {
           />
         ))
       )}
+      <ResetLabel machine={machine} atDefault={labelAtDefault} onResetLabel={onResetLabel} />
     </>
   );
 }
@@ -340,7 +361,7 @@ function ConnectionSettings({ line, connection, onDeleteConnection }) {
 
 export default function BuildPanel({
   line, machine, group, connection, settingsOpen, problemsOpen, problems, lineName,
-  onStartOver, onEditField, onEditText, onDeleteGroup, onDeleteConnection, onGoToProblem,
+  labelAtDefault, onStartOver, onEditField, onEditText, onResetLabel, onDeleteGroup, onDeleteConnection, onGoToProblem,
 }) {
   // Nothing selected and neither SETTINGS nor PROBLEMS open: the panel
   // takes no width at all, so the canvas gets the room back. Opening it
@@ -366,7 +387,7 @@ export default function BuildPanel({
         ) : machine ? (
           // Keyed by machine, so a half-typed value or a refusal never
           // carries over to the next machine selected.
-          <MachineSettings key={machine.id} line={line} machine={machine} onEditField={onEditField} onEditText={onEditText} />
+          <MachineSettings key={machine.id} line={line} machine={machine} labelAtDefault={labelAtDefault} onEditField={onEditField} onEditText={onEditText} onResetLabel={onResetLabel} />
         ) : group ? (
           <GroupSettings group={group} onDeleteGroup={onDeleteGroup} />
         ) : connection ? (
