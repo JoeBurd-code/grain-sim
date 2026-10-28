@@ -561,7 +561,7 @@ describe("transportDelay (issue #21)", () => {
     // Build up backlog while downstream is blocked (a large accepted batch,
     // simulated directly at the behaviour level; capacityAvailable itself
     // separately enforces the ceiling on the accept side).
-    BEHAVIORS.transportDelay.apply(state, 1, 3, 3, 0, true);
+    for (let i = 0; i < 6; i++) BEHAVIORS.transportDelay.apply(state, 1, 0.5, 0.5, 0, true);
     expect(state.backlog).toBeGreaterThan(0.5);
 
     // Downstream suddenly wide open; the elevator's own ceiling still caps

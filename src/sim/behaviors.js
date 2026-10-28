@@ -449,6 +449,7 @@ function initTransportDelay(m) {
     throttleRampPerSec: Infinity,
     queue: [],       // [{ progress, vol }] material past the infeed, still travelling
     backlog: 0,      // volume that finished transit but discharge hasn't taken it yet
+    bootHeld: 0,     // fed past the rated intake, waiting to go on the chain (loadedShare)
     delivered: 0,
   };
 }
@@ -472,16 +473,38 @@ function capacityAvailableTransportDelay(state, dt) {
   // one accepts nothing new — the "reduces the infeed" half of the two-stage
   // response. A presenter's overriding dial (issue #63) replaces the
   // interlock's cap here and in chainSpeedMPerSec alike; see dial.js.
+  return intakeLimit(state, dt);
+}
+// Issue #152: what the chain can take this tick, its rated intake at its
+// live speed, less what its boot already holds. One feeder never sends more
+// than it is offered, but two feeding one chain (a machine with more than
+// one inlet) are each offered it all, so together they can send more. The
+// boot takes everything that arrives and loads the chain at no more than
+// its rated intake (loadedShare), holding the rest for the next ticks. So
+// no grain vanishes on arrival, the chain is never loaded past its rating
+// (which would back it up at the head minutes later), and the feeders share
+// the intake. With one feeder the boot never holds anything.
+function ratedIntake(state, dt) {
   return state.ceilingM3PerSec * dialEffective(state, SPEED_DIAL) * dt;
 }
-// Everything that arrives is taken, `cap` notwithstanding. One feeder never
-// sends more than `cap`; several feeders (a machine with more than one
-// inlet, issue #152) are each offered all of it, so together they can send
-// more. The chain takes the excess, and its backlog then shuts the infeed
-// (capacityAvailable) until it has cleared, so grain backs up upstream
-// instead of vanishing on arrival.
+function heldVolume(state) {
+  return typeof state.bootHeld === "number"
+    ? state.bootHeld
+    : Object.values(state.bootHeld).reduce((a, v) => a + v, 0);
+}
+function intakeLimit(state, dt) {
+  return Math.max(0, ratedIntake(state, dt) - heldVolume(state));
+}
+// The share of what the boot holds plus `inflow` that goes on the chain
+// this tick, 0 to 1.
+function loadedShare(state, dt, inflow) {
+  const total = heldVolume(state) + inflow;
+  return total > 0 ? Math.min(1, ratedIntake(state, dt) / total) : 0;
+}
 function applyTransportDelay(state, dt, inflow, cap, downstreamCap = 0, hasDownstream = false) {
-  const accepted = inflow;
+  const share = loadedShare(state, dt, inflow);
+  const accepted = (state.bootHeld + inflow) * share;
+  state.bootHeld = (state.bootHeld + inflow) * (1 - share);
   if (accepted > 0) state.queue.push({ progress: 0, vol: accepted });
 
   state.throttleFraction = slewToward(state.throttleFraction, state.throttleTarget, state.throttleRampPerSec, dt);
@@ -503,15 +526,16 @@ function applyTransportDelay(state, dt, inflow, cap, downstreamCap = 0, hasDowns
   return out;
 }
 function conserveTransportDelay(state, hasDownstream) {
-  const inTransit = queueVolume(state) + state.backlog;
+  const inTransit = queueVolume(state) + heldVolume(state) + state.backlog;
   return hasDownstream ? { inTransit } : { inTransit, delivered: state.delivered };
 }
 // Plant control (issue #55): discards everything in transit — the queue and
 // the backlog alike — leaving `delivered` (a cumulative counter) untouched.
 function clearTransportDelay(state) {
-  const discarded = queueVolume(state) + state.backlog;
+  const discarded = queueVolume(state) + heldVolume(state) + state.backlog;
   state.queue = [];
   state.backlog = 0;
+  state.bootHeld = 0;
   return discarded;
 }
 
@@ -683,6 +707,7 @@ function initRoutedTransportDelay(m) {
     backlog: 0,      // total backlog volume across every port — kept in lockstep with
                       // backlogEntries so external readers (tests, the popup) see the
                       // exact same scalar plain transportDelay machines publish
+    bootHeld: {},    // by inlet port: fed past the rated intake, waiting to go on (loadedShare)
     delivered: 0,
   };
 }
@@ -710,28 +735,29 @@ function capacityAvailableRoutedTransportDelay(state, dt) {
   // end, regardless of which outlet the jam is destined for.
   if (state.backlog > EPS) return 0;
   // Same effective speed as plain transportDelay's own intake above.
-  return state.ceilingM3PerSec * dialEffective(state, SPEED_DIAL) * dt;
+  return intakeLimit(state, dt);
 }
 // Issue #152: grain enters at its own inlet, `portDistanceM` along the run
 // from the infeed end (0 for an inlet with none, the pendulum conveyor's
 // two), so a packet starts at its inlet (`startM`) and travels only the
-// rest of the way to its outlet. What is accepted is shared between the
-// inlets in proportion to what each one brought.
-function inletEntries(state, inflow, accepted, inflowByPort) {
-  const ports = Object.keys(inflowByPort).filter((p) => inflowByPort[p] > 0);
-  if (ports.length === 0 || !(inflow > 0)) return [{ startM: 0, vol: accepted }];
-  return ports.map((p) => ({ startM: state.portDistanceM[p] ?? 0, vol: (accepted * inflowByPort[p]) / inflow }));
-}
-// Takes everything that arrives, as applyTransportDelay does.
+// rest of the way to its outlet. The boot holds what is over the rated
+// intake by inlet, and each inlet loads the same share of what it has.
 function applyRoutedTransportDelay(state, dt, inflow, cap, downstreamCap = {}, hasDownstream = {}, inflowByPort = {}) {
-  const accepted = inflow;
-  if (accepted > 0) {
-    const outM = portDistanceMFor(state, state.selected);
-    for (const { startM, vol } of inletEntries(state, inflow, accepted, inflowByPort)) {
-      const pkt = { progress: 0, vol, port: state.selected, distanceM: Math.max(outM - startM, 0) };
-      if (startM > 0) pkt.startM = startM;
-      state.queue.push(pkt);
-    }
+  const share = loadedShare(state, dt, inflow);
+  const waiting = { ...state.bootHeld };
+  // A caller passing no ports (a behaviour test) feeds the infeed end.
+  const byPort = Object.keys(inflowByPort).length > 0 ? inflowByPort : { "": inflow };
+  for (const [p, v] of Object.entries(byPort)) if (v > 0) waiting[p] = (waiting[p] ?? 0) + v;
+  state.bootHeld = {};
+  const outM = portDistanceMFor(state, state.selected);
+  for (const [p, v] of Object.entries(waiting)) {
+    const vol = v * share;
+    if (v - vol > 0) state.bootHeld[p] = v - vol;
+    if (!(vol > 0)) continue;
+    const startM = state.portDistanceM[p] ?? 0;
+    const pkt = { progress: 0, vol, port: state.selected, distanceM: Math.max(outM - startM, 0) };
+    if (startM > 0) pkt.startM = startM;
+    state.queue.push(pkt);
   }
 
   state.throttleFraction = slewToward(state.throttleFraction, state.throttleTarget, state.throttleRampPerSec, dt);
@@ -779,7 +805,7 @@ function applyRoutedTransportDelay(state, dt, inflow, cap, downstreamCap = {}, h
   return outflow;
 }
 function conserveRoutedTransportDelay(state) {
-  const inTransit = queueVolume(state) + state.backlog;
+  const inTransit = queueVolume(state) + heldVolume(state) + state.backlog;
   return { inTransit, delivered: state.delivered };
 }
 // Plant control (issue #55): the packaging conveyor's own clear — the queue
@@ -788,10 +814,11 @@ function conserveRoutedTransportDelay(state) {
 // scalar. `selected` (the destination routing) is untouched — that's the
 // presenter's own destination-selector state, not held material.
 function clearRoutedTransportDelay(state) {
-  const discarded = queueVolume(state) + state.backlog;
+  const discarded = queueVolume(state) + heldVolume(state) + state.backlog;
   state.queue = [];
   state.backlogEntries = [];
   state.backlog = 0;
+  state.bootHeld = {};
   return discarded;
 }
 function snapshotRoutedTransportDelay(state) {
