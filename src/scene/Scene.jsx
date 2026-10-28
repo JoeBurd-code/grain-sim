@@ -6,7 +6,7 @@
 // mutates attributes imperatively via refs, per the locked architecture.
 // `running`/`speed` (useSimEngine.js) are threaded through so machine
 // motion freezes on pause and scales with the speed multiplier.
-import { C, SELECT_STROKE } from "./theme";
+import { C, SELECT_STROKE, FONT_MONO } from "./theme";
 import { resolveDynamic } from "./machineDynamic";
 import { MachineLabel } from "./symbols";
 import { MirroredContext } from "./mirrored";
@@ -16,7 +16,7 @@ import { useMachineMotion } from "./useMachineMotion";
 import { connectionPoints } from "../line/routing";
 import { anchorPoint, machineFootprint } from "../line/layout";
 import { connectionKey } from "../line/connecting";
-import { elevatorHandles } from "../line/elevatorPath";
+import { elevatorHandles, segmentLabels } from "../line/elevatorPath";
 
 // Port dots (issue #88): shown only in Build mode (`onPortPointerDown` set).
 // An output port is filled solid (wheat, or the waste colour for a port
@@ -173,6 +173,26 @@ function LengthHandles({ machine: m, handles, onHandlePointerDown }) {
   ));
 }
 
+// Issue #159: the selected elevator's segment lengths (line/elevatorPath.js
+// segmentLabels), outside the mirror so they read normally on a flipped
+// one. The two a dragged handle trades between are drawn in wheat. They
+// never take a press: a handle, a port or the machine under them gets it.
+function SegmentLabels({ labels }) {
+  return (
+    <g pointerEvents="none" fontFamily={FONT_MONO} fontSize="8">
+      {labels.map((l) => (
+        <text
+          key={l.id} x={l.x} y={l.y} textAnchor={l.anchor}
+          fill={l.highlighted ? C.wheat : C.muted} fontWeight={l.highlighted ? 700 : undefined}
+          stroke={C.bg} strokeWidth="3" strokeLinejoin="round" paintOrder="stroke"
+        >
+          {l.text}
+        </text>
+      ))}
+    </g>
+  );
+}
+
 // `onMachinePointerDown` and `onPortPointerDown` are set only in Build mode
 // (useMachineDrag.js, useConnectionDrag.js); `overlapIds` names the machines
 // to outline in red. `selectedIds` (issue #95) is every selected machine,
@@ -184,7 +204,9 @@ function LengthHandles({ machine: m, handles, onHandlePointerDown }) {
 // `connectionDraft` is the in-progress drag's rubber-band line.
 // `onFlipMachine` (issue #155) and `onDeleteMachine` (issue #87), Build
 // mode only, show their buttons over a lone selected machine, and
-// `onHandlePointerDown` (issue #157) its length handles, if it has any.
+// `onHandlePointerDown` (issue #157) its length handles, if it has any,
+// with (issue #159) its segment lengths; `reshaping` is the handle drag in
+// progress ({ machineId, handleId }), whose traded segments are highlighted.
 // `onLabelPointerDown` (issue #158), Build mode only, drags the lone
 // selected machine's name label on its own; any other label is part of its
 // machine, so a press on it moves or selects the machine. `building` draws
@@ -193,7 +215,7 @@ export default function Scene({
   line, vb, handlers, wasDrag, selectedIds, onSelect, simSnap, running, speed, simTime, building = false,
   onMachinePointerDown, overlapIds, onPortPointerDown, selectedConnectionKey, onSelectConnection, connectionDraft,
   highlightMachineIds, selectionBox, canvasCursor = "grab", onFlipMachine, onDeleteMachine, onHandlePointerDown,
-  onLabelPointerDown,
+  onLabelPointerDown, reshaping,
 }) {
   const flowPathRef = useFlowAnimation(line, simSnap);
   const motion = useMachineMotion(running, speed);
@@ -342,7 +364,10 @@ export default function Scene({
               <SelectionButtons machine={m} onFlip={onFlipMachine} onDelete={onDeleteMachine} />
             )}
             {selected && onHandlePointerDown && selectedIds.length === 1 && (
-              <LengthHandles machine={m} handles={elevatorHandles(m)} onHandlePointerDown={onHandlePointerDown} />
+              <>
+                <SegmentLabels labels={segmentLabels(m, { handleId: reshaping?.machineId === m.id ? reshaping.handleId : undefined })} />
+                <LengthHandles machine={m} handles={elevatorHandles(m)} onHandlePointerDown={onHandlePointerDown} />
+              </>
             )}
           </g>
         );

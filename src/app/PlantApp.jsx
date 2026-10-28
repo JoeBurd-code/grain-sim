@@ -1049,6 +1049,7 @@ export default function PlantApp() {
                 onFlipMachine={building ? onFlipMachine : undefined}
                 onDeleteMachine={building ? onDeleteMachine : undefined}
                 onHandlePointerDown={building ? handleDrag.onHandlePointerDown : undefined}
+                reshaping={building ? handleDrag.preview : undefined}
                 onLabelPointerDown={building ? labelDrag.onHandlePointerDown : undefined}
               />
             )}
