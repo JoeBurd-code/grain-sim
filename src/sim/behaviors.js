@@ -668,10 +668,11 @@ function initRoutedTransportDelay(m) {
     // that never calls the destination selector (every test predating issue
     // #47) keeps routing to exactly the port it always implicitly used.
     selected: m.sim.defaultPort ?? m.ports.outputs[0],
-    queue: [],       // [{ progress, vol, port, distanceM }] material past the infeed, still
+    queue: [],       // [{ progress, vol, port, distanceM, startM? }] material past the infeed, still
                       // travelling — `distanceM` is this packet's own destination's transit
                       // distance (issue #69), stamped once at accept time so a later
-                      // destination switch never rewrites an in-flight packet's pacing
+                      // destination switch never rewrites an in-flight packet's pacing;
+                      // `startM` is where along the run its inlet is (issue #152)
     backlogEntries: [], // [{ vol, port }] FIFO, finished transit, not yet discharged
     backlog: 0,      // total backlog volume across every port — kept in lockstep with
                       // backlogEntries so external readers (tests, the popup) see the
@@ -690,7 +691,7 @@ function portDistanceMFor(state, port) {
 // regardless of which outlet it's bound for, and the same scale the render
 // draws its buckets across.
 function wholeRunFraction(state, pkt) {
-  return state.distanceM > 0 ? (pkt.progress * pkt.distanceM) / state.distanceM : 0;
+  return state.distanceM > 0 ? ((pkt.startM ?? 0) + pkt.progress * pkt.distanceM) / state.distanceM : 0;
 }
 function totalBacklogVolume(state) {
   return state.backlogEntries.reduce((a, e) => a + e.vol, 0);
@@ -705,10 +706,25 @@ function capacityAvailableRoutedTransportDelay(state, dt) {
   // Same effective speed as plain transportDelay's own intake above.
   return state.ceilingM3PerSec * dialEffective(state, SPEED_DIAL) * dt;
 }
-function applyRoutedTransportDelay(state, dt, inflow, cap, downstreamCap = {}, hasDownstream = {}) {
+// Issue #152: grain enters at its own inlet, `portDistanceM` along the run
+// from the infeed end (0 for an inlet with none, the pendulum conveyor's
+// two), so a packet starts at its inlet (`startM`) and travels only the
+// rest of the way to its outlet. What is accepted is shared between the
+// inlets in proportion to what each one brought.
+function inletEntries(state, inflow, accepted, inflowByPort) {
+  const ports = Object.keys(inflowByPort).filter((p) => inflowByPort[p] > 0);
+  if (ports.length === 0 || !(inflow > 0)) return [{ startM: 0, vol: accepted }];
+  return ports.map((p) => ({ startM: state.portDistanceM[p] ?? 0, vol: (accepted * inflowByPort[p]) / inflow }));
+}
+function applyRoutedTransportDelay(state, dt, inflow, cap, downstreamCap = {}, hasDownstream = {}, inflowByPort = {}) {
   const accepted = Math.min(inflow, cap);
   if (accepted > 0) {
-    state.queue.push({ progress: 0, vol: accepted, port: state.selected, distanceM: portDistanceMFor(state, state.selected) });
+    const outM = portDistanceMFor(state, state.selected);
+    for (const { startM, vol } of inletEntries(state, inflow, accepted, inflowByPort)) {
+      const pkt = { progress: 0, vol, port: state.selected, distanceM: Math.max(outM - startM, 0) };
+      if (startM > 0) pkt.startM = startM;
+      state.queue.push(pkt);
+    }
   }
 
   state.throttleFraction = slewToward(state.throttleFraction, state.throttleTarget, state.throttleRampPerSec, dt);
@@ -719,10 +735,11 @@ function applyRoutedTransportDelay(state, dt, inflow, cap, downstreamCap = {}, h
     // whole-run one — the single physical chain moves everyone at the same
     // v, but a packet bound for a nearer outlet has less ground to cover, so
     // it reaches progress 1 (and discharges) sooner.
-    const progressStep = pkt.distanceM > 0 ? (v * dt) / pkt.distanceM : 0;
+    // An inlet level with its outlet leaves nothing to travel.
+    const progressStep = pkt.distanceM > 0 ? (v * dt) / pkt.distanceM : Infinity;
     const progress = pkt.progress + progressStep;
     if (progress >= 1) state.backlogEntries.push({ vol: pkt.vol, port: pkt.port });
-    else still.push({ progress, vol: pkt.vol, port: pkt.port, distanceM: pkt.distanceM });
+    else still.push({ ...pkt, progress });
   }
   state.queue = still;
 

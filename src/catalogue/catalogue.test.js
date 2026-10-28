@@ -59,11 +59,32 @@ describe("custom items", () => {
   const specific = (item) => item.maker !== "" || (item.machine.instruments ?? []).length > 0;
   const machines = real.filter((i) => i.group !== "edges");
   const numberFields = (machine) => adjustableFields(machine).filter((f) => f.kind === "number" && f.setpoint === undefined);
+  // Issue #152: the custom conveyor and bucket elevator take any number of
+  // ports, so they are routed transport delays, and carry two port count
+  // fields their real items do not.
+  const PORTED = new Set(["custom-conveyor", "custom-bucket-elevator"]);
+  const madeFrom = (item) => (PORTED.has(item.id) ? catalogueItem(item.customFrom) : item);
+  const unported = (item) => {
+    if (!PORTED.has(item.id)) return item.machine;
+    return {
+      ...item.machine,
+      sim: { ...item.machine.sim, kind: catalogueItem(item.customFrom).machine.sim.kind },
+      adjustable: item.machine.adjustable.filter((a) => a.bind !== "inputCount" && a.bind !== "outputCount"),
+    };
+  };
 
   it("gives each kind of machine but the pendulum conveyor one custom item, and the edges none", () => {
     const kinds = new Set(machines.filter((i) => i.id !== "pendulum-conveyor").map(kind));
-    expect(custom.map(kind).sort()).toEqual([...kinds].sort());
-    expect(custom.every((i) => catalogueItem(i.customFrom) && kind(i) === kind(catalogueItem(i.customFrom)))).toBe(true);
+    expect(custom.map((i) => kind(madeFrom(i))).sort()).toEqual([...kinds].sort());
+    expect(custom.every((i) => catalogueItem(i.customFrom) && kind(madeFrom(i)) === kind(catalogueItem(i.customFrom)))).toBe(true);
+  });
+
+  it("makes the custom conveyor and bucket elevator routed, with port counts", () => {
+    for (const id of PORTED) {
+      const { machine } = catalogueItem(id);
+      expect(machine.sim.kind, id).toBe("routedTransportDelay");
+      expect(machine.adjustable.map((a) => a.bind), id).toEqual(expect.arrayContaining(["inputCount", "outputCount"]));
+    }
   });
 
   it("lists one custom bin and one custom conveyor, not a copy of each real one", () => {
@@ -88,7 +109,7 @@ describe("custom items", () => {
     for (const item of custom) {
       const from = catalogueItem(item.customFrom);
       expect(item, item.id).toMatchObject({ group: from.group, maker: "", model: "" });
-      const { adjustable, params, ...rest } = item.machine;
+      const { adjustable, params, ...rest } = unported(item);
       const { adjustable: a0, params: p0, ...rest0 } = from.machine;
       expect(rest, item.id).toEqual(rest0);
       expect(adjustable?.length, item.id).toBe(a0?.length);
@@ -100,7 +121,7 @@ describe("custom items", () => {
     let widened = 0;
     for (const item of custom) {
       const before = numberFields(catalogueItem(item.customFrom).machine);
-      const after = numberFields(item.machine);
+      const after = numberFields(unported(item));
       expect(after.map((f) => f.id), item.id).toEqual(before.map((f) => f.id));
       before.forEach((f, i) => {
         const g = after[i];
