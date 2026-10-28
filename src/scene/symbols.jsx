@@ -213,7 +213,8 @@ function ElevatorBuckets({ m, dynamic, motion }) {
   useLayoutEffect(() => {
     mRef.current = m;
     dynamicRef.current = dynamic;
-    motion.setRate(m.id, chainSceneSpeed(m, dynamic?.chainSpeedMPerMin));
+    // Issue #152: a jammed chain stands still, its grain waiting in the buckets.
+    motion.setRate(m.id, dynamic?.jammed ? 0 : chainSceneSpeed(m, dynamic?.chainSpeedMPerMin));
   });
 
   // Everything a frame draws comes from bucketFrame (elevatorMotion.js),
@@ -280,13 +281,14 @@ function LegacyBuckets({ m, dynamic }) {
 
 // A discharge gap in the duct floor under each outlet (issue #152: a
 // machine can have several), at `y`. The one grain leaves by, the selected
-// outlet or the only one, pulses while actively discharging.
+// outlet or the only one, pulses while actively discharging, and stays dark
+// while the chain is jammed on a full bin.
 function DischargeGaps({ machine: m, dynamic, y }) {
   const live = dynamic?.selected ?? m.ports.outputs.at(-1);
   return m.ports.outputs.map((port) => {
     const a = m.anchors?.[port];
     if (!a) return null;
-    const lit = port === live && dynamic?.backlogVol > 0;
+    const lit = port === live && dynamic?.backlogVol > 0 && !dynamic?.jammed;
     return (
       <rect
         key={port} x={(a.x - 16).toFixed(1)} y={y} width="32" height="9"
