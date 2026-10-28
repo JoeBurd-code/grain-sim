@@ -2,10 +2,10 @@
 // window only ever shows a choice that validateSentence would accept, and the
 // plain-words reading of a sentence and its problems.
 import { BEHAVIORS } from "../sim/behaviors";
-import { CONDITIONS, ACTIONS, validateSentence } from "../sim/sentenceInterlock";
+import { CONDITIONS, ACTIONS, validateSentence, holdKey, undoKey } from "../sim/sentenceInterlock";
 import { SWITCH_FIELDS } from "./interlocks";
 
-export { CONDITIONS, ACTIONS };
+export { CONDITIONS, ACTIONS, holdKey };
 
 function machineOf(line, id) {
   return line.machines.find((m) => m.id === id);
@@ -23,10 +23,12 @@ export function conditionOptions(line, machineId) {
   return Object.keys(CONDITIONS).filter((key) => CONDITIONS[key].supports(behavior));
 }
 
-// Every action this machine's behaviour can take, in ACTIONS's order.
+// Every action this machine's behaviour can take, in ACTIONS's order. Only
+// a feeder with a gate has a position to "set".
 export function machineActionOptions(line, machineId) {
   const behavior = behaviorOf(line, machineId);
-  return Object.keys(ACTIONS).filter((key) => Boolean(behavior?.[ACTIONS[key].verb]));
+  return Object.keys(ACTIONS).filter((key) => Boolean(behavior?.[ACTIONS[key].verb])
+    && !(ACTIONS[key].verb === "position" && behavior.positionable?.(machineOf(line, machineId)) === false));
 }
 
 // The machines a sentence can watch, and the ones a step can act on.
@@ -64,6 +66,7 @@ function stepText(line, step) {
   if (step.action === "ifStillTrue") return { text: "if still true" };
   if (step.action === "tripLine") return { text: "trip the whole line" };
   if (step.action === "alarm") return { text: "raise an alarm" };
+  if (step.action === "set") return { text: "set ", machine: step.machine, after: ` to ${pct(step.fraction)}` };
   return { text: `${step.action ?? "…"} `, machine: step.machine };
 }
 
@@ -76,6 +79,7 @@ export function sentenceSummary(line, rule) {
     const s = stepText(line, step);
     segs.push({ text: s.text });
     if (s.machine) segs.push({ machine: s.machine });
+    if (s.after) segs.push({ text: s.after });
   });
   if (rule.then.length === 0) segs.push({ text: "…" });
   steps(rule.then);
@@ -107,8 +111,9 @@ export function runStepHint(line, rule) {
   const held = new Set();
   for (let i = 0; i < rule.then.length; i += 1) {
     const step = rule.then[i];
-    if (step.action === "stop" || step.action === "close") held.add(step.machine);
-    if ((step.action === "start" || step.action === "open") && !held.has(step.machine)) {
+    const undo = undoKey(step);
+    if (holdKey(step)) held.add(holdKey(step));
+    if (undo && !held.has(undo)) {
       const action = holdAction(line, step.machine);
       const flip = FLIPPED[rule.when.condition];
       return action && flip ? { index: i, machine: step.machine, action, condition: flip } : null;

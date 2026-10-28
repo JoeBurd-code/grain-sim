@@ -43,6 +43,20 @@
         "readBind": "gatePositionActual"
       }
     ],
+    "adjustable": [
+      {
+        "id": "startPosition",
+        "label": "starting position",
+        "unit": "%",
+        "kind": "number",
+        "min": 0,
+        "max": 100,
+        "default": 100,
+        "bind": "startPosition",
+        "integer": true,
+        "slider": true
+      }
+    ],
     "sim": {
       "kind": "meteredFeeder",
       "rateM3PerSec": 0.00462962962962963,

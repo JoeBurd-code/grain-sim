@@ -7,17 +7,20 @@
 //   { setpoint: "LSH", default: 85 }
 //     the set point of a level switch. Label and limits come from the
 //     machine's set point slider for that switch (setpointSliders.js).
-//   { id, label, unit, kind: "number", min, max, default, bind, integer? }
+//   { id, label, unit, kind: "number", min, max, default, bind, integer?, slider? }
 //   { id, label, unit, kind: "option", options: [...], default, bind }
 //     a behaviour setting, such as a bin's capacity. `integer` takes whole
 //     numbers only, with steppers in the Build panel (a port count).
+//     `slider` adds a slider beside the box (a starting position).
 //
 // `bind` names a row in BINDS below, the one place that knows where a field's
 // value lives in the line and how its plant unit (t/h, m³, %, s, kg) converts
 // to the engine unit the line holds. This module never changes a line it is
 // given: setAdjustableValue returns a new one.
 import { tPerHourToM3PerSec, m3PerSecToTPerHour, kgToM3, m3ToKg } from "../sim/units";
-import { lineRules, interlockSensorMachine, interlockValue, putInterlockValue, SWITCH_FIELDS } from "./interlocks";
+import {
+  lineRules, interlockSensorMachine, interlockValue, putInterlockValue, SWITCH_FIELDS, interlockCommandedMachines, isRuleOff,
+} from "./interlocks";
 import { switchSlider, SWITCH_BINDS } from "./setpointSliders";
 import { applyGeometryEdit, rerouteConnections } from "./layout";
 import { pathLengthError, setPathLength } from "./elevatorPath";
@@ -162,6 +165,14 @@ const BINDS = {
   ratedCapacity: simValue("ceilingM3PerSec", "t/h", T_PER_H),
   chainSpeed: simValue("speedMPerMin", "m/min", SAME),
   hasGate: simValue("hasGate", "", SAME),
+  // An outlet valve's or a drum feeder gate's starting position: where it
+  // starts in the sim and the normal position its Dial overrides
+  // (sim/dial.js). Absent from the line, it is fully open.
+  startPosition: {
+    unit: "%", convert: PERCENT,
+    get: (line, m) => (m.sim?.kind === "gateValve" || m.sim?.hasGate ? m.sim.startFraction ?? 1 : undefined),
+    put: (line, m, value) => { m.sim.startFraction = value; },
+  },
   length: lengthField,
   // Issue #156: a bucket elevator's full path, floor run to head run. A new
   // total changes only the column (elevatorPath.js).
@@ -212,6 +223,21 @@ export function adjustableFields(machine) {
 
 function findMachine(line, machineId) {
   return line.machines.find((m) => m.id === machineId);
+}
+
+// Why a field cannot be changed on this line, or null when it can. A drum
+// feeder a feed schedule drives has its gate set by the schedule's band from
+// the first tick, so a starting position would never show.
+const LOCKS = {
+  startPosition: (line, machine) => (lineRules(line).some((r) => r.kind === "gradedFeedSchedule"
+    && !isRuleOff(line, r) && interlockCommandedMachines(r).includes(machine.id))
+    ? "Set by the feed schedule." : null),
+};
+
+export function fieldLock(line, machineId, fieldId) {
+  const machine = findMachine(line, machineId);
+  const field = machine && findField(machine, fieldId);
+  return field ? LOCKS[field.bind]?.(line, machine) ?? null : null;
 }
 
 function findField(machine, fieldId) {
@@ -281,6 +307,8 @@ export function setAdjustableValue(line, machineId, fieldId, value) {
   if (!BINDS[field.bind] || readField(line, original, field) === undefined) {
     return refuse(`${original.name} field "${fieldId}" cannot be adjusted on this line.`);
   }
+  const lock = LOCKS[field.bind]?.(line, original);
+  if (lock) return refuse(lock);
   const error = valueError(field, value);
   if (error) return refuse(error);
   if (field.bind === "pathLength") {

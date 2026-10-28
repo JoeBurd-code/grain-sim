@@ -16,8 +16,8 @@
 // downstream needs a matching switch/if. This is also the registry
 // validateLine.js checks declared `sim.kind` values against.
 
-import { SPEED_DIAL, GATE_DIAL, dialEffective, dialReading } from "./dial";
-import { THROTTLE, OPENNESS, DEFAULT_AUTHORITY, SOURCE_SELECTOR, commandFraction, commandOn } from "./commandSlots";
+import { SPEED_DIAL, GATE_DIAL, VALVE_DIAL, dialEffective, dialReading } from "./dial";
+import { THROTTLE, OPENNESS, GATE, DEFAULT_AUTHORITY, SOURCE_SELECTOR, commandFraction, commandOn } from "./commandSlots";
 
 // Shared by source and passThrough: neither holds any volume of its own, so
 // what either can accept is exactly what its own downstream can accept.
@@ -112,11 +112,20 @@ function applyPassThrough(state, dt, inflow, cap) {
 // volume to back it up into). A command issued this tick therefore takes
 // effect next tick, the same immediacy convention control.js documents.
 function initGateValve(m) {
+  const startFraction = m.sim.startFraction ?? 1;
   return {
     kind: "gateValve",
     ceilingM3PerSec: m.sim.ceilingM3PerSec,
-    openness: 1,
-    opennessTarget: 1,
+    // The starting position, set in Build mode: where the valve starts and
+    // where it goes back to once no authority holds it (commandSlots.js).
+    startFraction,
+    openness: startFraction,
+    opennessTarget: startFraction,
+    opennessCommands: {},
+    // The presenter's dial (sim/dial.js): untouched, the valve runs at
+    // `openness`; dragged off it, the valve runs at the dial.
+    valveFraction: 1,
+    valveDialTouched: false,
     opennessRampPerSec: Infinity,
     volume: 0,
     // Cumulative throughput, for `conserve` below only.
@@ -124,7 +133,7 @@ function initGateValve(m) {
   };
 }
 function capacityAvailableGateValve(state, dt, downstreamCap) {
-  return Math.min(downstreamCap, state.ceilingM3PerSec * state.openness * dt);
+  return Math.min(downstreamCap, state.ceilingM3PerSec * dialEffective(state, VALVE_DIAL) * dt);
 }
 function applyGateValve(state, dt, inflow, cap) {
   const out = Math.min(inflow, cap);
@@ -147,17 +156,22 @@ function conserveGateValve(state, hasDownstream) {
 // `openness` drives the drawn gate position (scene/symbols.jsx); the two
 // rate fields let the popup show the valve's own commanded ceiling beside
 // the flow actually passing it, the same pair `snapshotSource` publishes.
+// `openness` is the position the valve really runs at, the slider's while
+// it overrides; `valveDial` is the slider's own reading (sim/dial.js).
 function snapshotGateValve(state) {
+  const openness = dialEffective(state, VALVE_DIAL);
   return {
-    openness: state.openness,
+    openness,
     ceilingM3PerSec: state.ceilingM3PerSec,
-    ratedM3PerSec: state.ceilingM3PerSec * state.openness,
+    ratedM3PerSec: state.ceilingM3PerSec * openness,
+    valveDial: dialReading(state, VALVE_DIAL),
   };
 }
-// Same binary open/close contract as `commandSource`, so a control rule can
-// drive either without knowing which it holds.
+// Same open/close contract as `commandSource`, so a control rule can drive
+// either without knowing which it holds. "open" lets this authority's
+// command go, so the valve returns to its starting position, not to 100%.
 function commandGateValve(state, direction, rampTimeSec, authority = DEFAULT_AUTHORITY) {
-  commandFraction(state, OPENNESS, authority, direction === "close" ? 0 : 1, rampTimeSec);
+  commandFraction(state, OPENNESS, authority, direction === "close" ? 0 : null, rampTimeSec);
 }
 function isSettledGateValve(state) {
   return state.openness === state.opennessTarget;
@@ -168,7 +182,7 @@ function isSettledGateValve(state) {
 // run-proof (see isConfirmedRunningTransportDelay). Settled, and off its
 // seat: mid-travel is neither open nor shut.
 function isConfirmedRunningGateValve(state) {
-  return isSettledGateValve(state) && state.openness > 0;
+  return isSettledGateValve(state) && dialEffective(state, VALVE_DIAL) > 0;
 }
 
 function initAccumulator(m) {
@@ -289,9 +303,13 @@ function initMeteredFeeder(m) {
       // Issue #63: stamped by setGateFraction (engine.js) the first time the
       // presenter actually drags this gate's own dial — see dial.js.
       gateDialTouched: false,
-      gateThrottleFraction: 1,
-      gateThrottleTarget: 1,
+      // The gate's starting position, set in Build mode: where the gate
+      // starts and goes back to once no authority holds it (commandSlots.js).
+      startFraction: m.sim.startFraction ?? 1,
+      gateThrottleFraction: m.sim.startFraction ?? 1,
+      gateThrottleTarget: m.sim.startFraction ?? 1,
       gateThrottleRampPerSec: Infinity,
+      gateCommands: {},
     } : {}),
   };
 }
@@ -335,10 +353,11 @@ function commandMeteredFeeder(state, rateM3PerSec) {
 // transportDelay's own commandTransportDelay exactly, just over the gate's
 // own throttle fields instead of the chain's. Issue #56's schedule is the
 // intended caller; a gated feeder with no schedule commanding it yet never
-// has this invoked and keeps its default gate throttle of 1.
-function commandGateMeteredFeeder(state, targetFraction, rampTimeSec) {
-  state.gateThrottleTarget = targetFraction;
-  state.gateThrottleRampPerSec = rampTimeSec > 0 ? 1 / rampTimeSec : Infinity;
+// has this invoked and keeps its starting position. In `authority`'s own
+// slot (commandSlots.js), so a schedule band and an interlock's "set to X%"
+// never release each other's command; null lets the authority's go.
+function commandGateMeteredFeeder(state, targetFraction, rampTimeSec, authority = DEFAULT_AUTHORITY) {
+  commandFraction(state, GATE, authority, targetFraction, rampTimeSec);
 }
 function isSettledGateMeteredFeeder(state) {
   return state.gateThrottleFraction === state.gateThrottleTarget;
@@ -1362,6 +1381,13 @@ function stopMeteredFeeder(state, stopped, rampTimeSec, authority) {
 function stopBatchCycle(state, stopped, rampTimeSec, authority) {
   commandBatchCycle(state, stopped, authority);
 }
+// A sentence's "set to X%": the valve's openness or the drum feeder gate's
+// position, in the sentence's own slot. null lets it go.
+function positionGateValve(state, fraction, rampTimeSec, authority) {
+  commandFraction(state, OPENNESS, authority, fraction, rampTimeSec);
+}
+// Only a feeder with a gate (`hasGate`) has a position to set.
+const hasGate = (m) => Boolean(m.sim?.hasGate);
 
 export const BEHAVIORS = {
   source: {
@@ -1377,6 +1403,7 @@ export const BEHAVIORS = {
     conserve: conserveGateValve, snapshot: snapshotGateValve,
     command: commandGateValve, isSettled: isSettledGateValve,
     confirmedRunning: isConfirmedRunningGateValve, close: closeVerb(commandGateValve),
+    position: positionGateValve,
   },
   accumulator: {
     init: initAccumulator, capacityAvailable: capacityAvailableAccumulator, apply: applyAccumulator,
@@ -1393,6 +1420,7 @@ export const BEHAVIORS = {
     // back on a machine that never published gateThrottleFraction to begin
     // with.
     commandGate: commandGateMeteredFeeder, isSettledGate: isSettledGateMeteredFeeder,
+    position: commandGateMeteredFeeder, positionable: hasGate,
   },
   transportDelay: {
     init: initTransportDelay, capacityAvailable: capacityAvailableTransportDelay, apply: applyTransportDelay,

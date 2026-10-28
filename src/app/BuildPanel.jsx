@@ -3,7 +3,7 @@
 // #78), never both. One panel, always in the same place: Build mode never
 // opens popups.
 import { useState } from "react";
-import { adjustableFields, readAdjustableValue } from "../line/adjustableFields";
+import { adjustableFields, readAdjustableValue, fieldLock } from "../line/adjustableFields";
 import { differsFromDefault } from "../line/lineDocument";
 import { catalogueItem, makerLabel } from "../catalogue/catalogue";
 import { C, FONT_DISP, FONT_MONO } from "../scene/theme";
@@ -104,8 +104,17 @@ function parseNumber(text) {
 
 // One field. A number is typed and committed on Enter or on leaving the box;
 // Escape puts the box back. A refused value stays in the box with the
-// message under it, and the line is left as it was.
-function FieldRow({ field, value, changed, onEdit }) {
+// message under it, and the line is left as it was. A field with a slider
+// commits once the drag lets go. A `lock` (fieldLock) greys the field out
+// and says why in place of its limits.
+function FieldRow({ field, value, changed, lock, onEdit }) {
+  const [dragging, setDragging] = useState(null);
+  // The pointer is captured on press, so letting go off the slider still
+  // ends the drag here.
+  const endDrag = () => {
+    if (dragging !== null && dragging !== value) commit(dragging);
+    setDragging(null);
+  };
   const [draft, setDraft] = useState(null);
   const [error, setError] = useState(null);
   const showValue = () => {
@@ -147,9 +156,27 @@ function FieldRow({ field, value, changed, onEdit }) {
           ))}
         </div>
       ) : (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 5 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 5, opacity: lock ? 0.4 : 1 }}>
+          {field.slider && (
+            <input
+              type="range"
+              className="param-slider"
+              aria-label={`${field.label} slider`}
+              min={field.min}
+              max={field.max}
+              step={field.integer ? 1 : "any"}
+              value={dragging ?? value}
+              disabled={Boolean(lock)}
+              style={{ flex: 1, minWidth: 60, "--slider-color": C.wheat, "--fill-stop": `${(((dragging ?? value) - field.min) / (field.max - field.min)) * 100}%` }}
+              onChange={(e) => setDragging(Number(e.target.value))}
+              onPointerDown={(e) => e.currentTarget.setPointerCapture(e.pointerId)}
+              onPointerUp={endDrag}
+              onKeyUp={endDrag}
+              onBlur={endDrag}
+            />
+          )}
           {field.integer && (
-            <Stepper label={`fewer ${field.label}`} disabled={value <= field.min} onClick={() => commit(value - 1)}>
+            <Stepper label={`fewer ${field.label}`} disabled={Boolean(lock) || value <= field.min} onClick={() => commit(value - 1)}>
               &minus;
             </Stepper>
           )}
@@ -157,7 +184,8 @@ function FieldRow({ field, value, changed, onEdit }) {
             type="text"
             inputMode="decimal"
             aria-label={field.label}
-            value={draft ?? formatValue(value)}
+            value={dragging !== null ? formatValue(dragging) : draft ?? formatValue(value)}
+            disabled={Boolean(lock)}
             style={{ ...inputStyle, borderColor: error ? C.red : C.line }}
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commitDraft}
@@ -167,7 +195,7 @@ function FieldRow({ field, value, changed, onEdit }) {
             }}
           />
           {field.integer && (
-            <Stepper label={`more ${field.label}`} disabled={value >= field.max} onClick={() => commit(value + 1)}>
+            <Stepper label={`more ${field.label}`} disabled={Boolean(lock) || value >= field.max} onClick={() => commit(value + 1)}>
               +
             </Stepper>
           )}
@@ -175,9 +203,9 @@ function FieldRow({ field, value, changed, onEdit }) {
         </div>
       )}
       <div style={{ fontSize: 9, color: C.muted, marginTop: 3 }}>
-        {field.kind === "number"
+        {lock ?? (field.kind === "number"
           ? `${withUnit(field.min, field.unit)} to ${withUnit(field.max, field.unit)} · default ${withUnit(field.default, field.unit)}`
-          : `default ${optionLabel(field.default)}`}
+          : `default ${optionLabel(field.default)}`)}
       </div>
       {error && <div style={{ fontSize: 9, color: C.red, marginTop: 3 }}>{error}</div>}
     </div>
@@ -262,6 +290,7 @@ function MachineSettings({ line, machine, labelAtDefault, onEditField, onEditTex
             field={f}
             value={readAdjustableValue(line, machine.id, f.id)}
             changed={differsFromDefault(line, machine.id, f.id)}
+            lock={fieldLock(line, machine.id, f.id)}
             onEdit={(fieldId, value) => onEditField(machine.id, fieldId, value)}
           />
         ))

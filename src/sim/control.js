@@ -218,8 +218,8 @@ export function primeFeedSchedules(control, machines) {
     elevator.throttleFraction = band.speedFraction;
     for (const feederId of rule.feederIds) {
       const feeder = machines.get(feederId);
+      BEHAVIORS[feeder.kind].commandGate(feeder, band.gateFraction, 0, rule.id);
       feeder.gateThrottleFraction = band.gateFraction;
-      feeder.gateThrottleTarget = band.gateFraction;
     }
   }
 }
@@ -357,7 +357,7 @@ function commandBandTargets(rule, sim, bandName) {
   const { actuator, behavior } = resolveActuator(rule, sim);
   behavior.command(actuator, band.speedFraction, band.rampTimeSec, rule.id);
   for (const { feeder, behavior: feederBehavior } of resolveFeeders(rule, sim)) {
-    feederBehavior.commandGate(feeder, band.gateFraction, band.rampTimeSec);
+    feederBehavior.commandGate(feeder, band.gateFraction, band.rampTimeSec, rule.id);
   }
   return band;
 }

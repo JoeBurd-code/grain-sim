@@ -3,7 +3,7 @@
 // state back. Internals (the two-phase step, how behaviours are wired) are
 // not part of this seam.
 import { BEHAVIORS, REGISTERED_KINDS, unregisteredKindMessage } from "./behaviors";
-import { SPEED_DIAL, GATE_DIAL, setDial, releaseDial } from "./dial";
+import { SPEED_DIAL, GATE_DIAL, VALVE_DIAL, setDial, releaseDial } from "./dial";
 import { SOURCE_SELECTOR } from "./commandSlots";
 import { setSentenceSetpoint } from "./sentenceInterlock";
 import {
@@ -605,6 +605,22 @@ export function setGateFraction(sim, id, fraction) {
 
 export function releaseGateFraction(sim, id) {
   releaseDial(gatedFeederState(sim, id), GATE_DIAL);
+}
+
+// Live control: an outlet valve's position slider, the same Dial module as
+// the gate above, over the valve's starting position or an interlock's
+// "set to X%".
+function valveState(sim, id) {
+  const state = sim.machines.get(id);
+  if (state?.kind !== "gateValve") throw new Error(`machine "${id}" is not an outlet valve`);
+  return state;
+}
+export function setValveFraction(sim, id, fraction) {
+  setDial(valveState(sim, id), VALVE_DIAL, fraction);
+}
+
+export function releaseValveFraction(sim, id) {
+  releaseDial(valveState(sim, id), VALVE_DIAL);
 }
 
 // Live controls (issue #24): the batch treater's charge size and cycle time

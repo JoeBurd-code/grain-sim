@@ -18,7 +18,7 @@
 import {
   setSourceRate, setFeederRate, setAccumulatorLevel,
   setInterlockHighSetpoint, setInterlockLowSetpoint, setInterlockHighHighSetpoint, setInterlockPartSetpoint,
-  setElevatorSpeed, setGateFraction, setBatchSize, setBatchCycleSec, setSplitterWasteFraction,
+  setElevatorSpeed, setGateFraction, setValveFraction, setBatchSize, setBatchCycleSec, setSplitterWasteFraction,
 } from "./engine";
 import { tPerHourToM3PerSec, m3PerSecToTPerHour, kgToM3 } from "./units";
 
@@ -47,6 +47,8 @@ const LIVE_CONTROLS = {
   // releases the dial rather than setting it.
   elevatorSpeed: (sim, id, value) => setElevatorSpeed(sim, id, pct(value)),
   gatePosition: (sim, id, value) => setGateFraction(sim, id, pct(value)),
+  // An outlet valve's position, over its Build mode starting position.
+  valvePosition: (sim, id, value) => setValveFraction(sim, id, pct(value)),
   // Batch treater (issue #24): the slider is in kg, the engineer's own unit.
   batchSize: (sim, id, kg) => setBatchSize(sim, id, kgToM3(kg)),
   batchCycleTime: (sim, id, seconds) => setBatchCycleSec(sim, id, seconds),
@@ -89,6 +91,7 @@ const LIVE_READINGS = {
     : null),
   elevatorSpeedActual: (snap) => dialPercent(snap?.speedDial),
   gatePositionActual: (snap) => dialPercent(snap?.gateDial),
+  valvePositionActual: (snap) => dialPercent(snap?.valveDial),
 };
 
 // A dragged slider value, in the slider's own units, reaching the sim.

@@ -22,6 +22,7 @@
 //
 // A step is one of:
 //   { action: "stop" | "start" | "close" | "open", machine, rampTimeSec }
+//   { action: "set", machine, fraction, rampTimeSec }  // a valve or drum feeder gate to a position
 //   { action: "wait", seconds }
 //   { action: "ifStillTrue" }  // "then" only: ends the steps if "when" no longer holds
 //   { action: "tripLine" }     // "then" only: trips the whole line
@@ -108,16 +109,45 @@ export const CONDITIONS = {
 };
 
 // What a sentence can do to a machine. `verb` is the behaviour's sentence
-// verb (behaviors.js) and `value` what this action asks of it; letting a
-// step go writes the verb's neutral value (false) to this sentence's slot,
+// verb (behaviors.js) and `value` what this action asks of it, or a function
+// of the step for one that carries its own value; letting a step go writes
+// the verb's neutral value (`release`, else false) to this sentence's slot,
 // which can never override any other authority. So "start" and "open" are
 // the same write as letting a "stop" or a "close" go.
+//
+// "set" puts a valve or drum feeder gate at `fraction`. While it holds, it
+// replaces the machine's starting position, so it can open a valve that
+// starts shut; the lowest command any authority holds still wins. It writes
+// the same slot "close" does, so a later "open" in the same sentence lets it
+// go (`heldAs`).
 export const ACTIONS = {
   stop: { verb: "stop", value: true, done: "stopped" },
   start: { verb: "stop", value: false, done: "started" },
   close: { verb: "close", value: true, done: "closed" },
   open: { verb: "close", value: false, done: "opened" },
+  set: {
+    verb: "position", value: (step) => step.fraction, release: null, heldAs: "close",
+    done: (step) => `set to ${pct(step.fraction)}`,
+  },
 };
+
+// What a step holds, as "<machine> <verb>", which a later "start" or "open"
+// of the same verb undoes; null for a step that holds nothing. The one
+// answer validateSentence, the Interlocks window and its hint all read.
+export function holdKey(step) {
+  const action = ACTIONS[step.action];
+  return action?.value ? `${step.machine} ${action.heldAs ?? action.verb}` : null;
+}
+// What a "start" or "open" step undoes, in holdKey's form; null otherwise.
+export function undoKey(step) {
+  const action = ACTIONS[step.action];
+  return action && !action.value ? `${step.machine} ${action.verb}` : null;
+}
+
+function doneText(step) {
+  const { done } = ACTIONS[step.action];
+  return typeof done === "function" ? done(step) : done;
+}
 
 export const RESETS = ["auto", "latched"];
 
@@ -194,12 +224,19 @@ export function validateSentence(rule, machinesById) {
         say(`${where} has unknown action "${step.action}" (expected one of ${quoted(expected)})`);
       } else if (!machinesById.has(step.machine)) {
         say(`${where} commands unknown machine "${step.machine}"`);
-      } else if (!behaviorOf(step.machine)?.[action.verb]) {
+      } else if (!behaviorOf(step.machine)?.[action.verb]
+        || (action.verb === "position" && behaviorOf(step.machine).positionable?.(machinesById.get(step.machine)) === false)) {
         say(`${where} cannot ${step.action} machine "${step.machine}"`);
       } else if (action.value) {
-        held.add(`${step.machine} ${action.verb}`);
-      } else if (!held.has(`${step.machine} ${action.verb}`)) {
+        held.add(holdKey(step));
+      } else if (!held.has(undoKey(step))) {
         say(`${where} cannot ${step.action} machine "${step.machine}": this interlock never ${action.verb === "stop" ? "stopped" : "closed"} it`);
+      }
+      if (step.action === "set") {
+        if (step.fraction == null) say(`${where} needs a position`);
+        else if (!(isFiniteNumber(step.fraction) && step.fraction >= 0 && step.fraction <= 1)) {
+          say(`${where} needs a position from 0 to 100 %`);
+        }
       }
       if (step.rampTimeSec !== undefined && !(isFiniteNumber(step.rampTimeSec) && step.rampTimeSec >= 0)) {
         say(`${where} needs a ramp time of zero or more seconds`);
@@ -297,7 +334,9 @@ function describe(rule, part, word) {
 function command(rule, sim, step, value) {
   const state = sim.machines.get(step.machine);
   const action = ACTIONS[step.action];
-  BEHAVIORS[state.kind][action.verb](state, value ? action.value : false, step.rampTimeSec ?? 0, rule.id);
+  const commanded = typeof action.value === "function" ? action.value(step) : action.value;
+  const released = action.release === undefined ? false : action.release;
+  BEHAVIORS[state.kind][action.verb](state, value ? commanded : released, step.rampTimeSec ?? 0, rule.id);
 }
 
 const commandSteps = (steps) => steps.filter((step) => ACTIONS[step.action]);
@@ -386,7 +425,7 @@ const FLOW_STEPS = {
 
 function runMachineStep(rule, sim, seq, step) {
   command(rule, sim, step, true);
-  logEvent(rule, sim.t, `${seq.reason}, ${machineName(sim, step.machine)} ${ACTIONS[step.action].done}`);
+  logEvent(rule, sim.t, `${seq.reason}, ${machineName(sim, step.machine)} ${doneText(step)}`);
   return NEXT;
 }
 
