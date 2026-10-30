@@ -12,10 +12,18 @@
 // starting position, the one the Build panel sets, not wherever the last
 // run left it. `easePosition` asks the symbol to slide its shutter to a new
 // position rather than jump, so changing the field shows the valve closing.
+//
+// A machine placed in Build mode is not in the sim until the next mode
+// switch, so an elevator or pendulum conveyor has no densityProfile yet and
+// its symbol would fall back to the pre-#65 static buckets. Give it an empty
+// profile so it draws as an idle one does after a run.
+const TRANSPORT_KINDS = new Set(["transportDelay", "routedTransportDelay"]);
+
 export function resolveDynamic(machine, simSnap, building) {
   const live = simSnap?.get(machine.id) ?? {};
   const dynamic = { ...live, fill: live.fill ?? machine.fill };
   if (!building) return dynamic;
+  if (TRANSPORT_KINDS.has(machine.sim?.kind) && !live.densityProfile) dynamic.densityProfile = [0];
   const start = machine.sim?.startFraction ?? 1;
   if (machine.sim?.kind === "gateValve") return { ...dynamic, openness: start, easePosition: true };
   if (machine.sim?.hasGate) return { ...dynamic, gateDial: { effective: start }, easePosition: true };
