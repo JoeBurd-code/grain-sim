@@ -47,6 +47,10 @@ export function useViewport(homeBounds) {
     const el = containerRef.current;
     if (!el) return;
     const onWheel = (e) => {
+      // Panels overlaid on the canvas (interlocks, event log, popups) live
+      // inside the container too; leave their wheel events alone so they scroll.
+      const canvas = el.querySelector(":scope > svg");
+      if (!canvas || !canvas.contains(e.target)) return;
       e.preventDefault();
       const dims = dimsRef.current;
       if (!dims) return;
