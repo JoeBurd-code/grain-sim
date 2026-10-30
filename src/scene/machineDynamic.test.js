@@ -22,6 +22,15 @@ describe("a machine's drawn state", () => {
     expect(resolveDynamic(valve(), new Map(), true).openness).toBe(1);
   });
 
+  it("in Build mode draws a just-placed elevator or pendulum conveyor empty, as a run leaves it", () => {
+    const elevator = { id: "e", sim: { kind: "transportDelay" } };
+    const pendulum = { id: "p", sim: { kind: "routedTransportDelay" } };
+    expect(resolveDynamic(elevator, new Map(), true).densityProfile).toEqual([0]);
+    expect(resolveDynamic(pendulum, new Map(), true).densityProfile).toEqual([0]);
+    const run = new Map([["e", { densityProfile: [0, 0.5] }]]);
+    expect(resolveDynamic(elevator, run, true).densityProfile).toEqual([0, 0.5]);
+  });
+
   it("falls back to the authored fill where the sim has published nothing", () => {
     expect(resolveDynamic(bin, new Map(), false).fill).toBe(0.4);
     expect(resolveDynamic(bin, new Map([["b", { fill: 0.7 }]]), false).fill).toBe(0.7);
