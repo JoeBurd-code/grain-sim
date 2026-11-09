@@ -6,6 +6,7 @@
 // cluster, kept visually apart so a presenter reaching for "restart the
 // run" and one reaching for "clear a trip" are never the same button.
 import { C, FONT_MONO } from "../scene/theme";
+import { formatElapsed } from "./formatElapsed";
 
 const SPEEDS = [1, 5, 20];
 
@@ -55,7 +56,7 @@ export default function TransportControls({
         ))}
       </div>
       <span style={{ fontSize: 10, color: C.muted, fontFamily: FONT_MONO, letterSpacing: "0.08em", marginLeft: 4 }}>
-        {elapsed.toFixed(1)}s elapsed
+        {formatElapsed(elapsed)} elapsed
       </span>
     </div>
   );
