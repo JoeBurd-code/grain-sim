@@ -64,19 +64,26 @@ describe("custom items", () => {
   // fields their real items do not.
   const PORTED = new Set(["custom-conveyor", "custom-bucket-elevator"]);
   const madeFrom = (item) => (PORTED.has(item.id) ? catalogueItem(item.customFrom) : item);
+  // The fields a custom item carries and its real item does not: the port
+  // counts above, and (issue #127) the custom Discard bin's capacity.
+  const CUSTOM_ONLY_BINDS = new Set(["inputCount", "outputCount", "displayCapacity"]);
   const unported = (item) => {
-    if (!PORTED.has(item.id)) return item.machine;
-    return {
-      ...item.machine,
-      sim: { ...item.machine.sim, kind: catalogueItem(item.customFrom).machine.sim.kind },
-      adjustable: item.machine.adjustable.filter((a) => a.bind !== "inputCount" && a.bind !== "outputCount"),
-    };
+    const machine = { ...item.machine, sim: { ...item.machine.sim, kind: madeFrom(item).machine.sim.kind } };
+    const adjustable = item.machine.adjustable?.filter((a) => !CUSTOM_ONLY_BINDS.has(a.bind));
+    if (adjustable?.length) machine.adjustable = adjustable;
+    else delete machine.adjustable;
+    return machine;
   };
 
   it("gives each kind of machine but the pendulum conveyor one custom item, and the edges none", () => {
     const kinds = new Set(machines.filter((i) => i.id !== "pendulum-conveyor").map(kind));
     expect(custom.map((i) => kind(madeFrom(i))).sort()).toEqual([...kinds].sort());
     expect(custom.every((i) => catalogueItem(i.customFrom) && kind(madeFrom(i)) === kind(catalogueItem(i.customFrom)))).toBe(true);
+  });
+
+  it("gives the custom Discard bin a capacity in the custom m³ range", () => {
+    const field = catalogueItem("custom-discard-bin").machine.adjustable.find((a) => a.id === "capacity");
+    expect(field).toMatchObject({ bind: "displayCapacity", min: 0.01, max: 100 });
   });
 
   it("makes the custom conveyor and bucket elevator routed, with port counts", () => {

@@ -159,6 +159,9 @@ const BINDS = {
   },
   wasteFraction: simValue("wasteFraction", "%", PERCENT),
   capacity: simValue("capacityM3", "m³", SAME),
+  // Issue #127: a terminal sink's capacity is the volume its fill bar reads
+  // full at. It gates no flow (behaviors.js snapshotTerminalSink).
+  displayCapacity: simValue("displayCapacityM3", "m³", SAME),
   ratedCapacity: simValue("ceilingM3PerSec", "t/h", T_PER_H),
   chainSpeed: simValue("speedMPerMin", "m/min", SAME),
   hasGate: simValue("hasGate", "", SAME),

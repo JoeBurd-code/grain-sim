@@ -80,6 +80,17 @@ function customVersion(item, id, name) {
       a.kind === "number" ? widened(a, CUSTOM_RESIZE_LIMITS[a.bind] ?? CUSTOM_LIMITS[a.unit]) : a
     ));
   }
+  // Issue #127: the real Discard bin's capacity was never measured, so it
+  // keeps a fixed one; the custom one sets how long it takes to fill.
+  if (machine.sim?.kind === "terminalSink") {
+    machine.adjustable = [
+      ...(machine.adjustable ?? []),
+      {
+        id: "capacity", label: "capacity", unit: "m³", kind: "number",
+        ...CUSTOM_LIMITS["m³"], default: machine.sim.displayCapacityM3, bind: "displayCapacity",
+      },
+    ];
+  }
   if (machine.sim?.kind === "transportDelay") {
     machine.sim.kind = "routedTransportDelay";
     machine.adjustable = [
